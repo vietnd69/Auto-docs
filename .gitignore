@@ -1,0 +1,30 @@
+# # python
+__pycache__
+.venv
+node_modules
+.env
+
+# # rag
+dst_chroma_db/*
+
+# # ref
+dst-scripts/*
+
+test**
+simulate**
+
+# node
+validator/node_modules/*
+
+# validator
+validator/__pycache__/*
+
+# cache
+*.cache
+
+diff_log.txt
+diff_report.json
+diff_tracker.json
+file_tracker.json
+format_errors.txt
+validation_update_errors.log

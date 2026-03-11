@@ -1,0 +1,26 @@
+# LlamaIndex Core & Vector Stores
+llama-index-core
+llama-index-vector-stores-chroma
+chromadb
+
+# Embeddings & LLMs
+llama-index-embeddings-huggingface
+llama-index-llms-ollama
+ollama
+google-genai
+
+# Utilities & Data handling
+torch
+transformers
+numpy
+python-dotenv
+tiktoken
+
+# FastAPI & Uvicorn (Web Server)
+fastapi
+uvicorn
+pydantic
+
+# Frontmatter
+python-frontmatter
+emoji
