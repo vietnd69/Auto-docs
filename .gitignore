@@ -8,7 +8,7 @@ node_modules
 dst_chroma_db/*
 
 # # ref
-dst-scripts/*
+dst-scripts
 
 test**
 simulate**
