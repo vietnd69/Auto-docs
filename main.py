@@ -133,6 +133,7 @@ for filename in get_lua_files(LUA_DIR, deep=ENTER_DEEP_DIR):
             connected_content=connected_content,
             source_hash=source_hash,
             md_filepath=md_filepath,
+            full_refs=lua_refs,
             file_tree=FILE_TREE,
             today_date=TODAY_DATE,
             version=VERSION,

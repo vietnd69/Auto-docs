@@ -23,7 +23,12 @@ CHUNK_MAX_LINES = 1500       # Mỗi chunk tối đa ~1500 dòng (fallback)
 PROMPT_TOKEN_LIMIT = 16000   # Nếu full prompt > 32K token thì phải chunk
 
 # Ngưỡng token cho MERGE (tổng chunk results)
-MERGE_TOKEN_LIMIT = 20000    # Nếu tổng chunk results > ngưỡng này → dùng hierarchical
+MERGE_TOKEN_LIMIT = 20000
+
+# Token reserve dành cho per-chunk connected context (signatures hoặc full bodies).
+# calc_token_budget() sẽ tự trừ khoản này khỏi code budget.
+# CALIBRATION: Full bodies 3–5 refs ~2000–3000 tokens; signatures 30 refs ~1500 tokens.
+CONTEXT_RESERVE = 3500    # Nếu tổng chunk results > ngưỡng này → dùng hierarchical
 
 
 def calc_token_budget(
@@ -52,8 +57,15 @@ def calc_token_budget(
         Số token tối đa cho code Lua trong mỗi chunk.
         Nếu không có tiktoken, trả về fallback dựa trên CHUNK_MAX_LINES.
     """
+    # Warning: nếu connected_content non-empty, CONTEXT_RESERVE sẽ bị trừ 2 lần.
+    if connected_content:
+        print(
+            "[WARN] calc_token_budget() nhận connected_content non-empty. "
+            "Trong chunked pipeline phải truyền connected_content='' vì CONTEXT_RESERVE "
+            "đã được trừ nội bộ. Double-deduction có thể xảy ra."
+        )
     from chunked_prompt import build_chunk_prompt
-    
+
     # Build prompt shell = chunk prompt KHÔNG CÓ code (code rỗng)
     shell = build_chunk_prompt(
         comp_name=comp_name,
@@ -71,13 +83,29 @@ def calc_token_budget(
     )
     
     shell_tokens = count_tokens(shell)
-    if shell_tokens >= 0:
-        budget = prompt_token_limit - shell_tokens
-        print(f"  [TOKEN BUDGET] Shell: {shell_tokens} tokens | Còn lại cho code: {budget} tokens")
-        return max(budget, 1000)  # Tối thiểu 1000 token cho code
-    
-    # Fallback: không có tiktoken
-    return -1  # Caller dùng CHUNK_MAX_LINES
+
+    # Guard tiktoken missing: count_tokens() trả về -1
+    if shell_tokens < 0:
+        print(
+            f"  [TOKEN BUDGET] tiktoken missing — dùng fallback budget "
+            f"(CONTEXT_RESERVE không được áp dụng trong fallback mode)"
+        )
+        return max(PROMPT_TOKEN_LIMIT - CONTEXT_RESERVE, 1000)
+
+    budget = prompt_token_limit - shell_tokens
+    effective_budget = max(budget - CONTEXT_RESERVE, 1000)
+    print(
+        f"  [TOKEN BUDGET] Shell: {shell_tokens} tokens "
+        f"| Context reserve: {CONTEXT_RESERVE} tokens "
+        f"| Code budget: {effective_budget} tokens"
+    )
+    if effective_budget < 3000:
+        print(
+            f"  [WARN] Code budget chỉ còn {effective_budget} tokens — "
+            f"file_tree có thể quá lớn hoặc shell quá nặng. "
+            f"Xem xét giảm max_depth của get_shared_file_tree()."
+        )
+    return effective_budget
 
 def strip_bulk_data(lua_code: str) -> str:
     """
@@ -132,7 +160,7 @@ def strip_bulk_data(lua_code: str) -> str:
                 indent = re.match(r"^(\s*)", line).group(1)
                 field = field_match.group(1) if field_match else ""
                 result.append(
-                    f"{indent}{field}{{{{ --[[ {num_count} numeric values (tile/map data) ]] }}}}"
+                    f"{indent}{field}{{--[[ {num_count} numeric values (tile/map data) ]]}}"
                 )
                 # Skip đến dòng đóng } (bao gồm)
                 closing = lines[j].strip()

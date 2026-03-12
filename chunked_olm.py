@@ -30,14 +30,18 @@ from get_docs import (
     compute_source_hash,
     format_connected_section,
 )
-from rag_get_fnc_content import extract_connected_content
+from rag_get_fnc_content import (
+    extract_connected_for_chunk,
+    extract_connected_content,
+)
 from chunked import (
-    needs_chunking, 
-    split_lua_into_chunks, 
-    strip_bulk_data, 
+    needs_chunking,
+    split_lua_into_chunks,
+    strip_bulk_data,
     calc_token_budget,
     estimate_merge_tokens,
-    MERGE_TOKEN_LIMIT
+    MERGE_TOKEN_LIMIT,
+    CONTEXT_RESERVE,
 )
 from chunked_prompt import (
     build_chunk_prompt, 
@@ -425,6 +429,7 @@ def process_chunked_file(
     source_hash: str,
     md_filepath: str,
     *,
+    full_refs: list[tuple[str, list[str]]] | None = None,
     file_tree: str = "",
     today_date: str = "",
     version: str = "",
@@ -436,6 +441,11 @@ def process_chunked_file(
 ) -> str | None:
     """
     Pipeline đầy đủ cho file Lua dài với Checkpoint và Hierarchical Merge.
+
+    Args:
+        full_refs: Refs của toàn bộ file Lua, dùng làm fallback trong
+                   extract_connected_for_chunk() cho các chunk không có local refs.
+                   Nếu None: smart fallback không hoạt động (graceful degrade).
     """
     # Bước 1: Strip dữ liệu số hàng loạt (tile data)
     stripped_code = strip_bulk_data(lua_code)
@@ -445,13 +455,13 @@ def process_chunked_file(
         saved = original_chars - stripped_chars
         print(f"  [STRIP] Đã loại bỏ {saved:,} ký tự tile/map data ({saved*100//original_chars}% file)")
 
-    # Bước 2: Tính token budget động
+    # Bước 2: Tính token budget động (không có connected — CONTEXT_RESERVE trừ bên trong)
     token_budget = calc_token_budget(
         comp_name=comp_name,
         comp_title=comp_title,
         display_filepath=display_filepath,
-        connected_section=connected_section,
-        connected_content=connected_content,
+        connected_section="",
+        connected_content="",
         source_hash=source_hash,
         file_tree=file_tree,
         today_date=today_date,
@@ -478,6 +488,9 @@ def process_chunked_file(
         resume_from = -1
         pending_retries: list[int] = []
 
+    # ── PER-CHUNK CONTEXT SETUP ──
+    own_filename = os.path.basename(display_filepath)
+
     # ── MAIN LOOP ──
     failed_indices: list[int] = list(pending_retries)  # giữ lại lỗi từ lần trước
 
@@ -487,6 +500,22 @@ def process_chunked_file(
             continue
         if i in chunk_results:  # đã có từ checkpoint
             continue
+
+        # ── PER-CHUNK CONTEXT ──
+        chunk_section, chunk_content, ref_count = extract_connected_for_chunk(
+            chunk_code=chunk_code,
+            own_filename=own_filename,
+            full_refs=full_refs,
+            max_lines_per_file=100,
+            max_total_tokens=CONTEXT_RESERVE,
+        )
+        if chunk_content:
+            mode = "signatures" if "--[SIGONLY:" in chunk_content else "full"
+            print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={mode}")
+        elif ref_count > 0:
+            print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (file không tồn tại?)")
+        else:
+            print(f"    [CTX] Chunk {i}: không có external context (chunk độc lập)")
 
         prompt = build_chunk_prompt(
             comp_name=comp_name,
@@ -499,8 +528,8 @@ def process_chunked_file(
             version=version,
             category_type=category_type,
             file_tree=file_tree,
-            connected_section=connected_section,
-            connected_content=connected_content,
+            connected_section=chunk_section,
+            connected_content=chunk_content,
         )
 
         result = generate_chunk_analysis(
@@ -529,6 +558,23 @@ def process_chunked_file(
 
         for chunk_i in failed_indices:
             chunk_code = chunks[chunk_i - 1]  # chunks list là 0-based
+
+            # Per-chunk context cho retry
+            chunk_section, chunk_content, ref_count = extract_connected_for_chunk(
+                chunk_code=chunk_code,
+                own_filename=own_filename,
+                full_refs=full_refs,
+                max_lines_per_file=100,
+                max_total_tokens=CONTEXT_RESERVE,
+            )
+            if chunk_content:
+                mode = "signatures" if "--[SIGONLY:" in chunk_content else "full"
+                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={mode}")
+            elif ref_count > 0:
+                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (file không tồn tại?)")
+            else:
+                print(f"    [CTX] Chunk {chunk_i} (retry): không có external context (chunk độc lập)")
+
             prompt = build_chunk_prompt(
                 comp_name=comp_name,
                 comp_title=comp_title,
@@ -540,8 +586,8 @@ def process_chunked_file(
                 version=version,
                 category_type=category_type,
                 file_tree=file_tree,
-                connected_section=connected_section,
-                connected_content=connected_content,
+                connected_section=chunk_section,
+                connected_content=chunk_content,
             )
 
             success = False
@@ -701,6 +747,7 @@ if __name__ == "__main__":
         connected_content=connected_content,
         source_hash=source_hash,
         md_filepath=md_output,
+        full_refs=lua_refs,
         file_tree=file_tree,
         today_date=today_date,
         version="714014",

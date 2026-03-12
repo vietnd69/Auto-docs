@@ -107,12 +107,9 @@ def ollama_chat(
     # Luôn truyền num_ctx, không để Ollama dùng default
     opts = kwargs.pop("options", {}) or {}
     opts["num_ctx"] = OLLAMA_NUM_CTX
-    opts["temperature"] = 0.2
     opts["repeat_penalty"] = 1.15
     opts["repeat_last_n"] = 256
-    opts["top_p"] = 0.9
     opts["top_k"] = 40
-    opts["num_predict"] = 2048
     opts["frequency_penalty"] = 0.8
     opts["presence_penalty"] = 0.6
     opts["mirostat"] = 2
