@@ -9,6 +9,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import config
 from get_docs import extract_lua_references, format_connected_section, clean_model_output
 
 # Thư mục gốc chứa source Lua
@@ -109,6 +110,41 @@ def _extract_property_info(lua_code: str, prop_name: str) -> str | None:
     return None
 
 
+def _truncate_sections_to_budget(
+    sections: list[str],
+    refs: list,
+    max_tokens: int,
+    truncation_label: str = "",
+) -> tuple[list[str], list]:
+    """
+    Trim sections/refs to fit within max_tokens.
+    Counts tokens per section incrementally (O(n)) instead of rebuilding the
+    full candidate string on every iteration (O(n²)).
+    """
+    from chunked import count_tokens
+
+    kept_sections: list[str] = []
+    kept_refs: list = []
+    running_tokens = 0
+
+    for section, ref in zip(sections, refs):
+        section_tokens = count_tokens(section)
+        if section_tokens == -1:
+            section_tokens = len(section) // 4
+        running_tokens += section_tokens
+        if running_tokens > max_tokens:
+            if truncation_label:
+                print(
+                    f"  {truncation_label} Truncated: giữ {len(kept_sections)}/{len(sections)} refs "
+                    f"để fit trong {max_tokens} tokens"
+                )
+            break
+        kept_sections.append(section)
+        kept_refs.append(ref)
+
+    return kept_sections, kept_refs
+
+
 def _compression_cache_key(full_content: str) -> str:
     """Content-addressed key: MD5 của full_content."""
     return hashlib.md5(full_content.encode("utf-8")).hexdigest()
@@ -119,10 +155,7 @@ def _load_compression_cache(cache_key: str) -> str | None:
     Load compressed result từ cache nếu tồn tại.
     Trả về None nếu cache miss.
     """
-    import config as _config
-    cache_path = Path(_config.COMPRESSION_CACHE_DIR) / f"{cache_key}.json"
-    if not cache_path.exists():
-        return None
+    cache_path = Path(config.COMPRESSION_CACHE_DIR) / f"{cache_key}.json"
     try:
         with open(cache_path, encoding="utf-8") as f:
             data = json.load(f)
@@ -137,8 +170,7 @@ def _save_compression_cache(cache_key: str, compressed: str) -> None:
     Lưu compressed result vào cache (atomic write).
     Không bao giờ tự xóa — cache tồn tại vĩnh viễn cho đến khi source thay đổi.
     """
-    import config as _config
-    cache_dir = Path(_config.COMPRESSION_CACHE_DIR)
+    cache_dir = Path(config.COMPRESSION_CACHE_DIR)
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f"{cache_key}.json"
     temp_path = cache_dir / f"{cache_key}.json.tmp"
@@ -232,20 +264,10 @@ def extract_compact_content(
     if not sections:
         return "", []
 
-    # Truncation nếu có giới hạn token
     if max_output_tokens > 0:
-        from chunked import count_tokens
-        kept_sections, kept_refs = [], []
-        for section, ref in zip(sections, resolved_refs):
-            candidate = "\n\n".join(kept_sections + [section])
-            total = count_tokens(candidate)
-            if total == -1:
-                total = len(candidate) // 4
-            if total > max_output_tokens:
-                break
-            kept_sections.append(section)
-            kept_refs.append(ref)
-        sections, resolved_refs = kept_sections, kept_refs
+        sections, resolved_refs = _truncate_sections_to_budget(
+            sections, resolved_refs, max_output_tokens
+        )
 
     return "\n\n".join(sections), resolved_refs
 
@@ -303,27 +325,10 @@ def extract_signatures_only(
     if not sections:
         return "", []
 
-    # Truncation: cắt bớt refs cuối nếu vượt max_output_tokens
     if max_output_tokens > 0:
-        # Lazy import để tránh circular dependency
-        from chunked import count_tokens
-        kept_sections = []
-        kept_refs = []
-        for section, ref in zip(sections, resolved_refs):
-            candidate = "\n\n".join(kept_sections + [section])
-            total = count_tokens(candidate)
-            if total == -1:
-                total = len(candidate) // 4   # char-count fallback
-            if total > max_output_tokens:
-                print(
-                    f"  [SIG] Truncated: giữ {len(kept_sections)}/{len(sections)} refs "
-                    f"để fit trong {max_output_tokens} tokens"
-                )
-                break
-            kept_sections.append(section)
-            kept_refs.append(ref)
-        sections = kept_sections
-        resolved_refs = kept_refs
+        sections, resolved_refs = _truncate_sections_to_budget(
+            sections, resolved_refs, max_output_tokens, truncation_label="[SIG]"
+        )
 
     if not sections:
         return "", []
@@ -349,8 +354,7 @@ def compress_connected_content(
         Compressed string nếu thành công và nằm trong budget.
         None nếu LLM call thất bại.
     """
-    import config as _config
-    _model = model_name or _config.COMPRESSION_MODEL
+    _model = model_name or config.COMPRESSION_MODEL
 
     # Cache lookup trước khi gọi LLM
     cache_key = _compression_cache_key(full_content)
@@ -377,7 +381,7 @@ SOURCE:
 {full_content}"""
 
     try:
-        response = _config.ollama_chat(
+        response = config.ollama_chat(
             model=_model,
             messages=[{"role": "user", "content": prompt}],
         )

@@ -57,14 +57,12 @@ from chunked import (
     CONTEXT_RESERVE,
 )
 from chunked_prompt import (
-    build_chunk_prompt, 
+    build_chunk_prompt,
     build_merge_prompt,
     build_intermediate_merge_prompt
 )
 
 # ── Checkpoint System ──────────────────────────────────────────
-
-CHECKPOINT_DIR = ".cache/chunked_checkpoints"
 
 def save_checkpoint(
     comp_name: str,
@@ -609,14 +607,7 @@ def process_chunked_file(
                 max_total_tokens=CONTEXT_RESERVE,
             )
             if chunk_content:
-                if "--[SIGONLY:" in chunk_content:
-                    mode = "signatures"
-                elif "-- COMPRESSED:" in chunk_content:
-                    mode = "compressed"
-                elif "-- COMPACT:" in chunk_content:
-                    mode = "compact"
-                else:
-                    mode = "full"
+                mode = _detect_context_mode(chunk_content)
                 print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={mode}")
             elif ref_count > 0:
                 print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (file không tồn tại?)")
