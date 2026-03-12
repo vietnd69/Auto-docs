@@ -315,6 +315,19 @@ def hierarchical_merge(
       Tầng 2: Merge tất cả intermediate summaries → final document
     """
     total = len(chunk_results)
+
+    # Tự động tính group_size dựa trên token thực tế
+    # Mục tiêu: mỗi nhóm fit trong MERGE_TOKEN_LIMIT
+    total_tokens = estimate_merge_tokens(chunk_results)
+    if total_tokens > 0:
+        avg_tokens = total_tokens / total
+        computed = max(2, int(MERGE_TOKEN_LIMIT / avg_tokens))
+        group_size = min(computed, group_size, total)
+        print(
+            f"  [HIERARCHICAL] Auto group_size: {total_tokens} tokens / {total} chunks "
+            f"≈ {avg_tokens:.0f} tok/chunk → group_size={group_size}"
+        )
+
     groups = [chunk_results[i:i + group_size] for i in range(0, total, group_size)]
     total_groups = len(groups)
 
