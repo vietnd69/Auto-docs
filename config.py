@@ -17,6 +17,8 @@ BASE_DOCS_DIR = str(PROJECT_ROOT / "dst-api-webdocs" / "docs")
 
 # === LLM CONFIG ===
 MODEL_NAME = "qwen3-coder-next:cloud"
+COMPRESSION_MODEL = MODEL_NAME   # dùng cùng model, có thể override sang model nhỏ hơn
+COMPRESSION_CACHE_DIR = str(PROJECT_ROOT / ".cache" / "compression_cache")
 VERSION = "714014"
 TODAY_DATE = datetime.now().strftime("%Y-%m-%d")
 

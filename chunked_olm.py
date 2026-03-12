@@ -23,6 +23,17 @@ import config
 
 CHECKPOINT_DIR = config.CHECKPOINT_DIR
 
+
+def _detect_context_mode(content: str) -> str:
+    """Xác định mode của connected content dựa trên marker strings."""
+    if "--[SIGONLY:" in content:
+        return "signatures"
+    if "-- COMPRESSED:" in content:
+        return "compressed"
+    if "-- COMPACT:" in content:
+        return "compact"
+    return "full"
+
 from get_docs import (
     clean_model_output,
     extract_lua_references,
@@ -33,6 +44,8 @@ from get_docs import (
 from rag_get_fnc_content import (
     extract_connected_for_chunk,
     extract_connected_content,
+    extract_compact_content,
+    compress_connected_content,
 )
 from chunked import (
     needs_chunking,
@@ -182,6 +195,10 @@ def generate_chunk_analysis(
         result = response["message"]["content"]
         result = clean_model_output(result)
 
+        if not result:
+            print(f"    [{label} {chunk_index}/{total_chunks}] Thất bại — model trả về rỗng")
+            return None
+
         lines_count = result.count("\n") + 1
         print(f"    [{label} {chunk_index}/{total_chunks}] Xong — {lines_count} dòng kết quả")
 
@@ -201,54 +218,78 @@ def generate_merged_doc(
     md_filepath: str,
     model_name: str = "qwen3-coder-next:cloud",
     sleep_time: int = 10,
+    max_retries: int = 3,
+    retry_delay: int = 30,
 ) -> str | None:
     """
     Gọi Ollama với merge prompt, ghi kết quả ra file .md.
+    Tự động retry nếu model trả về rỗng hoặc lỗi.
 
     Args:
         prompt: Merge prompt chứa tất cả chunk results.
         md_filepath: Đường dẫn file .md đầu ra.
         model_name: Tên model Ollama.
         sleep_time: Nghỉ sau khi ghi (giây).
+        max_retries: Số lần retry tối đa (mặc định 3).
+        retry_delay: Nghỉ giữa các lần retry (giây, mặc định 30).
 
     Returns:
         Tên file .md (basename) nếu thành công, None nếu thất bại.
     """
     md_filename = os.path.basename(md_filepath)
 
-    try:
-        print(f"    [Merge] Đang tổng hợp tài liệu...")
+    for attempt in range(1, max_retries + 1):
+        try:
+            if attempt == 1:
+                print(f"    [Merge] Đang tổng hợp tài liệu...")
+            else:
+                print(f"    [Merge retry {attempt}/{max_retries}] Đang thử lại...")
 
-        response = config.ollama_chat(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-        )
+            response = config.ollama_chat(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+            )
 
-        md_content = response["message"]["content"]
-        md_content = clean_model_output(md_content)
+            md_content = response["message"]["content"]
+            md_content = clean_model_output(md_content)
 
-        # Sanity check
-        if not md_content.startswith("---"):
-            print(f"    [Cảnh báo] Output merge không bắt đầu bằng YAML frontmatter!")
+            # Guard: model trả về rỗng (chỉ có thinking block hoặc lỗi)
+            if not md_content:
+                print(f"    [Merge] Lần {attempt}/{max_retries} — model trả về rỗng")
+                if attempt < max_retries:
+                    print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
+                    time.sleep(retry_delay)
+                continue
 
-        dir_name = os.path.dirname(md_filepath)
-        if dir_name:
-            os.makedirs(dir_name, exist_ok=True)
+            # Sanity check
+            if not md_content.startswith("---"):
+                print(f"    [Cảnh báo] Output merge không bắt đầu bằng YAML frontmatter!")
 
-        with open(md_filepath, "w", encoding="utf-8") as f:
-            f.write(md_content)
+            dir_name = os.path.dirname(md_filepath)
+            if dir_name:
+                os.makedirs(dir_name, exist_ok=True)
 
-        print(f"    [Merge] Đã tạo {md_filename}")
+            with open(md_filepath, "w", encoding="utf-8") as f:
+                f.write(md_content)
 
-        if sleep_time > 0:
-            print(f"    Đang nghỉ {sleep_time} giây...")
-            time.sleep(sleep_time)
+            if attempt > 1:
+                print(f"    [Merge] Thành công ở lần {attempt}")
+            print(f"    [Merge] Đã tạo {md_filename}")
 
-        return md_filename
+            if sleep_time > 0:
+                print(f"    Đang nghỉ {sleep_time} giây...")
+                time.sleep(sleep_time)
 
-    except Exception as e:
-        print(f"    [Lỗi] Merge thất bại cho {md_filename}: {e}")
-        return None
+            return md_filename
+
+        except Exception as e:
+            print(f"    [Merge] Lần {attempt}/{max_retries} lỗi: {e}")
+            if attempt < max_retries:
+                print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
+                time.sleep(retry_delay)
+
+    print(f"    [Lỗi] Merge thất bại cho {md_filename} sau {max_retries} lần thử")
+    return None
 
 
 def hierarchical_merge(
@@ -339,9 +380,6 @@ def hierarchical_merge(
             return None # checkpoint đã lưu trong rolling, lần sau resume
         intermediate_results = [rolled]
 
-    # Xoá merge checkpoint trước khi final merge (để final stage không bị dính t1)
-    clear_merge_checkpoint(comp_name)
-
     # Tầng 2: final merge
     merge_prompt = build_merge_prompt(
         comp_name=comp_name,
@@ -359,12 +397,15 @@ def hierarchical_merge(
         input_label="GROUP",
     )
 
-    return generate_merged_doc(
+    result = generate_merged_doc(
         prompt=merge_prompt,
         md_filepath=md_filepath,
         model_name=model_name,
         sleep_time=sleep_time,
     )
+    if result:
+        clear_merge_checkpoint(comp_name)   # chỉ xóa khi chắc chắn thành công
+    return result
 
 
 def rolling_merge_to_one(
@@ -510,7 +551,7 @@ def process_chunked_file(
             max_total_tokens=CONTEXT_RESERVE,
         )
         if chunk_content:
-            mode = "signatures" if "--[SIGONLY:" in chunk_content else "full"
+            mode = _detect_context_mode(chunk_content)
             print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={mode}")
         elif ref_count > 0:
             print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (file không tồn tại?)")
@@ -568,7 +609,14 @@ def process_chunked_file(
                 max_total_tokens=CONTEXT_RESERVE,
             )
             if chunk_content:
-                mode = "signatures" if "--[SIGONLY:" in chunk_content else "full"
+                if "--[SIGONLY:" in chunk_content:
+                    mode = "signatures"
+                elif "-- COMPRESSED:" in chunk_content:
+                    mode = "compressed"
+                elif "-- COMPACT:" in chunk_content:
+                    mode = "compact"
+                else:
+                    mode = "full"
                 print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={mode}")
             elif ref_count > 0:
                 print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (file không tồn tại?)")

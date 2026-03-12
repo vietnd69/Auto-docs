@@ -5,8 +5,11 @@ Chỉ lấy đúng các function và property được yêu cầu, không lấy 
 
 import re
 import os
+import hashlib
+import json
+from pathlib import Path
 
-from get_docs import extract_lua_references, format_connected_section
+from get_docs import extract_lua_references, format_connected_section, clean_model_output
 
 # Thư mục gốc chứa source Lua
 LUA_BASE_DIR = "./dst-scripts"
@@ -106,6 +109,147 @@ def _extract_property_info(lua_code: str, prop_name: str) -> str | None:
     return None
 
 
+def _compression_cache_key(full_content: str) -> str:
+    """Content-addressed key: MD5 của full_content."""
+    return hashlib.md5(full_content.encode("utf-8")).hexdigest()
+
+
+def _load_compression_cache(cache_key: str) -> str | None:
+    """
+    Load compressed result từ cache nếu tồn tại.
+    Trả về None nếu cache miss.
+    """
+    import config as _config
+    cache_path = Path(_config.COMPRESSION_CACHE_DIR) / f"{cache_key}.json"
+    if not cache_path.exists():
+        return None
+    try:
+        with open(cache_path, encoding="utf-8") as f:
+            data = json.load(f)
+        print(f"  [COMPRESS CACHE] Hit: {cache_key[:8]}...")
+        return data.get("compressed")
+    except Exception:
+        return None
+
+
+def _save_compression_cache(cache_key: str, compressed: str) -> None:
+    """
+    Lưu compressed result vào cache (atomic write).
+    Không bao giờ tự xóa — cache tồn tại vĩnh viễn cho đến khi source thay đổi.
+    """
+    import config as _config
+    cache_dir = Path(_config.COMPRESSION_CACHE_DIR)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = cache_dir / f"{cache_key}.json"
+    temp_path = cache_dir / f"{cache_key}.json.tmp"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump({"compressed": compressed}, f, ensure_ascii=False)
+        temp_path.replace(cache_path)
+        print(f"  [COMPRESS CACHE] Saved: {cache_key[:8]}...")
+    except Exception as e:
+        print(f"  [COMPRESS CACHE] Không lưu được: {e}")
+
+
+def _extract_compact_signature(lua_code: str, class_name: str, func_name: str) -> str | None:
+    """
+    Static extraction: sig + return values + error conditions.
+    Không cần LLM. Output cố định 1–3 dòng/function.
+    """
+    body = _extract_function_body(lua_code, class_name, func_name)
+    if not body:
+        return None
+
+    lines = body.split("\n")
+    sig_line = lines[0].strip()
+
+    returns = []
+    errors = []
+    for idx, line in enumerate(lines[1:], 1):
+        stripped = line.strip()
+        # return có giá trị thực (bỏ qua "return self" và return đơn thuần)
+        if re.match(r'^return\s+\S+', stripped):
+            val = stripped[len("return "):].strip().rstrip(",")
+            if val not in ("self", "true", "false", "nil", ""):
+                returns.append(val[:60])
+        # error states: if <cond> then \n return nil/false
+        if re.match(r'^if\s+.+\s+then\s*$', stripped):
+            lookahead = lines[idx + 1].strip() if idx + 1 < len(lines) else ""
+            if lookahead.startswith("return nil") or lookahead.startswith("return false"):
+                condition = stripped[3:-5].strip()
+                errors.append(f"{condition} → {lookahead}")
+
+    parts = [f"-- COMPACT: {sig_line}"]
+    if returns:
+        parts.append(f"-- returns: {', '.join(dict.fromkeys(returns))}")
+    if errors:
+        parts.append(f"-- errors: {' | '.join(dict.fromkeys(errors))}")
+
+    return "\n".join(parts)
+
+
+def extract_compact_content(
+    lua_refs: list[tuple[str, list[str]]],
+    max_output_tokens: int = 0,
+) -> tuple[str, list[tuple[str, list[str]]]]:
+    """
+    Trích xuất COMPACT summaries (static, không cần LLM) cho tất cả refs.
+    Dùng làm fallback khi LLM compression thất bại.
+
+    Returns:
+        (content, kept_refs) — tương tự extract_signatures_only().
+    """
+    sections = []
+    resolved_refs = []
+
+    for ref_path, func_names in lua_refs:
+        if not func_names:
+            continue
+        real_path = _resolve_lua_path(ref_path)
+        if real_path is None:
+            continue
+        try:
+            with open(real_path, encoding="utf-8", errors="ignore") as f:
+                lua_code = f.read()
+        except Exception:
+            continue
+
+        class_name = _extract_class_name(lua_code)
+        if class_name is None:
+            continue
+
+        compacts = []
+        for func_name in func_names:
+            compact = _extract_compact_signature(lua_code, class_name, func_name)
+            if compact:
+                compacts.append(compact)
+
+        if compacts:
+            header = f"--- FILE: {ref_path} (class: {class_name}) ---"
+            sections.append(header + "\n" + "\n".join(compacts))
+            resolved_refs.append((ref_path, func_names))
+
+    if not sections:
+        return "", []
+
+    # Truncation nếu có giới hạn token
+    if max_output_tokens > 0:
+        from chunked import count_tokens
+        kept_sections, kept_refs = [], []
+        for section, ref in zip(sections, resolved_refs):
+            candidate = "\n\n".join(kept_sections + [section])
+            total = count_tokens(candidate)
+            if total == -1:
+                total = len(candidate) // 4
+            if total > max_output_tokens:
+                break
+            kept_sections.append(section)
+            kept_refs.append(ref)
+        sections, resolved_refs = kept_sections, kept_refs
+
+    return "\n\n".join(sections), resolved_refs
+
+
 def extract_signatures_only(
     lua_refs: list[tuple[str, list[str]]],
     max_output_tokens: int = 0,   # 0 = không giới hạn
@@ -185,6 +329,77 @@ def extract_signatures_only(
         return "", []
 
     return "\n\n".join(sections), resolved_refs
+
+
+def compress_connected_content(
+    full_content: str,
+    max_output_tokens: int = 3500,
+    model_name: str | None = None,
+) -> str | None:
+    """
+    Dùng LLM để rút gọn full function bodies xuống 3–5 dòng/function.
+    Giữ lại: signature, return values, error conditions, side effects quan trọng.
+
+    Args:
+        full_content: Output của extract_connected_content() — full function bodies.
+        max_output_tokens: Giới hạn token cho output compressed.
+        model_name: Model name. None = dùng config.COMPRESSION_MODEL.
+
+    Returns:
+        Compressed string nếu thành công và nằm trong budget.
+        None nếu LLM call thất bại.
+    """
+    import config as _config
+    _model = model_name or _config.COMPRESSION_MODEL
+
+    # Cache lookup trước khi gọi LLM
+    cache_key = _compression_cache_key(full_content)
+    cached = _load_compression_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    prompt = f"""You are compressing Lua function documentation for use as context in a larger prompt.
+For each function below, output a 3–5 line summary. Be terse and precise.
+
+OUTPUT FORMAT (repeat for each function):
+-- COMPRESSED: ClassName:FuncName(params)
+-- returns: <return values or nil/false on failure>
+-- errors: <condition → return value> (omit line if no early returns)
+-- notes: <side effects, events fired, tags added> (omit line if none)
+
+RULES:
+- Keep the --- FILE: ... --- headers between files.
+- Never invent behavior not present in the source.
+- Output only the compressed summaries, no preamble or sign-off.
+- Target: under {max_output_tokens} tokens total output.
+
+SOURCE:
+{full_content}"""
+
+    try:
+        response = _config.ollama_chat(
+            model=_model,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        result = response["message"]["content"]
+        result = clean_model_output(result)
+
+        if not result:
+            print("  [COMPRESS] Model trả về rỗng sau khi clean")
+            return None
+
+        # Sanity check: output phải chứa ít nhất 1 COMPRESSED marker
+        if "-- COMPRESSED:" not in result:
+            print("  [COMPRESS] Output không đúng format, fallback về signatures")
+            return None
+
+        # Lưu cache trước khi trả về
+        _save_compression_cache(cache_key, result)
+        return result
+
+    except Exception as e:
+        print(f"  [COMPRESS] LLM call thất bại: {e}")
+        return None
 
 
 def extract_connected_content(
@@ -271,8 +486,40 @@ def extract_connected_content(
         if total_tokens > max_total_tokens:
             print(
                 f"  [CONTEXT] Full content ~{total_tokens} tokens "
-                f"> ngưỡng {max_total_tokens} → chuyển sang signature-only mode"
+                f"> ngưỡng {max_total_tokens} → LLM compression"
             )
+            compressed = compress_connected_content(
+                full_result,
+                max_output_tokens=max_total_tokens,
+            )
+            if compressed is not None:
+                compressed_tokens = count_tokens(compressed)
+                if compressed_tokens == -1:
+                    compressed_tokens = len(compressed) // 4
+                if compressed_tokens <= max_total_tokens:
+                    print(
+                        f"  [CONTEXT] Compressed: {total_tokens} → {compressed_tokens} tokens "
+                        f"({100 - compressed_tokens * 100 // total_tokens}% reduction)"
+                    )
+                    return compressed
+                print(f"  [CONTEXT] Compressed vẫn > ngưỡng → COMPACT fallback")
+            else:
+                print(f"  [CONTEXT] LLM thất bại → COMPACT fallback")
+
+            # Fallback 1: COMPACT static extraction (sig + returns + errors, không cần LLM)
+            compact_content, _ = extract_compact_content(
+                lua_refs, max_output_tokens=max_total_tokens
+            )
+            if compact_content:
+                compact_tokens = count_tokens(compact_content)
+                if compact_tokens == -1:
+                    compact_tokens = len(compact_content) // 4
+                if compact_tokens <= max_total_tokens:
+                    print(f"  [CONTEXT] COMPACT: {compact_tokens} tokens")
+                    return compact_content
+
+            # Fallback 2: signature-only (last resort)
+            print(f"  [CONTEXT] Fallback → signature-only mode")
             sig_content, _ = extract_signatures_only(lua_refs, max_output_tokens=max_total_tokens)
             return sig_content
 
@@ -339,6 +586,8 @@ def extract_connected_for_chunk(
     # Rebuild section từ kept_refs thực tế
     if "--[SIGONLY:" in connected_content:
         _, kept_refs = extract_signatures_only(chunk_refs, max_output_tokens=max_total_tokens)
+    elif "-- COMPRESSED:" in connected_content or "-- COMPACT:" in connected_content:
+        kept_refs = chunk_refs
     else:
         kept_refs = chunk_refs
 
