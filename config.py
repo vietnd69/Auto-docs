@@ -109,11 +109,11 @@ def ollama_chat(
     # Luôn truyền num_ctx, không để Ollama dùng default
     opts = kwargs.pop("options", {}) or {}
     opts["num_ctx"] = OLLAMA_NUM_CTX
-    opts["repeat_penalty"] = 1.15
-    opts["repeat_last_n"] = 256
-    opts["top_k"] = 40
-    opts["frequency_penalty"] = 0.8
-    opts["presence_penalty"] = 0.6
+    # opts["repeat_penalty"] = 1.15
+    # opts["repeat_last_n"] = 256
+    # opts["top_k"] = 40
+    # opts["frequency_penalty"] = 0.8
+    # opts["presence_penalty"] = 0.6
     opts["mirostat"] = 2
     opts["mirostat_tau"] = 5.0
     opts["mirostat_eta"] = 0.1

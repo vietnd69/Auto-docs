@@ -59,8 +59,10 @@ from chunked import (
 from chunked_prompt import (
     build_chunk_prompt,
     build_merge_prompt,
-    build_intermediate_merge_prompt
+    build_intermediate_merge_prompt,
+    _build_merge_prompt_legacy,
 )
+from pre_synthesis import pre_synthesize
 
 # ── Checkpoint System ──────────────────────────────────────────
 
@@ -77,6 +79,7 @@ def save_checkpoint(
     
     with open(temp_path, "w", encoding="utf-8") as f:
         json.dump({
+            "version": 2,
             "comp_name": comp_name,
             "last_index": last_index,
             "chunk_results": {str(k): v for k, v in chunk_results.items()},
@@ -98,6 +101,14 @@ def load_checkpoint(comp_name: str) -> tuple[dict[int, str], int, list[int]] | N
     try:
         with open(checkpoint_path, encoding="utf-8") as f:
             state = json.load(f)
+
+        # Version detection: v1 checkpoints contain text markdown, not JSON
+        version = state.get("version", 1)
+        if version == 1:
+            print("  [CHECKPOINT] v1 checkpoint detected — clearing, restart from scratch")
+            clear_checkpoint(comp_name)
+            return None
+
         chunk_results = {int(k): v for k, v in state["chunk_results"].items()}
         failed_indices = state.get("failed_indices", [])
         last_index = state["last_index"]
@@ -391,8 +402,8 @@ def hierarchical_merge(
             return None # checkpoint đã lưu trong rolling, lần sau resume
         intermediate_results = [rolled]
 
-    # Tầng 2: final merge
-    merge_prompt = build_merge_prompt(
+    # Tầng 2: final merge (legacy text-based prompt)
+    merge_prompt = _build_merge_prompt_legacy(
         comp_name=comp_name,
         comp_title=comp_title,
         display_filepath=display_filepath,
@@ -565,7 +576,7 @@ def process_chunked_file(
             mode = _detect_context_mode(chunk_content)
             print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={mode}")
         elif ref_count > 0:
-            print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (file không tồn tại?)")
+            print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (require-only, không có function call)")
         else:
             print(f"    [CTX] Chunk {i}: không có external context (chunk độc lập)")
 
@@ -623,7 +634,7 @@ def process_chunked_file(
                 mode = _detect_context_mode(chunk_content)
                 print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={mode}")
             elif ref_count > 0:
-                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (file không tồn tại?)")
+                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (require-only, không có function call)")
             else:
                 print(f"    [CTX] Chunk {chunk_i} (retry): không có external context (chunk độc lập)")
 
@@ -681,68 +692,46 @@ def process_chunked_file(
 
         print(f"  [TIẾP TỤC] Merge với {len(chunk_results)}/{total_chunks} chunks.")
 
-    # ── MERGE ──
-    # Sắp xếp kết quả theo thứ tự chunk gốc
-    ordered_results = [chunk_results[i] for i in sorted(chunk_results.keys())]
-
-    if not ordered_results:
+    if not chunk_results:
         print(f"  [Lỗi] Không có chunk nào thành công!")
         return None
 
-    total_merge_tokens = estimate_merge_tokens(ordered_results)
-    use_hierarchical = (total_merge_tokens > MERGE_TOKEN_LIMIT) or (len(ordered_results) > 30)
+    # ── PRE-SYNTHESIS — pure Python aggregation, no LLM call ──
+    print(f"  [PRE-SYNTHESIS] Aggregating {len(chunk_results)} chunk results...")
+    presynthesis, malformed = pre_synthesize(chunk_results)
 
-    result_filename = None
-    if use_hierarchical:
-        token_info = f"{total_merge_tokens} tokens" if total_merge_tokens > 0 else f"{len(ordered_results)} chunks"
-        print(f"  [MERGE STRATEGY] Hierarchical ({token_info} > ngưỡng)")
-        result_filename = hierarchical_merge(
-            comp_name=comp_name,
-            comp_title=comp_title,
-            display_filepath=display_filepath,
-            chunk_results=ordered_results,
-            source_hash=source_hash,
-            md_filepath=md_filepath,
-            file_tree=file_tree,
-            connected_section=connected_section,
-            connected_content=connected_content,
-            today_date=today_date,
-            version=version,
-            category_type=category_type,
-            sidebar_position=sidebar_position,
-            model_name=model_name,
-            sleep_time=merge_sleep,
-        )
-    else:
-        print(f"  [MERGE STRATEGY] Direct merge")
-        merge_prompt = build_merge_prompt(
-            comp_name=comp_name,
-            comp_title=comp_title,
-            display_filepath=display_filepath,
-            chunk_results=ordered_results,
-            source_hash=source_hash,
-            today_date=today_date,
-            version=version,
-            category_type=category_type,
-            sidebar_position=sidebar_position,
-            file_tree=file_tree,
-            connected_section=connected_section,
-            connected_content=connected_content,
-        )
-        result_filename = generate_merged_doc(
-            prompt=merge_prompt,
-            md_filepath=md_filepath,
-            model_name=model_name,
-            sleep_time=merge_sleep,
-        )
+    if malformed:
+        save_checkpoint(comp_name, chunk_results, total_chunks - 1, malformed)
+        print(f"  [PRE-SYNTHESIS] {len(malformed)} chunk malformed JSON: {malformed}")
+        print(f"  [PRE-SYNTHESIS] Retry các chunk trên rồi chạy lại.")
+        return None
 
-    # Thêm warning vào file nếu có chunk bị bỏ
-    if result_filename and failed_indices:
-        with open(md_filepath, "a", encoding="utf-8") as f:
-            f.write(
-                f"\n\n***\n> ⚠️ **Incomplete documentation**: chunks {failed_indices} "
-                f"failed after 3 retries and were skipped.\n"
-            )
+    print(f"  [PRE-SYNTHESIS] OK — {len(presynthesis.tags)} tags, "
+          f"{len(presynthesis.functions)} functions, "
+          f"scope={presynthesis.system_scope}")
+
+    # ── MERGE — always direct, PreSynthesisResult is small ──
+    print(f"  [MERGE STRATEGY] Direct merge (JSON pipeline)")
+    merge_prompt = build_merge_prompt(
+        comp_name=comp_name,
+        comp_title=comp_title,
+        display_filepath=display_filepath,
+        presynthesis=presynthesis,
+        source_hash=source_hash,
+        today_date=today_date,
+        version=version,
+        category_type=category_type,
+        sidebar_position=sidebar_position,
+        file_tree=file_tree,
+        connected_section=connected_section,
+        connected_content=connected_content,
+    )
+    result_filename = generate_merged_doc(
+        prompt=merge_prompt,
+        md_filepath=md_filepath,
+        model_name=model_name,
+        sleep_time=merge_sleep,
+    )
 
     if result_filename:
         clear_checkpoint(comp_name)

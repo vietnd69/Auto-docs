@@ -17,6 +17,7 @@ from get_docs import (
 )
 from chunked import needs_chunking, split_lua_into_chunks
 from chunked_prompt import build_chunk_prompt, build_merge_prompt
+from pre_synthesis import PreSynthesisResult
 
 # === CẤU HÌNH TEST ===
 TEST_FILE = "maxwellhome.lua"
@@ -95,19 +96,26 @@ for i, chunk_code in enumerate(chunks, 1):
         f.write(prompt)
     print(f"  Đã ghi {filename} ({len(prompt)} ký tự)")
 
-# --- Tạo merge prompt (dùng placeholder cho chunk results) ---
-print("\nĐang tạo merge prompt (với placeholder results)...")
+# --- Tạo merge prompt (dùng fake PreSynthesisResult) ---
+print("\nĐang tạo merge prompt (với fake PreSynthesisResult)...")
 
-# Tạo fake chunk results để test cấu trúc merge prompt
-fake_results = []
-for i in range(1, total_chunks + 1):
-    fake_results.append(f"## Functions found\n### `ExampleFunc_{i}()`\n* **Description:** Placeholder for chunk {i} analysis.")
+# Tạo fake PreSynthesisResult để test cấu trúc merge prompt
+fake_presynthesis = PreSynthesisResult(
+    tags=["map", "layout", "static"],
+    system_scope="world",
+    dependencies=[],
+    partial_descriptions=[f"Chunk {i} placeholder description." for i in range(1, total_chunks + 1)],
+    functions=[{"name": f"ExampleFunc_{i}", "params": "", "description": f"Placeholder for chunk {i}", "returns": "nil", "error_states": "None"} for i in range(1, total_chunks + 1)],
+    events_listens=[],
+    events_pushes=[],
+    constructor_properties=[],
+)
 
 merge_prompt = build_merge_prompt(
     comp_name=comp_name,
     comp_title=comp_title,
     display_filepath=display_filepath,
-    chunk_results=fake_results,
+    presynthesis=fake_presynthesis,
     source_hash=source_hash,
     today_date=TODAY_DATE,
     version=VERSION,
