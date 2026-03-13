@@ -112,7 +112,7 @@ LLM → final markdown doc
 **Schema notes:**
 - `incomplete: true` — function bị cắt tại chunk boundary. Python exclude khỏi flat list; merge LLM không nhận data không đầy đủ.
 - `partial_description` — 1 câu hoàn chỉnh mô tả nội dung chunk này.
-- `suggested_scope` — string tự do, Python validate bằng allowlist, fallback `"entity"` nếu invalid.
+- `suggested_scope` — string tự do, Python validate format (`^[a-z_]+$`), fallback `"entity"` nếu không đúng format.
 - `tags[].operation` — `"add"` | `"remove"` | `"check"`, giữ lại vì có giá trị cho docs.
 - Tất cả fields là required. LLM được instruct viết `"None"` string nếu không tìm thấy (Python sẽ filter out `"None"` strings khi aggregate).
 
@@ -124,20 +124,17 @@ LLM → final markdown doc
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass
 
-VALID_SCOPES = {
-    "world", "player", "entity", "ui", "audio", "combat",
-    "environment", "inventory", "crafting", "network",
-    "brain", "locomotion", "physics", "fx"
-}
+SCOPE_PATTERN = re.compile(r'^[a-z_]+$')  # lowercase letters and underscores only
 
 
 @dataclass
 class PreSynthesisResult:
     tags: list[str]                    # dedup, sorted
-    system_scope: str                  # majority vote, validated
+    system_scope: str                  # majority vote, format-validated
     dependencies: list[dict]           # dedup by "component"
     partial_descriptions: list[str]    # 1 per chunk, for merge LLM
     functions: list[dict]              # flat, incomplete=False only
@@ -197,7 +194,6 @@ def _aggregate(chunks: list[dict]) -> PreSynthesisResult:
     )
     scope  = _majority_vote(
         [c.get("suggested_scope", "") for c in chunks],
-        valid=VALID_SCOPES,
         fallback="entity",
     )
     descs  = [
@@ -236,14 +232,14 @@ def _dedup_by_key(items: list[dict], key: str) -> list[dict]:
     return result
 
 
-def _majority_vote(values: list[str], valid: set[str], fallback: str) -> str:
+def _majority_vote(values: list[str], fallback: str) -> str:
     """
     Majority vote từ list values.
-    Chỉ đếm values nằm trong valid set.
+    Validate format: lowercase letters và underscores only (e.g. "player", "combat_ai").
     Tie-break: chọn giá trị xuất hiện đầu tiên trong list.
-    Nếu không có value nào valid, trả về fallback.
+    Nếu không có value nào đúng format, trả về fallback.
     """
-    valid_values = [v for v in values if v in valid]
+    valid_values = [v for v in values if v and SCOPE_PATTERN.match(v)]
     if not valid_values:
         return fallback
     counts = Counter(valid_values)
