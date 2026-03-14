@@ -33,6 +33,10 @@ Use EXACTLY this structure for every entry in ## Main functions:
 === DEPENDENCY SECTION FORMAT ===
 Use EXACTLY these labels in ## Dependencies & tags:
 
+**External dependencies:**
+- `name` -- usage description
+(Omit this bullet entirely if external_deps JSON is empty)
+
 **Components used:**
 - `component_name` -- how it is used (methods called, properties accessed)
 
@@ -215,8 +219,11 @@ JSON SCHEMA:
   "dependencies": [
     {{"component": "<component_name>", "usage": "<how it's used>"}}
   ],
-  "tags": [
+  "game_tags": [
     {{"name": "<tag_name>", "operation": "<add|remove|check>"}}
+  ],
+  "external_deps": [
+    {{"name": "<module or global name>", "usage": "<how it is used in this chunk>"}}
   ]
 }}
 
@@ -228,7 +235,11 @@ JSON SCHEMA:
 - events.listens_to: All `inst:ListenForEvent(...)` calls. Use empty array [] if none.
 - events.pushes: All `inst:PushEvent(...)` calls. Use empty array [] if none.
 - dependencies: All external components referenced (e.g., `inst.components.health`). Use empty array [] if none.
-- tags: All `AddTag`, `RemoveTag`, `HasTag` calls. Use empty array [] if none.
+- game_tags: All `AddTag`, `RemoveTag`, `HasTag` calls. Use empty array [] if none found.
+- external_deps: All `require("module")` calls AND any reference to DST globals:
+  `TheWorld`, `TheNet`, `ThePlayer`, `GLOBAL`, `AllPlayers`, `TheSim`, `TheInput`, `TheCamera`.
+  For each, write a short description of how it is used in this chunk.
+  Use empty array [] if none found.
 - For any field with no data, use "None" (string) for string fields or [] (empty array) for array fields.
 
 === CRITICAL INSTRUCTIONS ===
@@ -262,8 +273,9 @@ def build_merge_prompt(
     Tạo prompt tổng hợp — nhận PreSynthesisResult đã pre-filled.
     LLM chỉ viết description, Overview, Usage example, và format các section từ JSON.
     """
-    # Pre-filled YAML tags
-    tags_yaml = ", ".join(presynthesis.tags)
+    # Game tags and external deps for Dependencies section body
+    game_tags_json    = json.dumps(presynthesis.game_tags, indent=2, ensure_ascii=False)
+    external_deps_json = json.dumps(presynthesis.external_deps, indent=2, ensure_ascii=False)
 
     # Partial descriptions — numbered list
     descs_section = "\n".join(
@@ -313,6 +325,12 @@ Synthesize these into a single description sentence for the YAML frontmatter.
 === DEPENDENCIES (pre-extracted) ===
 {deps_json}
 
+=== GAME TAGS (pre-extracted) ===
+{game_tags_json}
+
+=== EXTERNAL DEPENDENCIES (pre-extracted) ===
+{external_deps_json}
+
 === PROPERTIES (pre-extracted) ===
 Format into a markdown table. Do not invent or omit entries.
 {props_json}
@@ -337,7 +355,7 @@ YOUR TASKS:
 5. Format `## Main functions` using EXACTLY the FUNCTION FORMAT defined in the FORMAT SPECIFICATION section below.
    Deduplicate by function name; prefer the entry with more parameter/return detail.
 6. Format `## Events & listeners` — render the EVENTS JSON as bullet lists.
-7. Format `## Dependencies & tags` using EXACTLY the DEPENDENCY SECTION FORMAT defined in the FORMAT SPECIFICATION section below.
+7. Format `## Dependencies & tags` using EXACTLY the DEPENDENCY SECTION FORMAT defined in the FORMAT SPECIFICATION section below, including External dependencies from EXTERNAL DEPENDENCIES JSON (omit External dependencies bullet if empty).
 
 === FORMAT SPECIFICATION ===
 {_FUNCTION_FORMAT_SPEC}
@@ -345,7 +363,7 @@ YOUR TASKS:
 id: {comp_name}
 title: {comp_title}
 description: <WRITE: one sentence from partial descriptions>
-tags: [{tags_yaml}]
+tags: <WRITE: 2-5 lowercase tags categorizing this component for docs search. Choose domain terms (e.g. [actions, combat, player]). Do NOT list game entity tags. Maximum 5 entries.>
 sidebar_position: {sidebar_position}
 
 last_updated: {today_date}
@@ -353,7 +371,7 @@ build_version: {version}
 change_status: stable
 category_type: {category_type}
 source_hash: {source_hash}
-system_scope: {presynthesis.system_scope}
+system_scope: <REVIEW hint "{presynthesis.system_scope}" — set the most accurate value from the allowed list based on the Overview you are writing>
 ---
 
 # {comp_title}
@@ -380,7 +398,7 @@ system_scope: {presynthesis.system_scope}
 
 === CRITICAL INSTRUCTIONS ===
 - REQUIRED SECTION ORDER: ## Overview -> ## Usage example -> ## Dependencies & tags -> ## Properties -> ## Main functions -> ## Events & listeners. Do NOT omit, reorder, or rename.
-- The tags and system_scope in YAML are PRE-FILLED. Copy them exactly. Do NOT change them.
+- Write YAML tags freely (2-5 doc-category keywords from the Overview). Review the system_scope hint and set the most accurate value from the allowed list.
 - Output ONLY valid Markdown starting with `---`.
 - Generate exactly ONE frontmatter block. No extra `---` dividers in the body.
 - ALL data must come from the pre-extracted sections above. Do NOT invent APIs.
