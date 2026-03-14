@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## RAG Search — mod-document
+
+Use the `local-rag` MCP server to search this codebase.
+- **workspace_id**: `mod-document`
+- **Path**: D:\code\mod-document
+
+When asked about code in this project, call:
+- `search_code(query, workspace_id="mod-document")` — semantic search
+- `lookup_symbol(symbol_name=..., workspace_id="mod-document")` — find class/function
+- `get_file_context(file_path=..., workspace_id="mod-document")` — full file content
+
+
 ## Project Overview
 
 This is a Python-based document generation system that automatically creates API documentation for Lua-based Don't Starve Together (DST) game mods. The system analyzes Lua source code and generates comprehensive Markdown documentation using AI models via the Ollama API.

@@ -16,7 +16,53 @@ import json
 from prompt import build_prompt as build_single_prompt  # noqa: F401
 from pre_synthesis import PreSynthesisResult
 
+_FUNCTION_FORMAT_SPEC = """
+=== FUNCTION FORMAT ===
+Use EXACTLY this structure for every entry in ## Main functions:
 
+### `FunctionName(params)`
+* **Description:** What this function does and when it is called.
+* **Parameters:** For a single param: `param` -- type and purpose.
+  For multiple params, use sub-bullets:
+  - `param1` -- description
+  - `param2` -- description
+  Write `None` if the function takes no parameters.
+* **Returns:** Return value description, or `nil` if nothing is returned.
+* **Error states:** Edge cases or early returns. Omit this bullet entirely if none.
+
+=== DEPENDENCY SECTION FORMAT ===
+Use EXACTLY these labels in ## Dependencies & tags:
+
+**Components used:**
+- `component_name` -- how it is used (methods called, properties accessed)
+
+**Tags:**
+- `tag_name` -- add / remove / check
+
+=== FEW-SHOT EXAMPLE ===
+Mirror this format only. Do NOT copy the content:
+
+### `ConsoleCommandPlayer()`
+* **Description:** Returns the currently selected debug entity, the local player, or the first valid player in AllPlayers.
+* **Parameters:** None
+* **Returns:** Player instance or `nil` if no valid player found.
+
+### `c_spawn(prefab, count, dontselect)`
+* **Description:** Spawns `count` instances of `prefab` at console position. Auto-selects first spawned unless `dontselect`.
+* **Parameters:**
+  - `prefab` -- string prefab name
+  - `count` -- number of instances (default `1`)
+  - `dontselect` -- boolean to skip auto-selection
+* **Returns:** Last spawned instance, or `nil`.
+
+### `c_save()`
+* **Description:** Triggers a save on master sim.
+* **Parameters:** None
+* **Returns:** None
+"""
+
+
+# TODO(format-consistency): apply _FUNCTION_FORMAT_SPEC here when legacy path is retired
 def build_intermediate_merge_prompt(
     comp_name: str,
     display_filepath: str,
@@ -217,7 +263,7 @@ def build_merge_prompt(
     LLM chỉ viết description, Overview, Usage example, và format các section từ JSON.
     """
     # Pre-filled YAML tags
-    tags_yaml = ", ".join(f'"{t}"' for t in presynthesis.tags)
+    tags_yaml = ", ".join(presynthesis.tags)
 
     # Partial descriptions — numbered list
     descs_section = "\n".join(
@@ -288,10 +334,13 @@ YOUR TASKS:
 2. Write `## Overview` — comprehensive summary of the entire component.
 3. Write `## Usage example` — 5-15 lines Lua code snippet demonstrating typical usage.
 4. Format `## Properties` — render the PROPERTIES JSON as a markdown table. Do not invent or omit entries.
-5. Format `## Main functions` — deduplicate functions by name (prefer longer description), format as ### headings with Description/Parameters/Returns.
+5. Format `## Main functions` using EXACTLY the FUNCTION FORMAT defined in the FORMAT SPECIFICATION section below.
+   Deduplicate by function name; prefer the entry with more parameter/return detail.
 6. Format `## Events & listeners` — render the EVENTS JSON as bullet lists.
-7. Write `## Dependencies & tags` — list components and tags from the pre-extracted data.
+7. Format `## Dependencies & tags` using EXACTLY the DEPENDENCY SECTION FORMAT defined in the FORMAT SPECIFICATION section below.
 
+=== FORMAT SPECIFICATION ===
+{_FUNCTION_FORMAT_SPEC}
 ---
 id: {comp_name}
 title: {comp_title}
@@ -318,7 +367,7 @@ system_scope: {presynthesis.system_scope}
 <WRITE: 5-15 lines Lua code>
 
 ## Dependencies & tags
-<FORMAT from pre-extracted data>
+<FORMAT using EXACTLY the DEPENDENCY SECTION FORMAT from the FORMAT SPECIFICATION below>
 
 ## Properties
 <FORMAT from PROPERTIES JSON into table>
@@ -346,6 +395,7 @@ system_scope: {presynthesis.system_scope}
 # ── Legacy merge prompt (kept for hierarchical/rolling backward compat) ──
 
 
+# TODO(format-consistency): apply _FUNCTION_FORMAT_SPEC here when legacy path is retired
 def _build_merge_prompt_legacy(
     comp_name: str,
     comp_title: str,
