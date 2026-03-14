@@ -34,6 +34,17 @@ def _detect_context_mode(content: str) -> str:
         return "compact"
     return "full"
 
+def _ensure_events_section(doc: str) -> str:
+    """
+    Guarantee ## Events & listeners is present in merge LLM output.
+    If the heading is absent, append a minimal fallback block.
+    Must be called AFTER the empty-content guard in generate_merged_doc().
+    """
+    if "## Events & listeners" not in doc:
+        doc = doc.rstrip() + "\n\n## Events & listeners\nThis file is not event-driven.\n"
+    return doc
+
+
 from get_docs import (
     clean_model_output,
     extract_lua_references,
@@ -269,6 +280,8 @@ def generate_merged_doc(
                     print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
                     time.sleep(retry_delay)
                 continue
+
+            md_content = _ensure_events_section(md_content)
 
             # Sanity check
             if not md_content.startswith("---"):
@@ -706,7 +719,8 @@ def process_chunked_file(
         print(f"  [PRE-SYNTHESIS] Retry các chunk trên rồi chạy lại.")
         return None
 
-    print(f"  [PRE-SYNTHESIS] OK — {len(presynthesis.tags)} tags, "
+    print(f"  [PRE-SYNTHESIS] OK — {len(presynthesis.game_tags)} game_tags, "
+          f"{len(presynthesis.external_deps)} external_deps, "
           f"{len(presynthesis.functions)} functions, "
           f"scope={presynthesis.system_scope}")
 
