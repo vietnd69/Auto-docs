@@ -21,7 +21,8 @@ SCOPE_PATTERN = re.compile(r'^[a-z_]+$')  # lowercase letters and underscores on
 
 @dataclass
 class PreSynthesisResult:
-    tags: list[str]                    # dedup, sorted
+    game_tags: list[dict]              # [{name, operation}] — dedup by "name"
+    external_deps: list[dict]          # [{name, usage}]     — dedup by "name"
     system_scope: str                  # majority vote, format-validated
     dependencies: list[dict]           # dedup by "component"
     partial_descriptions: list[str]    # 1 per chunk, for merge LLM
@@ -59,11 +60,16 @@ def pre_synthesize(
 
 
 def _aggregate(chunks: list[dict]) -> PreSynthesisResult:
-    tags = sorted({
-        t["name"] for c in chunks
-        for t in c.get("tags", [])
-        if t.get("name") and t["name"] != "None"
-    })
+    game_tags = _dedup_by_key(
+        [t for c in chunks for t in c.get("game_tags", [])
+         if t.get("name") and t["name"] != "None"],
+        "name"
+    )
+    external_deps = _dedup_by_key(
+        [d for c in chunks for d in c.get("external_deps", [])
+         if d.get("name") and d["name"] != "None"],
+        "name"
+    )
     deps = _dedup_by_key(
         [d for c in chunks for d in c.get("dependencies", []) if d.get("component") != "None"],
         "component"
@@ -97,13 +103,13 @@ def _aggregate(chunks: list[dict]) -> PreSynthesisResult:
         if not f.get("incomplete")
     ]
 
-    return PreSynthesisResult(tags, scope, deps, descs, funcs, listens, pushes, props)
+    return PreSynthesisResult(game_tags, external_deps, scope, deps, descs, funcs, listens, pushes, props)
 
 
 def _empty_result() -> PreSynthesisResult:
     return PreSynthesisResult(
-        tags=[], system_scope="entity", dependencies=[],
-        partial_descriptions=[], functions=[],
+        game_tags=[], external_deps=[], system_scope="entity",
+        dependencies=[], partial_descriptions=[], functions=[],
         events_listens=[], events_pushes=[], constructor_properties=[]
     )
 
