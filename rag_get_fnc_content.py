@@ -406,6 +406,50 @@ SOURCE:
         return None
 
 
+def _compress_module_stub(lua_code: str, ref_path: str) -> str | None:
+    """
+    Dùng LLM để tạo module-level summary (3–5 dòng) cho require-only refs.
+    Reuses compression cache system.
+
+    Returns:
+        Formatted stub string nếu thành công (contains "-- [REQUIRE MODULE: ...]").
+        None nếu LLM thất bại hoặc output không hợp lệ.
+    """
+    cache_key = _compression_cache_key(lua_code)
+    cached = _load_compression_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    prompt = f"""Summarize this Lua module in 3–5 lines. Output format:
+-- MODULE: <ClassName or module name>
+-- exports: <key functions/constants, comma-separated>
+-- purpose: <one sentence: what this module does>
+-- notes: <side effects, globals registered> (omit if none)
+
+Rules: Never invent. Output only the summary, no preamble.
+SOURCE:
+{lua_code}"""
+
+    try:
+        response = config.ollama_chat(
+            model=config.COMPRESSION_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = response["message"]["content"]
+        raw = clean_model_output(raw)
+    except Exception as e:
+        print(f"  [STUB] LLM call failed for {ref_path}: {e}")
+        return None
+
+    if "-- MODULE:" not in raw:
+        print(f"  [STUB] Output missing -- MODULE: marker, skipping {ref_path}")
+        return None
+
+    result = f"-- [REQUIRE MODULE: {ref_path}] ---\n{raw}"
+    _save_compression_cache(cache_key, result)
+    return result
+
+
 def extract_connected_content(
     lua_refs: list[tuple[str, list[str]]],
     max_lines_per_file: int = 100,
