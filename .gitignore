@@ -10,7 +10,8 @@ dst_chroma_db/*
 # # ref
 dst-scripts
 
-test**
+test*.md
+test*.txt
 simulate**
 
 # node
