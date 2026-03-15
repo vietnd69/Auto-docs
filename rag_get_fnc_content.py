@@ -11,6 +11,7 @@ from pathlib import Path
 
 import config
 from get_docs import extract_lua_references, format_connected_section, clean_model_output
+from chunked import count_tokens
 
 # Thư mục gốc chứa source Lua
 LUA_BASE_DIR = "./dst-scripts"
@@ -448,6 +449,67 @@ SOURCE:
     result = f"-- [REQUIRE MODULE: {ref_path}] ---\n{raw}"
     _save_compression_cache(cache_key, result)
     return result
+
+
+def extract_require_stubs(
+    req_refs: list[tuple[str, list[str]]],
+    max_tokens: int = 0,
+) -> str:
+    """
+    Trích xuất stub content cho require-only refs (func_names rỗng).
+
+    - File nhỏ (≤ STUB_FULL_THRESHOLD tokens): include toàn bộ nội dung.
+    - File lớn: dùng LLM tạo module summary 3–5 dòng.
+
+    Budget được kiểm tra incrementally — dừng khi tổng vượt max_tokens.
+
+    Returns:
+        str: nội dung ghép, prefix bởi marker "-- [REQUIRE FULL:" hoặc "-- [REQUIRE MODULE:".
+             Trả về "" nếu không có gì.
+    """
+    if not req_refs or max_tokens <= 0:
+        return ""
+
+    sections: list[str] = []
+    running_tokens = 0
+    total = len(req_refs)
+
+    for idx, (ref_path, _) in enumerate(req_refs):
+        real_path = _resolve_lua_path(ref_path)
+        if real_path is None:
+            continue
+
+        try:
+            with open(real_path, encoding="utf-8", errors="ignore") as f:
+                lua_code = f.read()
+        except Exception:
+            continue
+
+        file_tokens = count_tokens(lua_code)
+        if file_tokens == -1:
+            file_tokens = len(lua_code) // 4
+
+        if file_tokens <= config.STUB_FULL_THRESHOLD:
+            section = f"-- [REQUIRE FULL: {ref_path}] ---\n{lua_code}"
+        else:
+            section = _compress_module_stub(lua_code, ref_path)
+            if section is None:
+                continue
+
+        section_tokens = count_tokens(section)
+        if section_tokens == -1:
+            section_tokens = len(section) // 4
+
+        if running_tokens + section_tokens > max_tokens:
+            print(
+                f"  [CTX] Require-stub budget exhausted after {len(sections)}/{total} refs"
+            )
+            break
+
+        sections.append(section)
+        running_tokens += section_tokens
+
+    return "\n\n".join(sections)
 
 
 def extract_connected_content(

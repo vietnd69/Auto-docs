@@ -104,3 +104,121 @@ def test_compress_module_stub_lenient_validation():
 
     assert result is not None
     assert "-- MODULE: SomeModule" in result
+
+
+import tempfile
+import os
+
+
+def _write_temp_lua(content: str) -> str:
+    """Write a temp .lua file and return its path."""
+    f = tempfile.NamedTemporaryFile(mode="w", suffix=".lua", delete=False, encoding="utf-8")
+    f.write(content)
+    f.close()
+    return f.name
+
+
+def test_extract_require_stubs_empty_refs():
+    """Empty req_refs → return empty string immediately."""
+    from rag_get_fnc_content import extract_require_stubs
+    assert extract_require_stubs([], max_tokens=5000) == ""
+
+
+def test_extract_require_stubs_zero_budget():
+    """max_tokens <= 0 → return empty string without reading files, no log emitted."""
+    from rag_get_fnc_content import extract_require_stubs
+    with patch("builtins.print") as mock_print:
+        result = extract_require_stubs([("./class.lua", [])], max_tokens=0)
+    assert result == ""
+    mock_print.assert_not_called()
+
+
+def test_extract_require_stubs_small_file_full():
+    """File with token count <= STUB_FULL_THRESHOLD → included in full with REQUIRE FULL marker."""
+    from rag_get_fnc_content import extract_require_stubs
+
+    small_lua = "-- tiny module\nlocal M = {}\nreturn M\n"
+    tmp = _write_temp_lua(small_lua)
+
+    try:
+        with patch("rag_get_fnc_content._resolve_lua_path", return_value=tmp):
+            result = extract_require_stubs([("./tiny.lua", [])], max_tokens=5000)
+    finally:
+        os.unlink(tmp)
+
+    assert "-- [REQUIRE FULL: ./tiny.lua]" in result
+    assert small_lua.strip() in result
+
+
+def test_extract_require_stubs_large_file_stub():
+    """File larger than STUB_FULL_THRESHOLD → calls _compress_module_stub, uses its output."""
+    from rag_get_fnc_content import extract_require_stubs
+
+    # 401+ tokens of Lua — we mock count_tokens to return 401
+    large_lua = "x = 1\n" * 200
+    tmp = _write_temp_lua(large_lua)
+    stub_output = "-- [REQUIRE MODULE: ./big.lua] ---\n-- MODULE: Big\n-- purpose: big module"
+
+    try:
+        with patch("rag_get_fnc_content._resolve_lua_path", return_value=tmp), \
+             patch("rag_get_fnc_content._compress_module_stub", return_value=stub_output) as mock_stub, \
+             patch("rag_get_fnc_content.count_tokens", return_value=401):
+            result = extract_require_stubs([("./big.lua", [])], max_tokens=5000)
+    finally:
+        os.unlink(tmp)
+
+    mock_stub.assert_called_once()
+    assert stub_output in result
+
+
+def test_extract_require_stubs_file_not_found():
+    """File not found (_resolve_lua_path returns None) → skip silently."""
+    from rag_get_fnc_content import extract_require_stubs
+
+    with patch("rag_get_fnc_content._resolve_lua_path", return_value=None):
+        result = extract_require_stubs([("./missing.lua", [])], max_tokens=5000)
+
+    assert result == ""
+
+
+def test_extract_require_stubs_budget_exhausted():
+    """Budget runs out after first ref → second ref skipped, log printed."""
+    from rag_get_fnc_content import extract_require_stubs
+
+    small_lua = "-- mod\nlocal M = {}\n"
+    tmp = _write_temp_lua(small_lua)
+
+    try:
+        with patch("rag_get_fnc_content._resolve_lua_path", return_value=tmp), \
+             patch("rag_get_fnc_content.count_tokens", return_value=300), \
+             patch("builtins.print") as mock_print:
+            # budget=350 — first ref uses 300, second would exceed
+            result = extract_require_stubs(
+                [("./a.lua", []), ("./b.lua", [])],
+                max_tokens=350,
+            )
+    finally:
+        os.unlink(tmp)
+
+    assert "-- [REQUIRE FULL: ./a.lua]" in result
+    assert "-- [REQUIRE FULL: ./b.lua]" not in result
+    printed = " ".join(str(c) for c in mock_print.call_args_list)
+    assert "Require-stub" in printed and "budget exhausted" in printed.lower()
+
+
+def test_extract_require_stubs_stub_failure_skipped():
+    """_compress_module_stub returns None → ref skipped, no crash."""
+    from rag_get_fnc_content import extract_require_stubs
+
+    large_lua = "x = 1\n" * 200
+    tmp = _write_temp_lua(large_lua)
+
+    try:
+        with patch("rag_get_fnc_content._resolve_lua_path", return_value=tmp), \
+             patch("rag_get_fnc_content._compress_module_stub", return_value=None), \
+             patch("rag_get_fnc_content.count_tokens", return_value=401):
+            result = extract_require_stubs([("./big.lua", [])], max_tokens=5000)
+    finally:
+        os.unlink(tmp)
+
+    assert result == ""
