@@ -641,7 +641,7 @@ def extract_connected_for_chunk(
     own_filename: str,
     full_refs: list[tuple[str, list[str]]] | None = None,
     max_lines_per_file: int = 100,
-    max_total_tokens: int = 3500,
+    max_total_tokens: int = 8000,
 ) -> tuple[str, str, int]:
     """
     Trích xuất connected_section + connected_content + ref_count cho 1 chunk cụ thể.
@@ -684,22 +684,41 @@ def extract_connected_for_chunk(
         fallback_section = format_connected_section(fallback_kept_refs)
         return fallback_section, fallback_content, len(fallback_kept_refs)
 
-    connected_content = extract_connected_content(
-        chunk_refs,
+    # Tách func_refs (có function calls) và req_refs (require-only)
+    func_refs = [(path, funcs) for path, funcs in chunk_refs if funcs]
+    req_refs  = [(path, funcs) for path, funcs in chunk_refs if not funcs]
+
+    # Pipeline cũ: func_refs với full budget
+    func_content = extract_connected_content(
+        func_refs,
         max_lines_per_file=max_lines_per_file,
         max_total_tokens=max_total_tokens,
     )
 
-    if not connected_content:
-        return "", "", len(chunk_refs)
+    # Pipeline mới: require-only stubs với budget còn lại
+    from chunked import count_tokens
+    func_tokens = count_tokens(func_content)
+    if func_tokens == -1:
+        func_tokens = len(func_content) // 4
+    remaining_budget = max_total_tokens - func_tokens
+    req_content = extract_require_stubs(req_refs, max_tokens=remaining_budget)
 
-    # Rebuild section từ kept_refs thực tế
-    if "--[SIGONLY:" in connected_content:
-        _, kept_refs = extract_signatures_only(chunk_refs, max_output_tokens=max_total_tokens)
-    elif "-- COMPRESSED:" in connected_content or "-- COMPACT:" in connected_content:
-        kept_refs = chunk_refs
+    # Ghép kết quả
+    if func_content and req_content:
+        connected_content = func_content + "\n\n" + req_content
+    elif req_content:
+        connected_content = req_content
     else:
-        kept_refs = chunk_refs
+        connected_content = func_content
+
+    if not connected_content:
+        return "", "", len(func_refs)
+
+    # Rebuild section từ kept_refs thực tế (chỉ func_refs — req_refs không có func_names)
+    if "--[SIGONLY:" in func_content:
+        _, kept_refs = extract_signatures_only(func_refs, max_output_tokens=max_total_tokens)
+    else:
+        kept_refs = func_refs
 
     connected_section = format_connected_section(kept_refs)
     return connected_section, connected_content, len(kept_refs)

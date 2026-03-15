@@ -222,3 +222,81 @@ def test_extract_require_stubs_stub_failure_skipped():
         os.unlink(tmp)
 
     assert result == ""
+
+
+def test_extract_connected_for_chunk_req_stubs_appended():
+    """
+    Chunk with require-only refs → extract_require_stubs() output appended to connected_content.
+    Fallback path (chunk_refs empty) is NOT triggered.
+    """
+    from rag_get_fnc_content import extract_connected_for_chunk
+
+    # Chunk that require()s a module but makes no component.X calls
+    chunk_code = 'require "util"\nlocal x = util.DoSomething()'
+    stub_output = "-- [REQUIRE FULL: ./util.lua] ---\n-- tiny util"
+
+    with patch("rag_get_fnc_content.extract_connected_content", return_value="") as mock_func, \
+         patch("rag_get_fnc_content.extract_require_stubs", return_value=stub_output) as mock_stubs:
+        section, content, ref_count = extract_connected_for_chunk(
+            chunk_code=chunk_code,
+            own_filename="actions.lua",
+            max_total_tokens=8000,
+        )
+
+    mock_stubs.assert_called_once()
+    assert stub_output in content
+    # ref_count counts only func_refs; chunk has no components.X calls → 0
+    assert ref_count == 0
+
+
+def test_extract_connected_for_chunk_func_refs_use_full_budget():
+    """
+    func_refs use the full budget; remaining_budget passed to extract_require_stubs.
+    """
+    from rag_get_fnc_content import extract_connected_for_chunk
+
+    chunk_code = (
+        'require "util"\n'
+        'components.health:DoDelta(-10)\n'
+    )
+    func_content = "-- [full bodies content]"
+
+    # count_tokens is lazily imported from chunked inside the function body,
+    # so patch the source binding in chunked (not rag_get_fnc_content)
+    with patch("rag_get_fnc_content.extract_connected_content", return_value=func_content), \
+         patch("rag_get_fnc_content.extract_require_stubs", return_value="") as mock_stubs, \
+         patch("chunked.count_tokens", return_value=100):
+        extract_connected_for_chunk(
+            chunk_code=chunk_code,
+            own_filename="actions.lua",
+            max_total_tokens=8000,
+        )
+
+    # remaining_budget should be 8000 - 100 = 7900
+    call_kwargs = mock_stubs.call_args
+    assert call_kwargs is not None
+    passed_budget = call_kwargs[1].get("max_tokens") or call_kwargs[0][1]
+    assert passed_budget == 7900
+
+
+def test_extract_connected_for_chunk_fallback_path_unchanged():
+    """
+    Fallback path (chunk_refs empty, full_refs provided) still returns early
+    without calling extract_require_stubs.
+    """
+    from rag_get_fnc_content import extract_connected_for_chunk
+
+    # chunk with no refs at all
+    chunk_code = "local x = 1"
+    full_refs = [("./components/health.lua", ["DoDelta"])]
+
+    with patch("rag_get_fnc_content.extract_require_stubs") as mock_stubs, \
+         patch("rag_get_fnc_content.extract_signatures_only", return_value=("", [])):
+        extract_connected_for_chunk(
+            chunk_code=chunk_code,
+            own_filename="actions.lua",
+            full_refs=full_refs,
+            max_total_tokens=8000,
+        )
+
+    mock_stubs.assert_not_called()
