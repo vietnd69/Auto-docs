@@ -19,6 +19,7 @@ BASE_DOCS_DIR = str(PROJECT_ROOT / "dst-api-webdocs" / "docs")
 MODEL_NAME = "qwen3-coder-next:cloud"
 COMPRESSION_MODEL = MODEL_NAME   # dùng cùng model, có thể override sang model nhỏ hơn
 COMPRESSION_CACHE_DIR = str(PROJECT_ROOT / ".cache" / "compression_cache")
+STUB_FULL_THRESHOLD = 400   # tokens — require-only files smaller than this are included in full
 VERSION = "714014"
 TODAY_DATE = datetime.now().strftime("%Y-%m-%d")
 

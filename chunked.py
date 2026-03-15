@@ -28,7 +28,7 @@ MERGE_TOKEN_LIMIT = 20000
 # Token reserve dành cho per-chunk connected context (signatures hoặc full bodies).
 # calc_token_budget() sẽ tự trừ khoản này khỏi code budget.
 # CALIBRATION: Full bodies 3–5 refs ~2000–3000 tokens; signatures 30 refs ~1500 tokens.
-CONTEXT_RESERVE = 6000    # Nếu tổng chunk results > ngưỡng này → dùng hierarchical
+CONTEXT_RESERVE = 8000    # Nếu tổng chunk results > ngưỡng này → dùng hierarchical
 
 
 def calc_token_budget(
