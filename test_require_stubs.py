@@ -300,3 +300,21 @@ def test_extract_connected_for_chunk_fallback_path_unchanged():
         )
 
     mock_stubs.assert_not_called()
+
+
+def test_detect_context_mode_require_full():
+    from chunked_olm import _detect_context_mode
+    assert _detect_context_mode("-- [REQUIRE FULL: ./class.lua] ---\nlocal x=1") == "require_full"
+
+
+def test_detect_context_mode_require_module():
+    from chunked_olm import _detect_context_mode
+    assert _detect_context_mode("-- [REQUIRE MODULE: ./class.lua] ---\n-- MODULE: Class") == "require_module"
+
+
+def test_detect_context_mode_existing_modes_unchanged():
+    from chunked_olm import _detect_context_mode
+    assert _detect_context_mode("--[SIGONLY: foo]") == "signatures"
+    assert _detect_context_mode("-- COMPRESSED: Foo:Bar()") == "compressed"
+    assert _detect_context_mode("-- COMPACT: Foo:Bar()") == "compact"
+    assert _detect_context_mode("function Foo:Bar() end") == "full"

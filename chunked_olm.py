@@ -32,6 +32,10 @@ def _detect_context_mode(content: str) -> str:
         return "compressed"
     if "-- COMPACT:" in content:
         return "compact"
+    if "-- [REQUIRE FULL:" in content:
+        return "require_full"
+    if "-- [REQUIRE MODULE:" in content:
+        return "require_module"
     return "full"
 
 def _ensure_events_section(doc: str) -> str:
@@ -586,8 +590,15 @@ def process_chunked_file(
             max_total_tokens=CONTEXT_RESERVE,
         )
         if chunk_content:
-            mode = _detect_context_mode(chunk_content)
-            print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={mode}")
+            # Detect modes for func content and req stubs separately
+            func_mode = _detect_context_mode(chunk_content)
+            has_req_full = "-- [REQUIRE FULL:" in chunk_content
+            has_req_module = "-- [REQUIRE MODULE:" in chunk_content
+            req_mode = "require_full" if has_req_full else ("require_module" if has_req_module else None)
+            if req_mode:
+                print(f"    [CTX] Chunk {i}: {ref_count} refs, func_mode={func_mode} | req_stubs={req_mode}")
+            else:
+                print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={func_mode}")
         elif ref_count > 0:
             print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (require-only, không có function call)")
         else:
@@ -644,8 +655,14 @@ def process_chunked_file(
                 max_total_tokens=CONTEXT_RESERVE,
             )
             if chunk_content:
-                mode = _detect_context_mode(chunk_content)
-                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={mode}")
+                func_mode = _detect_context_mode(chunk_content)
+                has_req_full = "-- [REQUIRE FULL:" in chunk_content
+                has_req_module = "-- [REQUIRE MODULE:" in chunk_content
+                req_mode = "require_full" if has_req_full else ("require_module" if has_req_module else None)
+                if req_mode:
+                    print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, func_mode={func_mode} | req_stubs={req_mode}")
+                else:
+                    print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={func_mode}")
             elif ref_count > 0:
                 print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (require-only, không có function call)")
             else:
