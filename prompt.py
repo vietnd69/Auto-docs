@@ -11,6 +11,11 @@ from get_docs import (
     clean_model_output,
     get_lua_files,
 )
+from skills_loader import load_skill
+
+# Skill content loaded once at module import.
+_DST_CONV = load_skill("dst_conventions")
+_FEW_SHOT = load_skill("few_shot")
 
 
 def build_prompt(
@@ -59,12 +64,7 @@ All documentation text must be written in clear, concise English.
    {connected_content if connected_content else "No function source code available. Base your documentation solely on the target file's own code."}
 
 5. DST CODING CONVENTIONS
-   - DST uses an Entity Component System (ECS). Components are attached to entities via `inst:AddComponent("name")`.
-   - `self.inst` refers to the entity instance that owns this component.
-   - The constructor is defined as `Class(function(self, inst) ... end)`, NOT a traditional `_ctor` method.
-   - `inst:ListenForEvent(event, fn)` registers event listeners; `inst:PushEvent(event, data)` fires events.
-   - Tags are added/removed via `inst:AddTag("tag")` / `inst:RemoveTag("tag")` and checked with `inst:HasTag("tag")`.
-   - `self.inst.replica.X` refers to the network-replicated version of a component (client-server sync).
+{_DST_CONV}
 
 === TODAY'S DATE: {today_date} ===
 
@@ -144,71 +144,13 @@ If there are no events or listeners, omit this entire section.
 - HEADING LEVELS: Never skip heading levels. `###` must only appear under a `##` section. Do NOT introduce `####` or deeper unless absolutely necessary.
 - MDX COMPATIBILITY: Wrap any expression containing `<`, `>`, `<=`, `>=`, `{{`, or `}}` in inline code backticks (e.g., `Y <= 0.05`, `inst:HasTag("tag")`). Never leave bare angle brackets or curly braces in plain prose — Docusaurus MDX will fail to parse them as JSX.
 - CURLY BRACES: Do NOT use unescaped `{{` or `}}` in regular prose text. If required, use inline code backticks.
-- CONSTRUCTOR: If the constructor uses `Class(function(self, inst) ... end)` instead of `_ctor`, document it accordingly.
+- CONSTRUCTOR: If the constructor uses `Class(function(self, ...) ... end)` instead of `_ctor`, document it accordingly. The first parameter after `self` may be `inst`, `data`, or any other name.
 - NO CODE FENCES AROUND OUTPUT: Do NOT wrap the entire output in a markdown code fence (```).
 - NO FILLER TEXT: Do NOT include greetings, sign-offs, meta-commentary, or any text that is not part of the documentation itself.
 - NO EMOJIS OR UNICODE SYMBOLS: Do NOT use icons or special characters (e.g., ⚙️, ✅, ❌, 💡). Use plain text only.
 - IMPORTANT: Never repeat the same line or bullet point more than once. If you find yourself repeating, stop and move to the next item.
 
-=== FEW-SHOT EXAMPLE ===
-Below is a short example of the expected output format for a simple component. Use this as a reference for structure and tone — do NOT copy the content.
-
----
-id: samplecomp
-title: SampleComp
-description: Manages a simple timer-based buff on an entity.
-tags: [combat, buff]
-sidebar_position: 10
-
-last_updated: 2025-01-01
-build_version: 000000
-change_status: stable
-category_type: components
-source_hash: abc123
-system_scope: entity
----
-
-# SampleComp
-
-> Based on game build **000000** | Last updated: 2025-01-01
-
-## Overview
-`SampleComp` applies a timed damage buff to an entity. It is typically added to combat-capable prefabs and works alongside the `combat` component to modify outgoing damage for a fixed duration.
-
-## Usage example
-```lua
-local inst = CreateEntity()
-inst:AddComponent("samplecomp")
-inst.components.samplecomp:SetDuration(10)
-inst.components.samplecomp:Activate()
-```
-
-## Dependencies & tags
-**Components used:** `combat`
-**Tags:** Adds `buffed`; checks `debuffed`.
-
-## Properties
-| Property | Type | Default Value | Description |
-|----------|------|---------------|-------------|
-| `duration` | number | `0` | How long the buff lasts in seconds. |
-| `active` | boolean | `false` | Whether the buff is currently running. |
-
-## Main functions
-### `SetDuration(seconds)`
-*   **Description:** Sets the total duration of the buff.
-*   **Parameters:** `seconds` (number) - duration in seconds.
-*   **Returns:** Nothing.
-
-### `Activate()`
-*   **Description:** Starts the buff timer and adds the `buffed` tag.
-*   **Parameters:** None.
-*   **Returns:** Nothing.
-*   **Error states:** Returns early with no effect if `duration` is `<= 0`.
-
-## Events & listeners
-- **Listens to:** `onhitother` - refreshes the buff timer on hit.
-- **Pushes:** `buff_expired` - fired when the timer reaches zero.
-(End of example)
+{_FEW_SHOT}
 
 === SOURCE CODE ===
 {lua_code}
