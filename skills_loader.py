@@ -42,7 +42,10 @@ def _parse_index(index_path: str) -> dict[str, dict]:
                 entry["file"] = line[len("file:"):].strip()
             elif line.startswith("inject_into:"):
                 raw = line[len("inject_into:"):].strip()
-                entry["inject_into"] = yaml.safe_load(raw) or []
+                raw_list = yaml.safe_load(raw) or []
+                if not isinstance(raw_list, list):
+                    raw_list = [raw_list]
+                entry["inject_into"] = raw_list
 
         if "file" not in entry:
             raise ValueError(f"Skill '{name}' in index missing 'file:' field")
@@ -81,8 +84,14 @@ def load_skills_for(target: str, *, index_path: str = "docs_SKILL.md") -> dict[s
     Returns an empty dict if no skills match (not an error).
     """
     skills = _parse_index(index_path)
-    return {
-        name: load_skill(name, index_path=index_path)
-        for name, entry in skills.items()
-        if target in entry.get("inject_into", [])
-    }
+    root = Path(index_path).parent
+    result = {}
+    for name, entry in skills.items():
+        if target in entry.get("inject_into", []):
+            file_path = root / entry["file"]
+            if not file_path.exists():
+                raise FileNotFoundError(
+                    f"Skill file '{entry['file']}' not found (resolved to {file_path})"
+                )
+            result[name] = file_path.read_text(encoding="utf-8")
+    return result
