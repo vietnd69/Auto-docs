@@ -6,6 +6,9 @@ API:
     load_skills_for(target, *, index_path="docs_SKILL.md") -> dict[str, str]
 """
 from pathlib import Path
+import os as _os
+
+_DEFAULT_INDEX = _os.path.join(_os.path.dirname(__file__), "docs_SKILL.md")
 
 
 def _parse_index(index_path: str) -> dict[str, dict]:
@@ -55,7 +58,7 @@ def _parse_index(index_path: str) -> dict[str, dict]:
     return skills
 
 
-def load_skill(name: str, *, index_path: str = "docs_SKILL.md") -> str:
+def load_skill(name: str, *, index_path: str = _DEFAULT_INDEX) -> str:
     """Load a single skill by name. Returns raw markdown content (utf-8).
 
     Raises:
@@ -75,10 +78,15 @@ def load_skill(name: str, *, index_path: str = "docs_SKILL.md") -> str:
             f"Skill file '{skills[name]['file']}' not found (resolved to {file_path})"
         )
 
-    return file_path.read_text(encoding="utf-8")
+    content = file_path.read_text(encoding="utf-8")
+    # Strip the "# Skill: ..." metadata header if present
+    lines = content.split("\n", 1)
+    if lines[0].startswith("# Skill:"):
+        content = lines[1].lstrip("\n") if len(lines) > 1 else ""
+    return content
 
 
-def load_skills_for(target: str, *, index_path: str = "docs_SKILL.md") -> dict[str, str]:
+def load_skills_for(target: str, *, index_path: str = _DEFAULT_INDEX) -> dict[str, str]:
     """Return {name: content} for all skills whose inject_into includes target.
 
     Returns an empty dict if no skills match (not an error).
@@ -93,5 +101,10 @@ def load_skills_for(target: str, *, index_path: str = "docs_SKILL.md") -> dict[s
                 raise FileNotFoundError(
                     f"Skill file '{entry['file']}' not found (resolved to {file_path})"
                 )
-            result[name] = file_path.read_text(encoding="utf-8")
+            content = file_path.read_text(encoding="utf-8")
+            # Strip the "# Skill: ..." metadata header if present
+            lines = content.split("\n", 1)
+            if lines[0].startswith("# Skill:"):
+                content = lines[1].lstrip("\n") if len(lines) > 1 else ""
+            result[name] = content
     return result

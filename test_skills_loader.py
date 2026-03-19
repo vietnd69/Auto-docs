@@ -45,13 +45,13 @@ def _make_skill(dirpath: str, rel_path: str, content: str) -> str:
 def run_load_skill_tests():
     from skills_loader import load_skill
 
-    # T1: returns skill content
+    # T1: returns skill content (header is stripped by loader)
     with tempfile.TemporaryDirectory() as d:
         content = "# Skill: alpha\nHello world"
         _make_skill(d, "skills/alpha.md", content)
         idx = _make_index(d, [{"name": "alpha", "file": "skills/alpha.md", "inject_into": ["single_prompt"]}])
         result = load_skill("alpha", index_path=idx)
-        test("load_skill returns file content", result == content, f"got: {result!r}")
+        test("load_skill returns file content (header stripped)", result == "Hello world", f"got: {result!r}")
 
     # T2: unknown name raises KeyError
     with tempfile.TemporaryDirectory() as d:
@@ -71,13 +71,13 @@ def run_load_skill_tests():
         except FileNotFoundError:
             test("load_skill missing file raises FileNotFoundError", True)
 
-    # T4: reads utf-8 content correctly (Vietnamese characters)
+    # T4: reads utf-8 content correctly (Vietnamese characters, header stripped)
     with tempfile.TemporaryDirectory() as d:
         content = "# Skill: utf\nViệt Nam — DST"
         _make_skill(d, "skills/utf.md", content)
         idx = _make_index(d, [{"name": "utf_skill", "file": "skills/utf.md", "inject_into": ["single_prompt"]}])
         result = load_skill("utf_skill", index_path=idx)
-        test("load_skill reads utf-8 content", "Việt Nam" in result, f"got: {result!r}")
+        test("load_skill reads utf-8 content", "Việt Nam" in result and "# Skill:" not in result, f"got: {result!r}")
 
     # T5: malformed index — entry has no 'file:' line → ValueError
     with tempfile.TemporaryDirectory() as d:
