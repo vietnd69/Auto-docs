@@ -25,8 +25,8 @@ def _detect_file_type(display_filepath: str) -> str:
     """Returns 'component' or 'data_config' based on directory path.
 
     Expects a relative path as produced by main.py (e.g. './map/a.lua',
-    './components/combat.lua', './achievements.lua'). Behavior is undefined
-    for absolute paths.
+    './components/combat.lua', './achievements.lua'). Absolute paths are
+    unsupported and results are not guaranteed.
     """
     normalized = display_filepath.replace("\\", "/")
     if normalized.startswith("./"):
