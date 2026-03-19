@@ -14,8 +14,31 @@ from get_docs import (
 from skills_loader import load_skill
 
 # Skill content loaded once at module import.
-_DST_CONV = load_skill("dst_conventions")
-_FEW_SHOT = load_skill("few_shot")
+_DST_CONV           = load_skill("dst_conventions")
+_FEW_SHOT_COMPONENT = load_skill("few_shot")
+_FEW_SHOT_DATA      = load_skill("few_shot_data")
+
+_DATA_CONFIG_DIRS = {"map", "languages", "util"}
+
+
+def _detect_file_type(display_filepath: str) -> str:
+    """Returns 'component' or 'data_config' based on directory path.
+
+    Detection relies on display_filepath being a relative path (e.g. ./map/a.lua).
+    If an absolute path is passed, parts[0] will not match _DATA_CONFIG_DIRS and
+    the function safely falls back to 'component'.
+    """
+    normalized = display_filepath.replace("\\", "/")
+    if normalized.startswith("./"):
+        normalized = normalized[2:]
+    elif normalized.startswith("/"):
+        normalized = normalized.lstrip("/")
+    parts = normalized.split("/")
+    if len(parts) == 1:
+        return "data_config"
+    if parts[0].lower() in _DATA_CONFIG_DIRS:
+        return "data_config"
+    return "component"
 
 
 def build_prompt(
@@ -36,6 +59,11 @@ def build_prompt(
     Tạo prompt đầy đủ để gửi cho LLM tạo tài liệu cho một file Lua.
     Tất cả config (version, date, tree...) được truyền vào qua tham số.
     """
+    _few_shot = (
+        _FEW_SHOT_DATA
+        if _detect_file_type(display_filepath) == "data_config"
+        else _FEW_SHOT_COMPONENT
+    )
     return f"""You are an expert technical writer and a veteran mod developer for the game Don't Starve Together (DST).
 Your task is to analyze the Lua source file provided below and generate comprehensive, highly readable API reference documentation for modders and developers.
 All documentation text must be written in clear, concise English.
@@ -150,7 +178,7 @@ If there are no events or listeners, omit this entire section.
 - NO EMOJIS OR UNICODE SYMBOLS: Do NOT use icons or special characters (e.g., ⚙️, ✅, ❌, 💡). Use plain text only.
 - IMPORTANT: Never repeat the same line or bullet point more than once. If you find yourself repeating, stop and move to the next item.
 
-{_FEW_SHOT}
+{_few_shot}
 
 === SOURCE CODE ===
 {lua_code}
