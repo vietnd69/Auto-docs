@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Local 
+`D:/code/mod-document`
+
 ## RAG Search — mod-document
 
 Use the `local-rag` MCP server to search this codebase.
@@ -13,6 +16,11 @@ When asked about code in this project, call:
 - `lookup_symbol(symbol_name=..., workspace_id="mod-document")` — find class/function
 - `get_file_context(file_path=..., workspace_id="mod-document")` — full file content
 
+## .venv
+project use .venv
+not use system python
+call `./.venv/Scripts/Activate.ps1`
+use `python <file_name.py>`
 
 ## Project Overview
 

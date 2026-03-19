@@ -2,6 +2,7 @@ import os
 import signal
 import sys
 import config
+import shutdown
 
 from rag_get_fnc_content import extract_connected_content
 from get_docs import (
@@ -29,13 +30,10 @@ FILE_TREE = config.get_shared_file_tree()
 os.makedirs(DOCS_DIR, exist_ok=True)
 
 # === Ctrl+C handler ===
-stop_requested = False
-
 def handle_sigint(signum, frame):
-    global stop_requested
-    if not stop_requested:
-        print("\n\n[Hệ thống] Đã nhận Ctrl+C! Đang chờ hoàn thành file hiện tại...")
-        stop_requested = True
+    if not shutdown.stop_requested:
+        print("\n\n[Hệ thống] Đã nhận Ctrl+C! Đang chờ hoàn thành chunk hiện tại...")
+        shutdown.request_stop()
     else:
         print("\n\n[Hệ thống] Ép buộc dừng ngay!")
         sys.exit(1)
@@ -51,7 +49,7 @@ print(f"Model: {MODEL_NAME}")
 print("-" * 60)
 
 for filename in get_lua_files(LUA_DIR, deep=ENTER_DEEP_DIR):
-    if stop_requested:
+    if shutdown.stop_requested:
         print("[Hệ thống] Đã dừng vòng lặp an toàn.")
         break
 

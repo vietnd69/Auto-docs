@@ -18,6 +18,14 @@ from dataclasses import dataclass
 
 SCOPE_PATTERN = re.compile(r'^[a-z_]+$')  # lowercase letters and underscores only
 
+# Lua standard-library names that are always available and not worth listing as external deps
+_LUA_STDLIB = frozenset({
+    "math", "string", "table", "io", "os", "coroutine", "package", "debug",
+    "ipairs", "pairs", "next", "select", "type", "tostring", "tonumber",
+    "rawget", "rawset", "rawequal", "rawlen", "setmetatable", "getmetatable",
+    "pcall", "xpcall", "error", "assert", "print", "unpack",
+})
+
 
 @dataclass
 class PreSynthesisResult:
@@ -66,8 +74,9 @@ def _aggregate(chunks: list[dict]) -> PreSynthesisResult:
         "name"
     )
     external_deps = _dedup_by_key(
-        [d for c in chunks for d in c.get("external_deps", [])
-         if d.get("name") and d["name"] != "None"],
+        [_normalize_ext_dep(d) for c in chunks for d in c.get("external_deps", [])
+         if d.get("name") and d["name"] != "None"
+         and d["name"].split(".")[0] not in _LUA_STDLIB],
         "name"
     )
     deps = _dedup_by_key(
@@ -75,7 +84,8 @@ def _aggregate(chunks: list[dict]) -> PreSynthesisResult:
         "component"
     )
     props = _dedup_by_key(
-        [p for c in chunks for p in c.get("constructor_properties", [])],
+        [p for c in chunks for p in c.get("constructor_properties", [])
+         if isinstance(p, dict) and p.get("name") and p["name"] != "None"],
         "name"
     )
     listens = _dedup_by_key(
@@ -112,6 +122,14 @@ def _empty_result() -> PreSynthesisResult:
         dependencies=[], partial_descriptions=[], functions=[],
         events_listens=[], events_pushes=[], constructor_properties=[]
     )
+
+
+def _normalize_ext_dep(dep: dict) -> dict:
+    """Normalize GLOBAL.X → GLOBAL so all sub-field accesses collapse to one entry."""
+    name = dep.get("name", "")
+    if name.startswith("GLOBAL."):
+        return dict(dep, name="GLOBAL")
+    return dep
 
 
 def _dedup_by_key(items: list[dict], key: str) -> list[dict]:

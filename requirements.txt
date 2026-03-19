@@ -24,3 +24,6 @@ pydantic
 # Frontmatter
 python-frontmatter
 emoji
+
+# Test
+pytest

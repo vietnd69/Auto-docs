@@ -101,7 +101,7 @@ def clean_model_output(text: str) -> str:
     """
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     text = text.strip()
-    text = re.sub(r'^```(?:markdown)?\n?', '', text)
+    text = re.sub(r'^```\w*\n?', '', text)
     text = re.sub(r'\n?```$', '', text)
     return text.strip()
 

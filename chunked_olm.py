@@ -18,6 +18,7 @@ import time
 import json
 from pathlib import Path
 import config
+import shutdown
 
 # ── Checkpoint System ──────────────────────────────────────────
 
@@ -226,9 +227,9 @@ def generate_chunk_analysis(
         lines_count = result.count("\n") + 1
         print(f"    [{label} {chunk_index}/{total_chunks}] Xong — {lines_count} dòng kết quả")
 
-        if sleep_time > 0:
+        if sleep_time > 0 and not shutdown.stop_requested:
             print(f"    Đang nghỉ {sleep_time} giây...")
-            time.sleep(sleep_time)
+            shutdown.interruptible_sleep(sleep_time)
 
         return result
 
@@ -282,7 +283,7 @@ def generate_merged_doc(
                 print(f"    [Merge] Lần {attempt}/{max_retries} — model trả về rỗng")
                 if attempt < max_retries:
                     print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
-                    time.sleep(retry_delay)
+                    shutdown.interruptible_sleep(retry_delay)
                 continue
 
             md_content = _ensure_events_section(md_content)
@@ -302,9 +303,9 @@ def generate_merged_doc(
                 print(f"    [Merge] Thành công ở lần {attempt}")
             print(f"    [Merge] Đã tạo {md_filename}")
 
-            if sleep_time > 0:
+            if sleep_time > 0 and not shutdown.stop_requested:
                 print(f"    Đang nghỉ {sleep_time} giây...")
-                time.sleep(sleep_time)
+                shutdown.interruptible_sleep(sleep_time)
 
             return md_filename
 
@@ -312,7 +313,7 @@ def generate_merged_doc(
             print(f"    [Merge] Lần {attempt}/{max_retries} lỗi: {e}")
             if attempt < max_retries:
                 print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
-                time.sleep(retry_delay)
+                shutdown.interruptible_sleep(retry_delay)
 
     print(f"    [Lỗi] Merge thất bại cho {md_filename} sau {max_retries} lần thử")
     return None
@@ -575,6 +576,9 @@ def process_chunked_file(
     failed_indices: list[int] = list(pending_retries)  # giữ lại lỗi từ lần trước
 
     for i, chunk_code in enumerate(chunks, 1):
+        if shutdown.stop_requested:
+            print("  [Hệ thống] Đã dừng chunked pipeline sau chunk hiện tại.")
+            break
         # Skip các chunk đã xử lý
         if i - 1 <= resume_from:
             continue
@@ -629,21 +633,30 @@ def process_chunked_file(
         )
 
         if result:
-            chunk_results[i] = result
-            save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
+            try:
+                json.loads(result)
+                chunk_results[i] = result
+                save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
+            except json.JSONDecodeError:
+                print(f"    [Cảnh báo] Chunk {i} JSON không hợp lệ, sẽ retry.")
+                failed_indices.append(i)
+                save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
         else:
             failed_indices.append(i)
             print(f"    [Cảnh báo] Chunk {i} thất bại.")
             save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
 
     # ── RETRY LOOP — chạy sau khi hoàn thành 100/100 ──
-    if failed_indices:
+    if failed_indices and not shutdown.stop_requested:
         print(f"\n  [RETRY] {len(failed_indices)} chunk thất bại: {failed_indices}")
         print(f"  [RETRY] Bắt đầu retry (tối đa 3 lần, cách nhau 30s)...")
 
         still_failing: list[int] = []
 
         for chunk_i in failed_indices:
+            if shutdown.stop_requested:
+                still_failing.extend(failed_indices[failed_indices.index(chunk_i):])
+                break
             chunk_code = chunks[chunk_i - 1]  # chunks list là 0-based
 
             # Per-chunk context cho retry
@@ -695,11 +708,16 @@ def process_chunked_file(
                     label=f"Retry-{attempt}",
                 )
                 if result:
-                    chunk_results[chunk_i] = result
-                    save_checkpoint(comp_name, chunk_results, total_chunks - 1, still_failing)
-                    print(f"    [Retry] Chunk {chunk_i} thành công ở lần {attempt}.")
-                    success = True
-                    break
+                    try:
+                        json.loads(result)
+                        chunk_results[chunk_i] = result
+                        save_checkpoint(comp_name, chunk_results, total_chunks - 1, still_failing)
+                        print(f"    [Retry] Chunk {chunk_i} thành công ở lần {attempt}.")
+                        success = True
+                        break
+                    except json.JSONDecodeError:
+                        if attempt < 3:
+                            print(f"    [Retry] Lần {attempt} JSON không hợp lệ, thử lại...")
                 elif attempt < 3:
                     print(f"    [Retry] Lần {attempt} thất bại, thử lại sau 30s...")
 
@@ -765,7 +783,8 @@ def process_chunked_file(
     )
 
     if result_filename:
-        clear_checkpoint(comp_name)
+        # Giữ lại chunk checkpoint để kiểm tra lại nếu output LLM bị lỗi.
+        # Chỉ xóa merge checkpoint vì nó không còn cần thiết sau khi merge xong.
         clear_merge_checkpoint(comp_name)
 
     return result_filename
