@@ -48,6 +48,13 @@ PROPERTIES TABLE:
 - If no properties exist, write header and separator row only (no data rows).
 - Do NOT invent properties not in the constructor JSON.
 
+DATA CONFIG FILE PROPERTIES:
+- When the source has no constructor (returns a plain table/array), document BOTH:
+  1. The top-level container (the returned global/local table variable).
+  2. The schema of each individual record entry: list every key present in the record tables
+     (e.g., `name`, `id.steam`, `id.psn` for achievement records).
+- Never document only the container and omit the record schema.
+
 COMPLETENESS:
 - Keep ALL functions — never drop trivial getters/setters.
 - If a function appears in multiple chunks, prefer the entry with more parameter/return detail.
@@ -55,14 +62,18 @@ COMPLETENESS:
 - If a field has no data, use "None" (string) or [] (empty array) — never omit the field.
 
 OVERVIEW WRITING:
-- State: what this component does + its role in the ECS system.
-- Mention key relationships with other components (from Connected Files context).
+- [Component] State: what this component does + its role in the ECS system.
+  Mention key relationships with other components (from Connected Files context).
+- [Data config] State: what static data this file defines, how it is structured,
+  and how other systems access it via require(). Do NOT describe it as a component
+  or reference the ECS system.
 - 2-5 sentences. No padding.
 
 USAGE EXAMPLE WRITING:
-- Show realistic Lua: `CreateEntity()`, `AddComponent`, then call 2-3 primary functions.
-- 5-15 lines. Use the component's actual function names from the documentation.
-- No generic placeholder names.
+- [Component] Show realistic Lua: `CreateEntity()`, `AddComponent`, then call 2-3 primary functions.
+- [Data config] Show `require()` followed by index access to the returned table (e.g., `Table[1]`).
+  Do NOT use `CreateEntity()`, `AddComponent`, or `inst.components`.
+- 5-15 lines. Use the component's actual function names from the documentation. No generic placeholder names.
 
 INCOMPLETE FUNCTION HANDLING (chunk boundary):
 - If a function body is cut off at chunk boundary, keep it and note "INCOMPLETE — continues in adjacent chunk".
