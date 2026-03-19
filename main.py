@@ -32,8 +32,9 @@ os.makedirs(DOCS_DIR, exist_ok=True)
 # === Ctrl+C handler ===
 def handle_sigint(signum, frame):
     if not shutdown.stop_requested:
-        print("\n\n[Hệ thống] Đã nhận Ctrl+C! Đang chờ hoàn thành chunk hiện tại...")
+        print("\n\n[Hệ thống] Đã nhận Ctrl+C! Checkpoint đã lưu, đang dừng...")
         shutdown.request_stop()
+        raise KeyboardInterrupt  # Ngắt blocking HTTP call ngay lập tức
     else:
         print("\n\n[Hệ thống] Ép buộc dừng ngay!")
         sys.exit(1)
@@ -119,35 +120,39 @@ for filename in get_lua_files(LUA_DIR, deep=ENTER_DEEP_DIR):
     if token_count >= 0:
         print(f"  [PROMPT] Độ dài: {token_count} tokens")
 
-    if needs_chunking(prompt_text):
-        # === CHUNKED PIPELINE — full prompt > 32K token ===
-        print(f"  [CHUNKED] Prompt quá dài ({token_count} tokens), dùng chunked pipeline")
-        result = process_chunked_file(
-            comp_name=comp_name,
-            comp_title=comp_title,
-            display_filepath=display_filepath,
-            lua_code=lua_code,
-            connected_section=connected_section,
-            connected_content=connected_content,
-            source_hash=source_hash,
-            md_filepath=md_filepath,
-            full_refs=lua_refs,
-            file_tree=FILE_TREE,
-            today_date=TODAY_DATE,
-            version=VERSION,
-            category_type=CATEGORY_TYPE,
-            model_name=MODEL_NAME,
-            chunk_sleep=10,
-            merge_sleep=20,
-        )
-    else:
-        # === PIPELINE BÌNH THƯỜNG — prompt vừa vặn ===
-        result = generate_doc(
-            prompt=prompt_text,
-            md_filepath=md_filepath,
-            model_name=MODEL_NAME,
-            sleep_time=20,
-        )
+    try:
+        if needs_chunking(prompt_text):
+            # === CHUNKED PIPELINE — full prompt > 32K token ===
+            print(f"  [CHUNKED] Prompt quá dài ({token_count} tokens), dùng chunked pipeline")
+            result = process_chunked_file(
+                comp_name=comp_name,
+                comp_title=comp_title,
+                display_filepath=display_filepath,
+                lua_code=lua_code,
+                connected_section=connected_section,
+                connected_content=connected_content,
+                source_hash=source_hash,
+                md_filepath=md_filepath,
+                full_refs=lua_refs,
+                file_tree=FILE_TREE,
+                today_date=TODAY_DATE,
+                version=VERSION,
+                category_type=CATEGORY_TYPE,
+                model_name=MODEL_NAME,
+                chunk_sleep=10,
+                merge_sleep=20,
+            )
+        else:
+            # === PIPELINE BÌNH THƯỜNG — prompt vừa vặn ===
+            result = generate_doc(
+                prompt=prompt_text,
+                md_filepath=md_filepath,
+                model_name=MODEL_NAME,
+                sleep_time=20,
+            )
+    except KeyboardInterrupt:
+        # File có thể đã được ghi thành công trước khi bị ngắt (ví dụ: ngắt trong lúc sleep)
+        result = os.path.basename(md_filepath) if os.path.exists(md_filepath) else None
 
     if result:
         stats["processed"] += 1
