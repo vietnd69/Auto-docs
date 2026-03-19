@@ -19,4 +19,4 @@ inject_into: [single_prompt]
 
 ## few_shot_data
 file: skills/few_shot_data.md
-inject_into: [single_prompt]
+inject_into: [single_prompt, merge_prompt]

@@ -1,6 +1,8 @@
 # Skill: few_shot_data
 
 === FEW-SHOT EXAMPLE (DATA CONFIG FILE) ===
+HOW TO DETECT: source file has NO Class() constructor, no self.inst,
+and returns a plain table/array at top level → use this example, NOT the component example.
 Use this structure when the source file defines a static data table with no constructor. Mirror this format only — do NOT copy the content.
 
 ---
@@ -31,8 +33,8 @@ local SampleRegistry = require "sampleregistry"
 -- Access an entry by its array index
 local first = SampleRegistry[1]
 print(first.name)        -- "entry_alpha"
-print(first.id.platform) -- "1_entry_alpha"
-print(first.id.numeric)  -- 1
+print(first.id.steam) -- "1_entry_alpha"
+print(first.id.psn)   -- 1
 ```
 
 ## Dependencies & tags
@@ -44,16 +46,16 @@ print(first.id.numeric)  -- 1
 |----------|------|---------------|-------------|
 | `SampleRegistry` | table | — | Array-indexed global table of record tables; position corresponds to numeric ID order. |
 | `name` | string | — | Internal lowercase underscore-separated name used in code (e.g., `"entry_alpha"`). |
-| `id.platform` | string | — | Platform string identifier, formatted as `<id>_<name>`. |
-| `id.numeric` | number | — | Platform numeric identifier from the platform definition file. |
+| `id.steam` | string | — | Steam string identifier, formatted as `<id>_<name>` (e.g., `"1_entry_alpha"`). |
+| `id.psn` | number | — | PSN numeric ID from the platform definition file. |
 
 ## Main functions
 ### `ENTRY(id, name)`
 *   **Description:** Factory function that constructs a registry record with platform-specific IDs.
 *   **Parameters:**
-    *   `id` (string or number) — base identifier; converted to string for the platform string field and kept as number for the numeric field.
+    *   `id` (string or number) — base identifier; stored as string for steam via `tostring(id).."_"..name` concatenation; kept as-is (number) for psn.
     *   `name` (string) — internal name used in code.
-*   **Returns:** `{ name = name, id = { platform = tostring(id).."_"..name, numeric = id } }`
+*   **Returns:** `{ name = name, id = { steam = tostring(id).."_"..name, psn = id } }`
 *   **Error states:** None.
 
 ## Events & listeners

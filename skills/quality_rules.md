@@ -43,17 +43,27 @@ CONSTRUCTOR RULE:
 - Document `Class(function(self, ...) ... end)` constructors accordingly.
 - The first parameter after `self` may be `inst`, `data`, or any other name — document as-is.
 
+FILE TYPE CLASSIFICATION (determine before writing any section):
+- DATA CONFIG FILE: no Class() constructor, no self.inst, returns a plain table/array.
+  → MUST apply ALL [Data config] rules. Do NOT use [Component] patterns.
+  → Consult the HOW TO DETECT note at the top of the data config few-shot example.
+- COMPONENT FILE: has Class(function(self, ...) ... end) constructor.
+  → MUST apply ALL [Component] rules. Do NOT use [Data config] patterns.
+When signals are mixed (e.g., local helper functions that resemble constructors),
+check: does the file's top-level return value contain a plain array/table, not a class instance?
+If yes → DATA CONFIG FILE.
+
 PROPERTIES TABLE:
 - Columns: Property | Type | Default Value | Description
 - If no properties exist, write header and separator row only (no data rows).
 - Do NOT invent properties not in the constructor JSON.
 
 DATA CONFIG FILE PROPERTIES:
-- When the source has no constructor (returns a plain table/array), document BOTH:
-  1. The top-level container (the returned global/local table variable).
-  2. The schema of each individual record entry: list every key present in the record tables
-     (e.g., `name`, `id.steam`, `id.psn` for achievement records).
-- Never document only the container and omit the record schema.
+MUST document TWO groups of rows in this order:
+  1. The top-level container variable (the returned global/local table).
+  2. One row per key in each record entry (e.g., name, id.steam, id.psn).
+NEVER document only the container and omit the record schema.
+NEVER use a real default value for record fields — always write "—" (em dash).
 
 COMPLETENESS:
 - Keep ALL functions — never drop trivial getters/setters.
@@ -62,6 +72,7 @@ COMPLETENESS:
 - If a field has no data, use "None" (string) or [] (empty array) — never omit the field.
 
 OVERVIEW WRITING:
+(As classified above — see FILE TYPE CLASSIFICATION.)
 - [Component] State: what this component does + its role in the ECS system.
   Mention key relationships with other components (from Connected Files context).
 - [Data config] State: what static data this file defines, how it is structured,
@@ -70,6 +81,7 @@ OVERVIEW WRITING:
 - 2-5 sentences. No padding.
 
 USAGE EXAMPLE WRITING:
+(As classified above — see FILE TYPE CLASSIFICATION.)
 - [Component] Show realistic Lua: `CreateEntity()`, `AddComponent`, then call 2-3 primary functions.
 - [Data config] Show `require()` followed by index access to the returned table (e.g., `Table[1]`).
   Do NOT use `CreateEntity()`, `AddComponent`, or `inst.components`.
