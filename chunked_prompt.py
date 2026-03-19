@@ -15,55 +15,13 @@ import json
 
 from prompt import build_prompt as build_single_prompt  # noqa: F401
 from pre_synthesis import PreSynthesisResult
+from skills_loader import load_skill
 
-_FUNCTION_FORMAT_SPEC = """
-=== FUNCTION FORMAT ===
-Use EXACTLY this structure for every entry in ## Main functions:
-
-### `FunctionName(params)`
-* **Description:** What this function does and when it is called.
-* **Parameters:** For a single param: `param` -- type and purpose.
-  For multiple params, use sub-bullets:
-  - `param1` -- description
-  - `param2` -- description
-  Write `None` if the function takes no parameters.
-* **Returns:** Return value description, or `nil` if nothing is returned.
-* **Error states:** Edge cases or early returns. Omit this bullet entirely if none.
-
-=== DEPENDENCY SECTION FORMAT ===
-Use EXACTLY these labels in ## Dependencies & tags:
-
-**External dependencies:**
-- `name` -- usage description
-(Omit this bullet entirely if external_deps JSON is empty)
-
-**Components used:**
-- `component_name` -- how it is used (methods called, properties accessed)
-
-**Tags:**
-- `tag_name` -- add / remove / check
-
-=== FEW-SHOT EXAMPLE ===
-Mirror this format only. Do NOT copy the content:
-
-### `ConsoleCommandPlayer()`
-* **Description:** Returns the currently selected debug entity, the local player, or the first valid player in AllPlayers.
-* **Parameters:** None
-* **Returns:** Player instance or `nil` if no valid player found.
-
-### `c_spawn(prefab, count, dontselect)`
-* **Description:** Spawns `count` instances of `prefab` at console position. Auto-selects first spawned unless `dontselect`.
-* **Parameters:**
-  - `prefab` -- string prefab name
-  - `count` -- number of instances (default `1`)
-  - `dontselect` -- boolean to skip auto-selection
-* **Returns:** Last spawned instance, or `nil`.
-
-### `c_save()`
-* **Description:** Triggers a save on master sim.
-* **Parameters:** None
-* **Returns:** None
-"""
+# Skill content loaded once at module import — injected into f-string prompts below.
+# IMPORTANT: _FUNCTION_FORMAT_SPEC must keep this exact name — test_chunk_prompts.py
+# imports it directly: `from chunked_prompt import ..., _FUNCTION_FORMAT_SPEC`
+_FUNCTION_FORMAT_SPEC = load_skill("function_format")   # replaces inline constant; name preserved for test compat
+_DST_CONV             = load_skill("dst_conventions")
 
 
 # TODO(format-consistency): apply _FUNCTION_FORMAT_SPEC here when legacy path is retired
@@ -178,12 +136,7 @@ Your task is to extract ALL functions, properties, events, dependencies, and tag
    {connected_content if connected_content else "No function source code available. Base your analysis solely on the target file's own code."}
 
 5. DST CODING CONVENTIONS
-   - DST uses an Entity Component System (ECS). Components are attached to entities via `inst:AddComponent("name")`.
-   - `self.inst` refers to the entity instance that owns this component.
-   - The constructor is defined as `Class(function(self, inst) ... end)`, NOT a traditional `_ctor` method.
-   - `inst:ListenForEvent(event, fn)` registers event listeners; `inst:PushEvent(event, data)` fires events.
-   - Tags are added/removed via `inst:AddTag("tag")` / `inst:RemoveTag("tag")` and checked with `inst:HasTag("tag")`.
-   - `self.inst.replica.X` refers to the network-replicated version of a component (client-server sync).
+{_DST_CONV}
 
 === OUTPUT FORMAT ===
 
@@ -205,7 +158,10 @@ JSON SCHEMA:
   "functions": [
     {{
       "name": "<function name>",
-      "params": "<comma-separated parameter list>",
+      "params": "<comma-separated parameter list, used in function signature heading>",
+      "parameters": [
+        {{"name": "<param_name>", "description": "<type and purpose of this parameter>"}}
+      ],
       "description": "<what this function does>",
       "returns": "<return value description, or 'nil'>",
       "error_states": "<edge cases or early returns, or 'None'>",
@@ -230,15 +186,21 @@ JSON SCHEMA:
 === FIELD RULES ===
 - partial_description: One complete English sentence summarizing THIS chunk's content.
 - suggested_scope: Your best guess for the component's system scope based on this chunk.
-- constructor_properties: All `self.X = value` assignments found in the constructor. Use empty array [] if no constructor in this chunk.
+- constructor_properties: All `self.X = value` assignments found inside any `Class(function(self, ...) ... end)` block in this chunk.
+  This applies regardless of what the first parameter is named (inst, data, etc.).
+  Use empty array [] if no `Class(...)` block exists in this chunk.
 - functions: ALL functions found. Set "incomplete": true if a function is cut off at chunk boundary.
+- functions[].params: Comma-separated parameter names only (used in `### FunctionName(params)` heading).
+- functions[].parameters: Array with one entry per parameter — name and full description (type, purpose, valid values). Use empty array [] if function takes no parameters.
 - events.listens_to: All `inst:ListenForEvent(...)` calls. Use empty array [] if none.
 - events.pushes: All `inst:PushEvent(...)` calls. Use empty array [] if none.
 - dependencies: All external components referenced (e.g., `inst.components.health`). Use empty array [] if none.
 - game_tags: All `AddTag`, `RemoveTag`, `HasTag` calls. Use empty array [] if none found.
-- external_deps: All `require("module")` calls AND any reference to DST globals:
+- external_deps: All `require("module")` calls AND direct references to these DST global singletons:
   `TheWorld`, `TheNet`, `ThePlayer`, `GLOBAL`, `AllPlayers`, `TheSim`, `TheInput`, `TheCamera`.
-  For each, write a short description of how it is used in this chunk.
+  One entry per unique module/singleton name — do NOT create a separate entry for each `GLOBAL.X`
+  field access; record the whole pattern as a single entry named `GLOBAL`.
+  Do NOT include Lua standard-library names (math, string, table, ipairs, pairs, etc.).
   Use empty array [] if none found.
 - For any field with no data, use "None" (string) for string fields or [] (empty array) for array fields.
 
@@ -311,12 +273,7 @@ Your task is to format this data into a well-organized Markdown document and wri
    {connected_content if connected_content else "No function source code available."}
 
 5. DST CODING CONVENTIONS
-   - DST uses an Entity Component System (ECS). Components are attached to entities via `inst:AddComponent("name")`.
-   - `self.inst` refers to the entity instance that owns this component.
-   - The constructor is defined as `Class(function(self, inst) ... end)`, NOT a traditional `_ctor` method.
-   - `inst:ListenForEvent(event, fn)` registers event listeners; `inst:PushEvent(event, data)` fires events.
-   - Tags are added/removed via `inst:AddTag("tag")` / `inst:RemoveTag("tag")` and checked with `inst:HasTag("tag")`.
-   - `self.inst.replica.X` refers to the network-replicated version of a component (client-server sync).
+{_DST_CONV}
 
 === PARTIAL DESCRIPTIONS (one per chunk) ===
 Synthesize these into a single description sentence for the YAML frontmatter.
@@ -352,8 +309,12 @@ YOUR TASKS:
 2. Write `## Overview` — comprehensive summary of the entire component.
 3. Write `## Usage example` — 5-15 lines Lua code snippet demonstrating typical usage.
 4. Format `## Properties` — render the PROPERTIES JSON as a markdown table. Do not invent or omit entries.
+   If the PROPERTIES JSON array is empty ([]), write the table header and separator row only (no data rows):
+   `| Property | Type | Default Value | Description |\n|----------|------|---------------|-------------|`
 5. Format `## Main functions` using EXACTLY the FUNCTION FORMAT defined in the FORMAT SPECIFICATION section below.
    Deduplicate by function name; prefer the entry with more parameter/return detail.
+   For each function's `* **Parameters:**`: use the `parameters` array from the JSON (name + description per entry).
+   If the `parameters` array is empty or absent, write `None`.
 6. Format `## Events & listeners` — render the EVENTS JSON as bullet lists.
 7. Format `## Dependencies & tags` using EXACTLY the DEPENDENCY SECTION FORMAT defined in the FORMAT SPECIFICATION section below, including External dependencies from EXTERNAL DEPENDENCIES JSON (omit External dependencies bullet if empty).
 
@@ -371,7 +332,7 @@ build_version: {version}
 change_status: stable
 category_type: {category_type}
 source_hash: {source_hash}
-system_scope: <REVIEW hint "{presynthesis.system_scope}" — set the most accurate value from the allowed list based on the Overview you are writing>
+system_scope: <REVIEW hint {presynthesis.system_scope} — set the most accurate value from the allowed list based on the Overview you are writing>
 ---
 
 # {comp_title}
@@ -463,12 +424,7 @@ Below are the analysis results from each portion. Your task is to MERGE them int
    {connected_content if connected_content else "No function source code available."}
 
 5. DST CODING CONVENTIONS
-   - DST uses an Entity Component System (ECS). Components are attached to entities via `inst:AddComponent("name")`.
-   - `self.inst` refers to the entity instance that owns this component.
-   - The constructor is defined as `Class(function(self, inst) ... end)`, NOT a traditional `_ctor` method.
-   - `inst:ListenForEvent(event, fn)` registers event listeners; `inst:PushEvent(event, data)` fires events.
-   - Tags are added/removed via `inst:AddTag("tag")` / `inst:RemoveTag("tag")` and checked with `inst:HasTag("tag")`.
-   - `self.inst.replica.X` refers to the network-replicated version of a component (client-server sync).
+{_DST_CONV}
 
 === CHUNK ANALYSIS RESULTS ===
 {merged_chunks}
