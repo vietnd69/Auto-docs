@@ -24,9 +24,9 @@ _DATA_CONFIG_DIRS = {"map", "languages", "util"}
 def _detect_file_type(display_filepath: str) -> str:
     """Returns 'component' or 'data_config' based on directory path.
 
-    Detection relies on display_filepath being a relative path (e.g. ./map/a.lua).
-    If an absolute path is passed, parts[0] will not match _DATA_CONFIG_DIRS and
-    the function safely falls back to 'component'.
+    Expects a relative path as produced by main.py (e.g. './map/a.lua',
+    './components/combat.lua', './achievements.lua'). Behavior is undefined
+    for absolute paths.
     """
     normalized = display_filepath.replace("\\", "/")
     if normalized.startswith("./"):
