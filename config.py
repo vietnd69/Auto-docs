@@ -16,7 +16,8 @@ BASE_LUA_DIR = str(PROJECT_ROOT / "dst-scripts")
 BASE_DOCS_DIR = str(PROJECT_ROOT / "dst-api-webdocs" / "docs")
 
 # === LLM CONFIG ===
-MODEL_NAME = "qwen3-coder-next:cloud"
+# MODEL_NAME = "qwen3-coder-next:cloud"
+MODEL_NAME = "qwen3.5:cloud"
 COMPRESSION_MODEL = MODEL_NAME   # dùng cùng model, có thể override sang model nhỏ hơn
 COMPRESSION_CACHE_DIR = str(PROJECT_ROOT / ".cache" / "compression_cache")
 STUB_FULL_THRESHOLD = 400   # tokens — require-only files smaller than this are included in full
