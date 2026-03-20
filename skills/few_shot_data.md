@@ -42,6 +42,7 @@ print(first.id.psn)   -- 1
 **Tags:** None identified
 
 ## Properties
+<!-- RULE: Each dot-notation sub-key (id.steam, id.psn) gets its own row. Never collapse into a single "id" row. -->
 | Property | Type | Default Value | Description |
 |----------|------|---------------|-------------|
 | `SampleRegistry` | table | — | Array-indexed global table of record tables; position corresponds to numeric ID order. |
@@ -50,6 +51,7 @@ print(first.id.psn)   -- 1
 | `id.psn` | number | — | PSN numeric ID from the platform definition file. |
 
 ## Main functions
+<!-- REQUIRED: Local factory functions like ENTRY() MUST be documented here — they define the record schema. Do NOT skip because they are local. -->
 ### `ENTRY(id, name)`
 *   **Description:** Factory function that constructs a registry record with platform-specific IDs.
 *   **Parameters:**

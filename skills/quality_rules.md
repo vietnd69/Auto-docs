@@ -64,6 +64,15 @@ MUST document TWO groups of rows in this order:
   2. One row per key in each record entry (e.g., name, id.steam, id.psn).
 NEVER document only the container and omit the record schema.
 NEVER use a real default value for record fields — always write "—" (em dash).
+NEVER write "nil" as a default — that is a real default value. Use "—" only.
+Nested table fields accessed via dot notation (id.steam, id.psn) MUST each be
+their own property row. Never collapse them into a single parent row (e.g., id).
+
+DATA CONFIG FILE MAIN FUNCTIONS:
+Local factory/builder functions that construct record entries (e.g., ACHIEVEMENT(),
+ENTRY()) MUST be documented in ## Main functions — they define the record schema
+and are part of the data API. Do NOT treat them as internal implementation details
+or skip them because they are local.
 
 COMPLETENESS:
 - Keep ALL functions — never drop trivial getters/setters.
