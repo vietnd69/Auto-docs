@@ -1,0 +1,12 @@
+[project]
+name = "mod-document-llm"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["ollama", "tiktoken", "python-dotenv"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

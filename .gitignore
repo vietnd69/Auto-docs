@@ -1,33 +1,38 @@
-# # python
-__pycache__
-.venv
-node_modules
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Environment
 .env
+node_modules/
 
-# # rag
-dst_chroma_db/*
+# RAG database
+dst_chroma_db/
 
-# # ref
+# Reference scripts (external)
 dst-scripts
 
+# Test artifacts
 test*.md
 test*.txt
 simulate**
 
-# node
-validator/node_modules/*
+# Runtime data (auto-generated)
+data/diff_tracker.json
+data/file_tracker.json
+data/diff_report.json
+data/diff_log.txt
+data/version_log.txt
 
-# validator
-validator/__pycache__/*
-
-# cache
+# Caches & temp
+tmp/
+.cache/
 *.cache
 .claude
+.pytest_cache
 
-diff_log.txt
-diff_report.json
-diff_tracker.json
-file_tracker.json
+# Logs
 format_errors.txt
 *.log
 nul

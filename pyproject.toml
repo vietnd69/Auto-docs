@@ -1,0 +1,5 @@
+[tool.uv.workspace]
+members = ["llm", "core", "rag", "prompts", "watcher", "validator"]
+
+[tool.uv]
+dev-dependencies = ["pytest>=8.0"]
