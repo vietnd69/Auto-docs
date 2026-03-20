@@ -114,7 +114,13 @@ mod-document/
 │
 ├── dst-scripts/                ← không thay đổi
 ├── docs/                       ← không thay đổi
-├── skills/                     ← không thay đổi
+├── skills/                     ← không thay đổi + nhận thêm docs_SKILL.md từ root
+│   ├── docs_SKILL.md           ← MOVE từ root (gộp chung skill files)
+│   ├── dst_conventions.md
+│   ├── few_shot.md
+│   ├── few_shot_data.md
+│   ├── function_format.md
+│   └── quality_rules.md
 ├── tmp/                        ← gitignored
 ├── dst_chroma_db/              ← gitignored
 ├── pyproject.toml              ← workspace root
@@ -261,7 +267,7 @@ core.pipeline  ←── prompts (templates + pre_synthesis)
 ### Giai đoạn 2 — Di chuyển file (bottom-up, ít dependency trước)
 1. `llm/` — tách `ollama_chat` từ `config.py`, tách `count_tokens` từ `chunked.py`
 2. `watcher/` — `get_diff_update.py`, `patch_hash.py`; `simulate_changes.py` → `watcher/scripts/`
-3. `prompts/` — `prompt.py`, `chunked_prompt.py`, `update_prompt.py`, `pre_synthesis.py`, `skills_loader.py`
+3. `prompts/` — `prompt.py`, `chunked_prompt.py`, `update_prompt.py`, `pre_synthesis.py`, `skills_loader.py`; move `docs_SKILL.md` → `skills/docs_SKILL.md`
 4. `rag/` — `rag.py`, `rag_get_fnc_content.py`, `get_docs.py`
 5. `core/` — `main.py`, `config.py` (phần còn lại), `olm.py`, `chunked_olm.py`, `chunked.py` (split logic), `update_docs.py`, `get_tree.py`, `shutdown.py`
 
@@ -277,7 +283,7 @@ Các file sau dùng `"./..."` paths cứng, cần đổi sang resolve từ works
 | `get_diff_update.py` → `watcher/src/watcher/diff.py` | `DIFF_TRACKER`, `DIFF_LOG`, `DIFF_REPORT`, `VERSION_LOG` | `Path(__file__).parents[3] / "data" / "..."` |
 | `update_docs.py` → `core/src/core/update/docs.py` | `DIFF_REPORT` | `Path(__file__).parents[4] / "data" / "diff_report.json"` |
 | `rag.py` → `rag/src/rag/search.py` | `TRACKER_FILE` | `Path(__file__).parents[3] / "data" / "file_tracker.json"` |
-| `skills_loader.py` → `prompts/src/prompts/skills_loader.py` | `_DEFAULT_INDEX` (trỏ `docs_SKILL.md`) | `Path(__file__).parents[3] / "skills" / "docs_SKILL.md"` |
+| `skills_loader.py` → `prompts/src/prompts/skills_loader.py` | `_DEFAULT_INDEX` (trỏ `docs_SKILL.md`) | `Path(__file__).parents[3] / "skills" / "docs_SKILL.md"` (sau khi move vào `skills/`) |
 
 **Ghi chú độ sâu `parents`:**
 - Package ở `<pkg>/src/<pkg>/file.py` → `parents[2]` = package root, `parents[3]` = workspace root
@@ -325,7 +331,7 @@ uv run pytest
 
 - `dst-scripts/` — Lua source input
 - `docs/` — generated Markdown output
-- `skills/` — skills data
+- `skills/` — skills data (nhận thêm `docs_SKILL.md` từ root)
 - `validator/` code — chỉ thêm `pyproject.toml`
 - `dst_chroma_db/` — vector DB runtime (gitignored)
 - `tmp/` — temp files (gitignored)
