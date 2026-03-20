@@ -16,8 +16,8 @@ BASE_LUA_DIR = str(PROJECT_ROOT / "dst-scripts")
 BASE_DOCS_DIR = str(PROJECT_ROOT / "dst-api-webdocs" / "docs")
 
 # === LLM CONFIG ===
-MODEL_NAME = "qwen3-coder-next:cloud"
-# MODEL_NAME = "qwen3.5:cloud"
+# MODEL_NAME = "qwen3-coder-next:cloud"
+MODEL_NAME = "qwen3.5:cloud"
 COMPRESSION_MODEL = MODEL_NAME   # dùng cùng model, có thể override sang model nhỏ hơn
 COMPRESSION_CACHE_DIR = str(PROJECT_ROOT / ".cache" / "compression_cache")
 STUB_FULL_THRESHOLD = 400   # tokens — require-only files smaller than this are included in full
@@ -106,7 +106,7 @@ def ollama_chat(
 
     if not OLLAMA_API_KEYS:
         client = ollama.Client()
-        return client.chat(model=model, messages=messages, **kwargs)
+        return client.chat(model=model, messages=messages, think=True, stream=False, **kwargs)
 
     # Luôn truyền num_ctx, không để Ollama dùng default
     opts = kwargs.pop("options", {}) or {}
@@ -132,7 +132,7 @@ def ollama_chat(
 
         try:
             client = _make_client(idx)
-            response = client.chat(model=model, messages=messages, options=opts, **kwargs)
+            response = client.chat(model=model, messages=messages, options=opts, think=True, stream=False, **kwargs)
             _account_counter = idx + 1
             return response
 

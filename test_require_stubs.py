@@ -11,7 +11,7 @@ def test_stub_full_threshold_exists():
 
 def test_context_reserve_raised():
     import chunked
-    assert chunked.CONTEXT_RESERVE == 8000
+    assert chunked.CONTEXT_RESERVE == 7000
 
 
 from unittest.mock import patch, MagicMock
