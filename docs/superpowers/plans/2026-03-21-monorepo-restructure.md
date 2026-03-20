@@ -17,7 +17,7 @@
 **Files:**
 - Read: `requirements.txt`
 
-- [ ] **Step 1: Chạy toàn bộ test ở root để thiết lập baseline**
+- [x] **Step 1: Chạy toàn bộ test ở root để thiết lập baseline**
 
 ```bash
 cd d:/code/mod-document
@@ -34,7 +34,7 @@ Ghi lại số test PASSED/FAILED để so sánh sau khi migration.
 **Files:**
 - Create: `pyproject.toml`
 
-- [ ] **Step 1: Tạo root `pyproject.toml`**
+- [x] **Step 1: Tạo root `pyproject.toml`**
 
 ```toml
 [tool.uv.workspace]
@@ -44,7 +44,7 @@ members = ["llm", "core", "rag", "prompts", "watcher", "validator"]
 dev-dependencies = ["pytest>=8.0"]
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add pyproject.toml
@@ -62,7 +62,7 @@ git commit -m "chore: add uv workspace root config"
 - Create: `watcher/pyproject.toml`, `watcher/src/watcher/__init__.py`, `watcher/tests/.gitkeep`, `watcher/scripts/.gitkeep`
 - Create: `core/pyproject.toml`, `core/src/core/__init__.py`, `core/src/core/pipeline/__init__.py`, `core/src/core/update/__init__.py`, `core/src/core/utils/__init__.py`, `core/tests/.gitkeep`
 
-- [ ] **Step 1: Tạo `llm/pyproject.toml`**
+- [x] **Step 1: Tạo `llm/pyproject.toml`**
 
 ```toml
 [project]
@@ -79,7 +79,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-- [ ] **Step 2: Tạo `rag/pyproject.toml`**
+- [x] **Step 2: Tạo `rag/pyproject.toml`**
 
 ```toml
 [project]
@@ -103,7 +103,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-- [ ] **Step 3: Tạo `prompts/pyproject.toml`**
+- [x] **Step 3: Tạo `prompts/pyproject.toml`**
 
 ```toml
 [project]
@@ -120,7 +120,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-- [ ] **Step 4: Tạo `watcher/pyproject.toml`**
+- [x] **Step 4: Tạo `watcher/pyproject.toml`**
 
 ```toml
 [project]
@@ -140,7 +140,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-- [ ] **Step 5: Tạo `core/pyproject.toml`**
+- [x] **Step 5: Tạo `core/pyproject.toml`**
 
 ```toml
 [project]
@@ -167,7 +167,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-- [ ] **Step 6: Tạo `__init__.py` cho tất cả packages**
+- [x] **Step 6: Tạo `__init__.py` cho tất cả packages**
 
 ```bash
 # Tạo thư mục và __init__.py trống
@@ -187,7 +187,7 @@ touch core/src/core/update/__init__.py
 touch core/src/core/utils/__init__.py
 ```
 
-- [ ] **Step 7: Commit scaffolding**
+- [x] **Step 7: Commit scaffolding**
 
 ```bash
 git add llm/ rag/ prompts/ watcher/ core/
@@ -203,7 +203,7 @@ git commit -m "chore: scaffold 5 new packages with pyproject.toml and src layout
 - Create: `data/` directory
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Tạo `validator/pyproject.toml`**
+- [x] **Step 1: Tạo `validator/pyproject.toml`**
 
 ```toml
 [project]
@@ -221,7 +221,7 @@ where = ["."]
 include = ["validator*"]
 ```
 
-- [ ] **Step 2: Tạo `data/` và di chuyển runtime files**
+- [x] **Step 2: Tạo `data/` và di chuyển runtime files**
 
 ```bash
 mkdir -p data
@@ -233,7 +233,7 @@ mkdir -p data
 [ -f diff_log.txt ] && mv diff_log.txt data/
 ```
 
-- [ ] **Step 3: Cập nhật `.gitignore`**
+- [x] **Step 3: Cập nhật `.gitignore`**
 
 Thêm vào `.gitignore` (tạo nếu chưa có):
 
@@ -253,12 +253,15 @@ __pycache__/
 .venv/
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add validator/pyproject.toml data/ .gitignore
 git commit -m "chore: add validator pyproject.toml, create data/ dir, update .gitignore"
 ```
+
+> **Note:** Chunk 1 committed as single commit `83cf775` on branch `feat/monorepo-restructure`.
+> Fix applied: `validator/pyproject.toml` changed from `packages.find` (broken for flat layout) to explicit `packages + package-dir`.
 
 ---
 
