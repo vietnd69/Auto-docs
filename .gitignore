@@ -17,6 +17,7 @@ dst-scripts
 test*.md
 test*.txt
 simulate**
+!watcher/scripts/simulate_changes.py
 
 # Runtime data (auto-generated)
 data/diff_tracker.json
