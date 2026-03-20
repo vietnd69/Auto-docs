@@ -2,7 +2,7 @@
 Script phát hiện file .lua thay đổi giữa các lần cập nhật dst-scripts.
 
 Cách dùng:
-    py get_diff_update.py
+    mod-watcher
 
 Flow:
     1. Đọc version_log.txt để lấy version hiện tại và version trước
@@ -322,7 +322,7 @@ def write_diff_log(log_path: str, report_path: str, changes: list, version_info:
 
 def main():
     print("=" * 60)
-    print("[get_diff_update] Phát hiện thay đổi trong dst-scripts")
+    print("[watcher.diff] Phát hiện thay đổi trong dst-scripts")
     print("=" * 60)
 
     # 1. Đọc version

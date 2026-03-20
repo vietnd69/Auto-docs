@@ -2,7 +2,7 @@
 Script patch: Thêm source_hash vào YAML frontmatter của các file .md đã tồn tại.
 Chạy 1 lần duy nhất để migrate docs cũ.
 
-Cách dùng: py patch_hash.py
+Cách dùng: python -m watcher.hash
 """
 
 import os
