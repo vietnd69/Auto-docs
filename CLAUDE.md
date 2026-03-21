@@ -71,6 +71,7 @@ uv run mod-document
 uv run mod-watcher
 
 # Test riêng từng package
+uv run pytest llm/tests/
 uv run pytest core/tests/
 uv run pytest rag/tests/
 uv run pytest prompts/tests/
