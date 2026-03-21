@@ -1,0 +1,125 @@
+"""Full pipeline: content loop -> format fix, per file."""
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from llm.tokens import count_tokens
+from rag.docs import safe_read_lua
+from validator.content.loop import ContentLoopConfig, ContentLoopResult, run_content_loop
+from validator.format.autofix import FixResult, autofix_file
+from validator.format.checks import validate_all, ValidationError
+from validator.utils import resolve_lua_path
+
+
+@dataclass
+class PipelineConfig:
+    """Configuration for the full validation pipeline."""
+    content_max_iterations: int = 3
+    writer_model: str = "qwen3.5:cloud"
+    reviewer_model: str = "qwen3.5:cloud"
+    skip_content: bool = False
+    skip_format: bool = False
+
+
+@dataclass
+class FileResult:
+    """Result of processing a single file."""
+    filepath: str
+    content_result: ContentLoopResult | None
+    format_result: FixResult | None
+    final_status: str   # "ok", "content_failed", "format_failed", "skipped_chunked"
+
+
+CHUNKED_TOKEN_THRESHOLD = 32_000
+
+
+def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
+    """Process a single .md file through content loop then format fix."""
+    content_result = None
+    format_result = None
+
+    # --- Content validation ---
+    if not config.skip_content:
+        lua_filepath = resolve_lua_path(md_filepath)
+
+        if lua_filepath is None:
+            print(f"  [pipeline] No Lua source found for {Path(md_filepath).name}, skipping content")
+        else:
+            # Check if Lua source is too large for single-context LLM review
+            # (token count is on Lua source since that's what must fit in LLM context)
+            lua_code = safe_read_lua(lua_filepath)
+            if lua_code and count_tokens(lua_code) >= CHUNKED_TOKEN_THRESHOLD:
+                print(f"  [pipeline] File is chunked (>={CHUNKED_TOKEN_THRESHOLD} tokens), skipping content")
+                return FileResult(
+                    filepath=md_filepath,
+                    content_result=None,
+                    format_result=None,
+                    final_status="skipped_chunked",
+                )
+
+            content_config = ContentLoopConfig(
+                max_iterations=config.content_max_iterations,
+                writer_model=config.writer_model,
+                reviewer_model=config.reviewer_model,
+            )
+            content_result = run_content_loop(md_filepath, lua_filepath, content_config)
+
+            if not content_result.approved:
+                print(f"  [pipeline] Content not approved after {content_result.iterations} iterations")
+
+    # --- Format validation ---
+    if not config.skip_format:
+        errors = validate_all(md_filepath)
+        if errors:
+            print(f"  [pipeline] {len(errors)} format errors found, running autofix")
+            format_result = autofix_file(md_filepath)
+        else:
+            format_result = FixResult(changes=[], remaining_errors=[])
+
+    # --- Determine final status ---
+    if content_result and not content_result.approved:
+        final_status = "content_failed"
+    elif format_result and format_result.remaining_errors:
+        final_status = "format_failed"
+    else:
+        final_status = "ok"
+
+    return FileResult(
+        filepath=md_filepath,
+        content_result=content_result,
+        format_result=format_result,
+        final_status=final_status,
+    )
+
+
+def process_batch(target: str, config: PipelineConfig) -> list[FileResult]:
+    """Process a batch of .md files through the pipeline."""
+    target_path = Path(target)
+
+    if target_path.is_file():
+        files = [target_path]
+    else:
+        files = sorted(target_path.rglob("*.md"))
+
+    print(f"Processing {len(files)} file(s)...")
+    results: list[FileResult] = []
+
+    try:
+        for i, filepath in enumerate(files, 1):
+            print(f"[{i}/{len(files)}] {filepath.name}")
+            result = process_file(str(filepath), config)
+            results.append(result)
+            print(f"  -> {result.final_status}")
+    except KeyboardInterrupt:
+        print(f"\n[Ctrl+C] Stopped after {len(results)}/{len(files)} files")
+
+    # Summary
+    ok = sum(1 for r in results if r.final_status == "ok")
+    failed = sum(1 for r in results if "failed" in r.final_status)
+    skipped = sum(1 for r in results if r.final_status == "skipped_chunked")
+
+    print(f"\n{'='*40}")
+    print(f"  OK: {ok} | Failed: {failed} | Skipped (chunked): {skipped}")
+    print(f"{'='*40}")
+
+    return results
