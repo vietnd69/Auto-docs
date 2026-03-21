@@ -42,8 +42,9 @@ validator/src/validator/
 ├── content/                 # Group 1: LLM-based content validation
 │   ├── __init__.py
 │   ├── reviewer.py          # LLM2: review doc, return structured feedback
-│   ├── writer.py            # LLM1: rewrite doc based on reviewer feedback
+│   ├── writer.py            # LLM1: patch-based rewrite from reviewer feedback
 │   ├── loop.py              # Orchestrate write → review → fix → approve loop
+│   ├── chunked.py           # (Future) Chunked file content validation strategy
 │   └── prompts.py           # Prompt templates for writer & reviewer
 │
 ├── format/                  # Group 2: No-LLM format validation
@@ -148,16 +149,30 @@ def review_document(
 ### `writer.py`
 
 ```python
+@dataclass
+class Patch:
+    old_text: str
+    new_text: str
+    reason: str
+
 def rewrite_document(
     md_content: str,
     lua_source: str,
     connected_content: str,
     review_feedback: ReviewResult,
     model: str,
-) -> str:
+) -> list[Patch]:
 ```
 
-LLM1 receives specific feedback (issues + suggestions) and fixes only the flagged points. Does NOT rewrite the entire document.
+LLM1 receives specific feedback (issues + suggestions) and returns **patches** — targeted `old_text` → `new_text` replacements. Does NOT rewrite the entire document.
+
+**Patch application:**
+```python
+for patch in patches:
+    content = content.replace(patch.old_text, patch.new_text, 1)
+```
+
+**Fallback:** If >50% of patches fail to match (LLM hallucinated `old_text`), LLM1 rewrites the full content body (keeping frontmatter intact).
 
 ### `loop.py`
 
@@ -190,6 +205,14 @@ Internally calls `utils.resolve_connected_content(lua_filepath)` to obtain conne
 4. If `approved=False` → LLM1 rewrite using feedback → write .md
 5. Back to step 2
 6. If `iterations >= max_iterations` → return with `approved=False` + remaining issues
+
+### `chunked.py` — Future: Chunked File Strategy
+
+**Scope:** Directory and file placeholder only. No implementation in this spec.
+
+Files ≥32K tokens cannot fit in a single LLM context for review. The content loop (`loop.py`) only handles standard-size files. `chunked.py` will define a separate strategy for large files — likely section-by-section review or chunk-level review with cross-chunk consistency checks.
+
+**For now:** `pipeline.py` skips content validation for chunked files (detected via `llm.tokens.count_tokens()`), logs them as `"skipped_chunked"`, and proceeds to format validation only.
 
 ### `prompts.py`
 
@@ -282,12 +305,13 @@ class FileResult:
     filepath: str
     content_result: ContentLoopResult | None
     format_result: FixResult | None
-    final_status: str   # "ok", "content_failed", "format_failed"
+    final_status: str   # "ok", "content_failed", "format_failed", "skipped_chunked"
 
 def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
     """
     Resolves lua_filepath via utils.resolve_lua_path(md_filepath).
     If Lua source not found and content validation requested, logs warning and skips content step.
+    If file is chunked (≥32K tokens), skips content validation, logs as "skipped_chunked", proceeds to format only.
     """
 
 def process_batch(target: str, config: PipelineConfig) -> list[FileResult]
