@@ -1069,11 +1069,11 @@ git commit -m "feat(validator): add utils.py with resolve_lua_path and resolve_c
 - Create: `validator/src/validator/content/__init__.py`
 - Create: `validator/src/validator/content/prompts.py`
 
-- [ ] **Step 1: Create content package init**
+- [x] **Step 1: Create content package init**
 
 Create empty `validator/src/validator/content/__init__.py`.
 
-- [ ] **Step 2: Implement prompts.py**
+- [x] **Step 2: Implement prompts.py**
 
 Create `validator/src/validator/content/prompts.py`:
 
@@ -1174,7 +1174,7 @@ Rules:
 - Preserve markdown formatting and structure"""
 ```
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add validator/src/validator/content/__init__.py validator/src/validator/content/prompts.py
@@ -1189,7 +1189,7 @@ git commit -m "feat(validator): add content/prompts.py — writer and reviewer p
 - Create: `validator/src/validator/content/reviewer.py`
 - Create: `validator/tests/test_content_reviewer.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `validator/tests/test_content_reviewer.py`:
 
@@ -1253,12 +1253,12 @@ def test_parse_review_response_invalid_json():
     assert len(result.issues) >= 1  # Should contain parse error info
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest validator/tests/test_content_reviewer.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `content/reviewer.py`**
+- [x] **Step 3: Implement `content/reviewer.py`**
 
 Create `validator/src/validator/content/reviewer.py`:
 
@@ -1320,12 +1320,12 @@ def review_document(
     return parse_review_response(raw)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest validator/tests/test_content_reviewer.py -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add validator/src/validator/content/reviewer.py validator/tests/test_content_reviewer.py
@@ -1340,7 +1340,7 @@ git commit -m "feat(validator): add content/reviewer.py — LLM2 document review
 - Create: `validator/src/validator/content/writer.py`
 - Create: `validator/tests/test_content_writer.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `validator/tests/test_content_writer.py`:
 
@@ -1440,12 +1440,12 @@ def test_parse_writer_response_empty_old_text_skipped():
     assert patches[0].old_text == "valid"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest validator/tests/test_content_writer.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `content/writer.py`**
+- [x] **Step 3: Implement `content/writer.py`**
 
 Create `validator/src/validator/content/writer.py`:
 
@@ -1525,12 +1525,12 @@ def rewrite_document(
     return parse_writer_response(raw)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest validator/tests/test_content_writer.py -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add validator/src/validator/content/writer.py validator/tests/test_content_writer.py
@@ -1545,7 +1545,7 @@ git commit -m "feat(validator): add content/writer.py — patch-based document r
 - Create: `validator/src/validator/content/loop.py`
 - Create: `validator/tests/test_content_loop.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `validator/tests/test_content_loop.py`:
 
@@ -1581,12 +1581,12 @@ def test_content_loop_result_rejected():
     assert result.final_issues == ["issue"]
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest validator/tests/test_content_loop.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `content/loop.py`**
+- [x] **Step 3: Implement `content/loop.py`**
 
 Create `validator/src/validator/content/loop.py`:
 
@@ -1680,12 +1680,12 @@ def run_content_loop(
     )
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest validator/tests/test_content_loop.py -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add validator/src/validator/content/loop.py validator/tests/test_content_loop.py
@@ -1699,7 +1699,7 @@ git commit -m "feat(validator): add content/loop.py — review-fix-approve orche
 **Files:**
 - Create: `validator/src/validator/content/chunked.py`
 
-- [ ] **Step 1: Create placeholder file**
+- [x] **Step 1: Create placeholder file**
 
 Create `validator/src/validator/content/chunked.py`:
 
@@ -1717,7 +1717,7 @@ and logs them as "skipped_chunked".
 """
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add validator/src/validator/content/chunked.py
