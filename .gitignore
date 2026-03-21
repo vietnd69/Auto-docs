@@ -19,7 +19,11 @@ test*.txt
 simulate**
 !watcher/scripts/simulate_changes.py
 
+# Build artifacts
+*.egg-info/
+
 # Runtime data (auto-generated)
+file_tracker.json
 data/diff_tracker.json
 data/file_tracker.json
 data/diff_report.json

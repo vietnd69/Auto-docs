@@ -1,9 +1,0 @@
-pyproject.toml
-src/mod_document_prompts.egg-info/PKG-INFO
-src/mod_document_prompts.egg-info/SOURCES.txt
-src/mod_document_prompts.egg-info/dependency_links.txt
-src/mod_document_prompts.egg-info/requires.txt
-src/mod_document_prompts.egg-info/top_level.txt
-src/prompts/__init__.py
-src/prompts/skills_loader.py
-tests/test_skills_loader.py
