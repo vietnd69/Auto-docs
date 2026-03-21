@@ -22,7 +22,7 @@ CHUNK_THRESHOLD = 3000       # Ngưỡng dòng fallback nếu không có tiktoke
 CHUNK_MAX_LINES = 1500       # Mỗi chunk tối đa ~1500 dòng (fallback)
 
 # Ngưỡng token cho TOÀN BỘ PROMPT (bao gồm system instruction + context + code)
-PROMPT_TOKEN_LIMIT = 16000   # Nếu full prompt > 32K token thì phải chunk
+PROMPT_TOKEN_LIMIT = 16000   # Nếu full prompt > 16K token thì phải chunk
 
 # Ngưỡng token cho MERGE (tổng chunk results)
 MERGE_TOKEN_LIMIT = 20000
