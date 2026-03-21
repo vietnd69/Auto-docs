@@ -186,11 +186,8 @@ def validate_all(filepath: str) -> list[ValidationError]:
     # Filler text
     errors.extend(check_filler_text(raw))
 
-    # MDX validation (mdx.py created in Task 2)
-    try:
-        from validator.format.mdx import validate_mdx
-        errors.extend(validate_mdx(filepath))
-    except ImportError:
-        pass
+    # MDX validation
+    from validator.format.mdx import validate_mdx
+    errors.extend(validate_mdx(filepath))
 
     return errors

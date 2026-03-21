@@ -183,3 +183,16 @@ def test_check_filler_text_clean():
     text = "Content\nMore content\n"
     errors = check_filler_text(text)
     assert errors == []
+
+
+# --- validate_mdx (via mdx.py) ---
+
+def test_validate_mdx_returns_validation_errors(tmp_path):
+    """validate_mdx should return list[ValidationError], not raw strings."""
+    md_file = tmp_path / "test.md"
+    md_file.write_text("---\nid: test\n---\n# Title\nValid content\n")
+    from validator.format.mdx import validate_mdx
+    errors = validate_mdx(str(md_file))
+    assert isinstance(errors, list)
+    for e in errors:
+        assert isinstance(e, ValidationError)
