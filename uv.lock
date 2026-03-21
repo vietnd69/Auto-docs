@@ -1459,12 +1459,16 @@ version = "0.1.0"
 source = { editable = "validator" }
 dependencies = [
     { name = "emoji" },
+    { name = "mod-document-llm" },
+    { name = "mod-document-rag" },
     { name = "python-frontmatter" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "emoji" },
+    { name = "mod-document-llm", editable = "llm" },
+    { name = "mod-document-rag", editable = "rag" },
     { name = "python-frontmatter" },
 ]
 

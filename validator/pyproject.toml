@@ -2,7 +2,7 @@
 name = "mod-document-validator"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = ["python-frontmatter", "emoji"]
+dependencies = ["python-frontmatter", "emoji", "mod-document-llm", "mod-document-rag"]
 
 [build-system]
 requires = ["setuptools>=68"]
