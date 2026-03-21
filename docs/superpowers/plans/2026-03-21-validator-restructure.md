@@ -64,11 +64,11 @@
 - Create: `validator/src/validator/format/checks.py`
 - Create: `validator/tests/test_format_checks.py`
 
-- [ ] **Step 1: Create format package init**
+- [x] **Step 1: Create format package init**
 
 Create empty `validator/src/validator/format/__init__.py`.
 
-- [ ] **Step 2: Write failing tests for ValidationError and check functions**
+- [x] **Step 2: Write failing tests for ValidationError and check functions**
 
 Create `validator/tests/test_format_checks.py`:
 
@@ -254,12 +254,12 @@ def test_check_filler_text_clean():
     assert errors == []
 ```
 
-- [ ] **Step 3: Run tests to verify they fail**
+- [x] **Step 3: Run tests to verify they fail**
 
 Run: `uv run pytest validator/tests/test_format_checks.py -v`
 Expected: FAIL with ImportError (format.checks doesn't exist yet)
 
-- [ ] **Step 4: Implement `format/checks.py`**
+- [x] **Step 4: Implement `format/checks.py`**
 
 Create `validator/src/validator/format/checks.py`. This migrates logic from `validator/src/validator/validator.py` with these changes:
 - Returns `list[ValidationError]` instead of `list[str]`
@@ -463,12 +463,12 @@ def validate_all(filepath: str) -> list[ValidationError]:
     return errors
 ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest validator/tests/test_format_checks.py -v`
 Expected: All tests PASS (note: `validate_all` tests come later since `mdx.py` doesn't exist yet)
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add validator/src/validator/format/__init__.py validator/src/validator/format/checks.py validator/tests/test_format_checks.py
@@ -482,7 +482,7 @@ git commit -m "feat(validator): add format/checks.py with ValidationError datacl
 **Files:**
 - Create: `validator/src/validator/format/mdx.py`
 
-- [ ] **Step 1: Write failing test for validate_mdx**
+- [x] **Step 1: Write failing test for validate_mdx**
 
 Append to `validator/tests/test_format_checks.py`:
 
@@ -500,12 +500,12 @@ def test_validate_mdx_returns_validation_errors(tmp_path):
         assert isinstance(e, ValidationError)
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest validator/tests/test_format_checks.py::test_validate_mdx_returns_validation_errors -v`
 Expected: FAIL (mdx module doesn't exist)
 
-- [ ] **Step 3: Implement `format/mdx.py`**
+- [x] **Step 3: Implement `format/mdx.py`**
 
 Create `validator/src/validator/format/mdx.py`:
 
@@ -553,12 +553,12 @@ def validate_mdx(filepath: str) -> list[ValidationError]:
         return [ValidationError("mdx", "error", f"Unexpected output: {result.stdout[:200]}")]
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest validator/tests/test_format_checks.py::test_validate_mdx_returns_validation_errors -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add validator/src/validator/format/mdx.py validator/tests/test_format_checks.py
@@ -572,18 +572,18 @@ git commit -m "feat(validator): add format/mdx.py — MDX validation wrapper"
 **Files:**
 - Move: `validator/src/validator/validate_mdx.mjs` → `validator/src/validator/format/validate_mdx.mjs`
 
-- [ ] **Step 1: Move the file**
+- [x] **Step 1: Move the file**
 
 ```bash
 git mv validator/src/validator/validate_mdx.mjs validator/src/validator/format/validate_mdx.mjs
 ```
 
-- [ ] **Step 2: Run tests to verify mdx.py finds the script**
+- [x] **Step 2: Run tests to verify mdx.py finds the script**
 
 Run: `uv run pytest validator/tests/test_format_checks.py -v`
 Expected: PASS (mdx.py uses `Path(__file__).parent / "validate_mdx.mjs"` which now resolves to `format/`)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit -m "refactor(validator): move validate_mdx.mjs to format/"
@@ -597,7 +597,7 @@ git commit -m "refactor(validator): move validate_mdx.mjs to format/"
 - Create: `validator/src/validator/format/autofix.py`
 - Create: `validator/tests/test_format_autofix.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `validator/tests/test_format_autofix.py`:
 
@@ -796,12 +796,12 @@ def test_fix_bare_operator_on_line():
     assert "`" in fixed
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest validator/tests/test_format_autofix.py -v`
 Expected: FAIL (format.autofix doesn't exist)
 
-- [ ] **Step 3: Implement `format/autofix.py`**
+- [x] **Step 3: Implement `format/autofix.py`**
 
 Create `validator/src/validator/format/autofix.py` by copying the ENTIRE content of `validator/src/validator/autofix_mdx.py` (all ~810 lines, 16 functions), then applying these specific changes:
 
@@ -870,17 +870,17 @@ if __name__ == "__main__":
         print("\nAll errors resolved.")
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest validator/tests/test_format_autofix.py -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Run all format tests together**
+- [x] **Step 5: Run all format tests together**
 
 Run: `uv run pytest validator/tests/test_format_checks.py validator/tests/test_format_autofix.py -v`
 Expected: All PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add validator/src/validator/format/autofix.py validator/tests/test_format_autofix.py
