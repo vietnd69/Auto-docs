@@ -896,7 +896,7 @@ git commit -m "feat(validator): add format/autofix.py with FixResult return type
 **Files:**
 - Modify: `validator/pyproject.toml`
 
-- [ ] **Step 1: Add workspace dependencies**
+- [x] **Step 1: Add workspace dependencies**
 
 Update `validator/pyproject.toml` to add `mod-document-llm` and `mod-document-rag` to the dependencies list. The root `pyproject.toml` already has `[tool.uv.sources]` mapping these as workspace packages, so no `[tool.uv.sources]` section is needed in the member package.
 
@@ -915,12 +915,12 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 ```
 
-- [ ] **Step 2: Sync dependencies**
+- [x] **Step 2: Sync dependencies**
 
 Run: `uv sync`
 Expected: Success, no errors
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add validator/pyproject.toml uv.lock
@@ -935,7 +935,7 @@ git commit -m "chore(validator): add llm and rag workspace dependencies"
 - Create: `validator/src/validator/utils.py`
 - Create: `validator/tests/test_utils.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `validator/tests/test_utils.py`:
 
@@ -983,12 +983,12 @@ def test_resolve_lua_path_no_docs_in_path():
     assert result is None
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest validator/tests/test_utils.py -v`
 Expected: FAIL (utils module doesn't exist)
 
-- [ ] **Step 3: Implement `utils.py`**
+- [x] **Step 3: Implement `utils.py`**
 
 Create `validator/src/validator/utils.py`:
 
@@ -1047,12 +1047,12 @@ def resolve_connected_content(lua_filepath: str) -> tuple[str, str]:
     return connected_section, connected_content
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest validator/tests/test_utils.py -v`
-Expected: All tests PASS
+Expected: All tests PASS ✅ (5/5 passed, full suite 52/52 passed)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add validator/src/validator/utils.py validator/tests/test_utils.py
