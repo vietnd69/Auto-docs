@@ -1,11 +1,3 @@
-import sys
-from pathlib import Path
+MDX_NODE_TIMEOUT = 20
 
-# Add project root to sys.path to find config.py
-project_root = str(Path(__file__).parent.parent)
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-import config
-
-MDX_NODE_TIMEOUT = config.MDX_NODE_TIMEOUT
+__all__ = ["MDX_NODE_TIMEOUT"]

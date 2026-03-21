@@ -6,14 +6,7 @@ import subprocess
 import json
 import shutil
 from pathlib import Path
-try:
-    from validator.constants import MDX_NODE_TIMEOUT
-except ImportError:
-    try:
-        from constants import MDX_NODE_TIMEOUT
-    except ImportError:
-        import config
-        MDX_NODE_TIMEOUT = config.MDX_NODE_TIMEOUT
+from validator.constants import MDX_NODE_TIMEOUT
 
 def validate_mdx_via_node(filepath: str) -> list[str]:
     # Kiểm tra node có sẵn không

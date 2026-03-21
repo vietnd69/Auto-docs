@@ -1,166 +1,198 @@
 ---
 id: constants
 title: Constants
-description: Defines global constants and utility functions for special events, festivals, tile maps, and color conversions.
-tags: [world, event, utility]
+description: This module defines global constants for game mechanics, rendering, input, and content classification (including tiles, events, colors, and tech tiers), and provides helper functions to query active event states and generate tile maps.
+tags: [core, globals, events, configuration, utilities]
 sidebar_position: 10
 
-last_updated: 2026-03-10
+last_updated: 2026-03-21
 build_version: 714014
 change_status: stable
 category_type: root
 source_hash: 707f1cbb
-system_scope: world
+system_scope: global
 ---
 
 # Constants
 
-> Based on game build **714014** | Last updated: 2026-03-10
+> Based on game build **714014** | Last updated: 2026-03-21
 
 ## Overview
-This file defines top-level constants and helper functions for managing world-wide state, particularly around special events (e.g., HALLOWED_NIGHTS, YOT* creatures), festival events (e.g., LAVAARENA, QUAGMIRE), tile mapping, and color normalization. It provides no entity component or constructor logic; instead, it offers procedural APIs used elsewhere in the codebase to query active events, derive skin tags, and construct event-specific metadata (e.g., server names, stats prefixes, achievement strings).
+The `constants` module serves as the central repository for global enumerations, configuration tables, and utility functions used throughout the Don't Starve Together codebase. It defines essential data structures for ground tiles, special and festival events, crafting tabs, seasons, rendering colors, and input controls. Additionally, it provides logic to query the current state of special events, festival seasons, and tournament modes, ensuring consistent access to game configuration data across client and server environments. This file is frequently required by other core modules such as `techtree`, `clothing`, and `prefabskins` to populate their respective lookup tables.
 
 ## Usage example
 ```lua
-if IsAnySpecialEventActive() then
-    local tag = GetSpecialEventSkinTag() -- e.g., "COSTUME"
-    inst:AddTag(tag)
+local CONSTANTS = require("constants")
+
+-- Access a ground tile ID
+local dirt_id = GROUND.DIRT
+
+-- Check if a specific special event is active
+if CONSTANTS.IsSpecialEventActive("hallowed_nights") then
+    print("Hallowed Nights is currently active.")
 end
 
-if IsAnyFestivalEventActive() then
-    local stats_prefix = GetActiveFestivalEventStatsFilePrefix()
-    local server_name = GetActiveFestivalEventServerName()
-end
+-- Convert RGB integers to a normalized color table
+local white_color = CONSTANTS.RGB(255, 255, 255)
+-- Result: {1, 1, 1, 1}
 
-local color = RGB(255, 128, 64) -- => { 1.0, 0.502, 0.251, 1.0 }
+-- Get the active festival skin tag
+local skin_tag = CONSTANTS.GetSpecialEventSkinTag()
 ```
 
 ## Dependencies & tags
-**Components used:** None directly (this is a pure constants/utilities file).  
-**Tags:** `"COSTUME"` (via `SPECIAL_EVENT_SKIN_TAGS` for certain special events).
+
+**External dependencies:**
+- `util` -- Required at the start to load global utilities.
+- `techtree` -- Required locally for TechTree module.
+- `prefabskins` -- Required to populate skin lookup tables.
+- `clothing` -- Required to populate CLOTHING global table.
+- `beefalo_clothing` -- Required to populate BEEFALO_CLOTHING global table.
+- `misc_items` -- Required to populate MISC_ITEMS global table.
+- `emote_items` -- Required to populate EMOTE_ITEMS global table.
+- `item_blacklist` -- Required to populate item visibility constraints.
+- `entitlementlookups` -- Required to populate ENTITLEMENTLOOKUPS global table.
+
+**Components used:**
+None
+
+**Tags:**
+None
 
 ## Properties
 | Property | Type | Default Value | Description |
 |----------|------|---------------|-------------|
-| `WORLD_SPECIAL_EVENT` | string | `"none"` | Currently active main special event (e.g., `"hallowed_nights"`) |
-| `WORLD_EXTRA_EVENTS` | table | `{}` | List of additional active special events |
-| `WORLD_FESTIVAL_EVENT` | string | `"none"` | Currently active festival event (e.g., `"lavaarena"`) |
-| `FESTIVAL_EVENT_INFO` | table | — | Map of festival names to metadata (SERVER_NAME, STATS_FILE_PREFIX, seasons) |
-| `SPECIAL_EVENT_SKIN_TAGS` | table | — | Map of event names to skin tag strings (e.g., `"hallowed_nights" -> "COSTUME"`) |
-| `FESTIVAL_EVENT_SKIN_TAGS` | table | `{}` | Currently unused; empty map |
-| `SPECIAL_EVENTS` | table | — | Constants for special events (e.g., `NONE`, `HALLOWED_NIGHTS`, `YOTG`) |
-| `FESTIVAL_EVENTS` | table | — | Constants for festival events (e.g., `NONE`, `LAVAARENA`, `QUAGMIRE`) |
-| `WORLD_TILES` / `GROUND` | table | — | Internal tile/ground definitions used in tile mapping |
 
 ## Main functions
+
 ### `GetWorldTileMap()`
-* **Description:** Constructs and returns a table mapping tile/ground names (strings) to their numeric IDs by combining `WORLD_TILES` and `GROUND` entries.
-* **Parameters:** None.
-* **Returns:** `{ [string] = number }` — a full name-to-ID mapping for all supported tiles and ground types.
+* **Description:** Iterates through WORLD_TILES and GROUND tables to construct a unified map of tile names to IDs.
+* **Parameters:** None
+* **Returns:** table (world_tile_map)
 
 ### `IsSpecialEventActive(event)`
-* **Description:** Checks if a given special event (e.g., `"hallowed_nights"`) is active.
-* **Parameters:**  
-  - `event`: Event name string (e.g., from `SPECIAL_EVENTS`).  
-* **Returns:** `true` if `event` matches `WORLD_SPECIAL_EVENT` or appears in `WORLD_EXTRA_EVENTS`; otherwise `false`.
+* **Description:** Checks if a specific special event is currently active.
+* **Parameters:**
+  - `event` -- string, the special event identifier to check
+* **Returns:** boolean
 
 ### `IsAnySpecialEventActive()`
-* **Description:** Checks if any special event (main or extra) is active.
-* **Parameters:** None.
-* **Returns:** `true` if `WORLD_SPECIAL_EVENT ~= "none"` or `#WORLD_EXTRA_EVENTS > 0`; otherwise `false`.
+* **Description:** Checks if any special event is currently active.
+* **Parameters:** None
+* **Returns:** boolean
 
 ### `GetActiveSpecialEventCount()`
-* **Description:** Returns the total count of active special events (1 for the main event if present + extra events).
-* **Parameters:** None.
-* **Returns:** Integer (e.g., `0`, `1`, `2`, ...).
+* **Description:** Returns the count of active special events.
+* **Parameters:** None
+* **Returns:** number
 
 ### `GetFirstActiveSpecialEvent()`
-* **Description:** Returns the first active special event, prioritizing `WORLD_SPECIAL_EVENT`.
-* **Parameters:** None.
-* **Returns:** String event name, or `nil` if none active.
+* **Description:** Returns the first active special event identifier.
+* **Returns:** string or nil
 
 ### `GetAllActiveEvents(special_event, extra_events)`
-* **Description:** Merges provided event identifiers into a unified event set (like a Lua "set" with boolean values).
-* **Parameters:**  
-  - `special_event`: Optional string event name (e.g., `"hallowed_nights"`).  
-  - `extra_events`: Optional table of extra event names.  
-* **Returns:** `{ [string] = true }` — a set of active event names (excludes `"none"`).
+* **Description:** Aggregates all active special and extra events into a single table.
+* **Parameters:**
+  - `special_event` -- string or nil, the primary special event identifier
+  - `extra_events` -- table or nil, additional active events
+* **Returns:** table
 
 ### `IsAny_YearOfThe_EventActive()`
-* **Description:** Checks if any Year-of-the-\<creature\> event is active (e.g., `YOTG`, `YOTV`).
-* **Parameters:** None.
-* **Returns:** `true` if `WORLD_SPECIAL_EVENT` or any entry in `WORLD_EXTRA_EVENTS` is a YOT* constant.
+* **Description:** Checks if any Year of the Creature event is active.
+* **Parameters:** None
+* **Returns:** boolean
 
 ### `GetSpecialEventSkinTag()`
-* **Description:** Returns the skin tag associated with the currently active special event (used for dynamic skin matching).
-* **Parameters:** None.
-* **Returns:** String tag (e.g., `"COSTUME"`), or `nil` if no match in `SPECIAL_EVENT_SKIN_TAGS`.
+* **Description:** Returns the skin tag associated with the current special event.
+* **Parameters:** None
+* **Returns:** string or nil
 
 ### `IsFestivalEventActive(event)`
-* **Description:** Checks if a specific festival event is the currently active festival.
-* **Parameters:**  
-  - `event`: Festival name string (e.g., `"lavaarena"`).  
-* **Returns:** `true` if `WORLD_FESTIVAL_EVENT == event`; otherwise `false`.
+* **Description:** Checks if a specific festival event is currently active.
+* **Parameters:**
+  - `event` -- string, the festival event identifier to check
+* **Returns:** boolean
 
 ### `IsPreviousFestivalEvent(event)`
-* **Description:** Checks if a festival event appears in the historical `PREVIOUS_FESTIVAL_EVENTS_ORDER`.
-* **Parameters:**  
-  - `event`: Festival name string.  
-* **Returns:** `true` if found in `PREVIOUS_FESTIVAL_EVENTS_ORDER`; otherwise `false`.
+* **Description:** Checks if the event is a previous festival event.
+* **Parameters:**
+  - `event` -- string, the festival event identifier to check
+* **Returns:** boolean
 
 ### `IsAnyFestivalEventActive()`
-* **Description:** Checks if a festival event is currently active.
-* **Parameters:** None.
-* **Returns:** `true` if `WORLD_FESTIVAL_EVENT ~= "none"`; otherwise `false`.
+* **Description:** Checks if any festival event is currently active.
+* **Parameters:** None
+* **Returns:** boolean
 
 ### `GetFestivalEventSkinTag()`
-* **Description:** Returns the skin tag for the active festival (currently always `nil`).
-* **Parameters:** None.
-* **Returns:** `FESTIVAL_EVENT_SKIN_TAGS[WORLD_FESTIVAL_EVENT]` — currently always `nil`.
+* **Description:** Returns the skin tag associated with the current festival event.
+* **Parameters:** None
+* **Returns:** string or nil
 
 ### `GetFestivalEventInfo()`
-* **Description:** Returns metadata for the active festival event.
-* **Parameters:** None.
-* **Returns:** Table with keys like `SERVER_NAME`, `STATS_FILE_PREFIX`, `SEASON`, or `nil` if none active.
+* **Description:** Returns the info table for the current festival event.
+* **Parameters:** None
+* **Returns:** table or nil
 
 ### `GetFestivalEventSeasons(festival)`
-* **Description:** Returns the latest season number for a given festival.
-* **Parameters:**  
-  - `festival`: Festival name string (e.g., `"lavaarena"`).  
-* **Returns:** Integer season count (e.g., `2`), or `0` if the festival is unknown.
+* **Description:** Returns the latest season number for a festival event.
+* **Parameters:**
+  - `festival` -- string, the festival event identifier
+* **Returns:** number
+* **Error states:** Returns 0 if festival info is nil
 
 ### `GetActiveFestivalEventServerName()`
-* **Description:** Returns the full server name string for the active festival, including season suffix (`_sN`) if applicable.
-* **Parameters:** None.
-* **Returns:** String like `"LavaArena_s2"` or `"Quagmire"`, or `""` if none active.
+* **Description:** Returns the server name for the active festival event.
+* **Parameters:** None
+* **Returns:** string
 
 ### `GetActiveFestivalProductName()`
-* **Description:** Returns the human-readable product name for the active festival.
-* **Parameters:** None.
-* **Returns:** `FESTIVAL_EVENT_INFO[WORLD_FESTIVAL_EVENT].SERVER_NAME`, or `""` if none active.
+* **Description:** Returns the product name for the active festival event.
+* **Parameters:** None
+* **Returns:** string
 
 ### `GetFestivalEventServerName(festival, season)`
-* **Description:** Generates the server name string for a specific festival and season.
-* **Parameters:**  
-  - `festival`: Festival name string.  
-  - `season`: Integer season number (>= 1).  
-* **Returns:** `"SERVER_NAME"` for `season == 1`, `"SERVER_NAME_s{season}"` for `season > 1`, or `""` if festival not found.
+* **Description:** Returns the server name for a specific festival event and season.
+* **Parameters:**
+  - `festival` -- string, the festival event identifier
+  - `season` -- number, the season number
+* **Returns:** string
+* **Error states:** Returns empty string if info is nil
 
 ### `GetActiveFestivalEventStatsFilePrefix()`
-* **Description:** Returns the stats file prefix for the active festival (used for saving/loading stats).
-* **Parameters:** None.
-* **Returns:** `FESTIVAL_EVENT_INFO[WORLD_FESTIVAL_EVENT].STATS_FILE_PREFIX`, or `"stats"` if none active.
+* **Description:** Returns the stats file prefix for the active festival event.
+* **Parameters:** None
+* **Returns:** string
+* **Error states:** Defaults to 'stats' if nil
 
 ### `GetActiveFestivalEventAchievementStrings()`
-* **Description:** Returns the achievement string table for the active festival (used in UI/achievement display).
-* **Parameters:** None.
-* **Returns:** `STRINGS.UI.ACHIEVEMENTS[festival:upper()]` — a table of localized strings.
+* **Description:** Returns the achievement strings table for the active festival event.
+* **Parameters:** None
+* **Returns:** table or nil
+
+### `Server_IsTournamentActive()`
+* **Description:** Checks if the tournament mode is active on the server.
+* **Parameters:** None
+* **Returns:** boolean
+* **Error states:** Always returns false in this implementation
+
+### `Client_IsTournamentActive()`
+* **Description:** Checks if the tournament mode is active on the client.
+* **Parameters:** None
+* **Returns:** boolean
 
 ### `RGB(r, g, b)`
-* **Description:** Converts 8-bit RGB values to normalized RGBA floats (0.0–1.0 range).
-* **Parameters:**  
-  - `r`, `g`, `b`: Integers in range `0`–`255`.  
-* **Returns:** `{ r/255, g/255, b/255, 1 }` — a 4-element color table.
+* **Description:** Converts integer RGB values to a normalized color table with alpha set to 1.
+* **Parameters:**
+  - `r` -- number, red channel value (0-255)
+  - `g` -- number, green channel value (0-255)
+  - `b` -- number, blue channel value (0-255)
+* **Returns:** table, normalized color array {r/255, g/255, b/255, 1}
 
 ## Events & listeners
-No events are defined or used in this file. It is a passive utility module with no event-driven behavior.
+
+**Listens to:**
+None
+
+**Pushes:**
+None

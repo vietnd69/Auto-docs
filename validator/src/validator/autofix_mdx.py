@@ -3,10 +3,7 @@ import re
 import subprocess
 import json
 from pathlib import Path
-try:
-    from validator.constants import MDX_NODE_TIMEOUT
-except ImportError:
-    from constants import MDX_NODE_TIMEOUT
+from validator.constants import MDX_NODE_TIMEOUT
 
 # ── 1. Chạy validate để lấy errors ────────────────────────────────
 def get_mdx_errors(filepath: str) -> list[dict]:
@@ -246,44 +243,36 @@ def remove_filler_text(text: str) -> tuple[str, bool]:
     return text, False
 
 def remove_extra_dividers(text: str) -> tuple[str, int]:
-    """Xóa các dòng --- dư thừa ở phần body (sau frontmatter)."""
+    """Xóa các dòng --- dư thừa ở cuối body (sau frontmatter), tương tự filler text."""
     fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
     if not fm_match:
         return text, 0
-        
+
     fm_end_idx = fm_match.end()
     frontmatter_part = text[:fm_end_idx]
     body_part = text[fm_end_idx:]
-    
-    # Tìm --- đứng một mình trên một dòng, tránh code blocks
-    lines = body_part.splitlines(keepends=True)
-    new_lines = []
-    count = 0
-    in_code_block = False
-    
-    for idx, line in enumerate(lines):
-        stripped = line.strip()
-        
-        # Track code blocks
-        if stripped.startswith('```'):
-            in_code_block = not in_code_block
-            new_lines.append(line)
-            continue
-            
-        if in_code_block:
-            new_lines.append(line)
-            continue
 
+    lines = body_part.splitlines(keepends=True)
+    count = 0
+
+    # Walk backwards: bỏ qua blank lines, xóa --- ở cuối body
+    while lines:
+        stripped = lines[-1].strip()
+        if stripped == '':
+            lines.pop()
+            continue
         if stripped == '---':
-            # Validator.py cấm tiệt --- trong body, nên ta xoá hết 
-            # (trừ khi nằm trong code block đã check ở trên)
+            lines.pop()
             count += 1
-        else:
-            new_lines.append(line)
-            
+            continue
+        break
+
     if count > 0:
-        return frontmatter_part + "".join(new_lines), count
-        
+        body = "".join(lines)
+        if body and not body.endswith('\n'):
+            body += '\n'
+        return frontmatter_part + body, count
+
     return text, 0
 
 def fix_empty_tags_and_placeholders(text: str) -> tuple[str, list[str]]:

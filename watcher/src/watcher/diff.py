@@ -363,6 +363,20 @@ def main():
     save_tracker(DIFF_TRACKER, new_data)
     print(f"  Đã lưu snapshot: {DIFF_TRACKER}")
 
+    # 7. Cập nhật vector store (chỉ khi có thay đổi)
+    if changes:
+        try:
+            from rag.indexer import reindex
+            print(f"\n--- Cập nhật vector store ---")
+            stats = reindex()
+            print(
+                f"  Vector store: {stats['processed']} indexed, "
+                f"{stats['skipped']} skipped, "
+                f"{stats['total_chunks']} chunks"
+            )
+        except Exception as e:
+            print(f"  [WARN] Không thể cập nhật vector store: {e}")
+
     print("=" * 60)
 
 

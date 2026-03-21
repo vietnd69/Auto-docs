@@ -1,11 +1,11 @@
 ---
 id: chathistory
 title: Chathistory
-description: Manages chat message history storage, retrieval, and network synchronization for player and system communications.
-tags: [ui, chat, network, history]
+description: Manages client-side chat message storage, filtering, and network synchronization.
+tags: [ui, network, utility]
 sidebar_position: 10
 
-last_updated: 2026-03-20
+last_updated: 2026-03-21
 build_version: 714014
 change_status: stable
 category_type: root
@@ -15,119 +15,96 @@ system_scope: ui
 
 # Chathistory
 
-> Based on game build **714014** | Last updated: 2026-03-20
+> Based on game build **714014** | Last updated: 2026-03-21
 
 ## Overview
-`ChatHistory` is a manager class that maintains a circular buffer of chat messages displayed in the game UI. It handles multiple chat types including player messages, emotes, announcements, system messages, and NPC chatter. The component manages history persistence across server joins, filters duplicate NPC messages, applies word filtering, and synchronizes chat history between clients and server via RPC calls. It operates as a singleton instance (`ChatHistory`) rather than an entity component.
+`ChatHistory` is a global singleton manager responsible for storing and processing chat messages on the client. It maintains a circular buffer of recent messages, handles profanity filtering, suppresses duplicate NPC chatter, and synchronizes chat history with the server upon joining. This script is primarily used by the HUD system to render the chat log and manage incoming network messages.
 
 ## Usage example
 ```lua
--- Access the global ChatHistory manager instance
-local chatHistory = ChatHistory
+-- Access the global manager instance
+local history = ChatHistory
 
--- Add a listener for new chat messages
-chatHistory:AddChatHistoryListener(function(message)
-    print("New chat:", message.message)
-end)
+-- Add a listener to react to new messages
+local function OnNewMessage(msg)
+    print("New chat:", msg.message)
+end
+history:AddChatHistoryListener(OnNewMessage)
 
--- Add a system message to history
-chatHistory:OnSystemMessage("Server restarting in 5 minutes")
-
--- Retrieve the most recent chat message
-local latestMessage = chatHistory:GetChatMessageAtIndex(1)
-print(latestMessage.sender, latestMessage.message)
+-- Manually add a system message to the history
+history:OnSystemMessage("Server restarting soon")
 ```
 
 ## Dependencies & tags
-**Components used:** None (this is a manager class, not an entity component)
-**Tags:** None identified
+**Components used:** None (Global Manager)
+**Tags:** None identified.
+**External Dependencies:** `util/emoji`, `Profile`, `ThePlayer`, `Ents`, `RPC`, `STRINGS`.
 
 ## Properties
 | Property | Type | Default Value | Description |
 |----------|------|---------------|-------------|
-| `listeners` | table | `{}` | Registered callback functions for chat history events |
-| `history` | table | `{}` | Circular buffer storing chat message objects |
-| `request_history_start` | number | `1` | Index tracking pending history sync requests |
-| `history_start` | number | `MAX_CHAT_HISTORY` | Current write position in circular buffer |
-| `MAX_CHAT_HISTORY` | number | `100` | Maximum messages retained in history buffer |
-| `NPC_CHATTER_MAX_CHAT_NO_DUPES` | number | `20` | Number of recent messages checked for NPC duplicate filtering |
-| `join_server` | boolean | `nil` | Flag indicating player has joined the server |
-| `max_chat_history_plus_one` | any | `nil` | Reference to message overwritten during buffer rotation |
+| `listeners` | table | `{}` | Stores callback functions triggered when new history is added. |
+| `history` | table | `{}` | Circular buffer array storing chat message objects. |
+| `history_start` | number | `MAX_CHAT_HISTORY` | Index pointer for the start of the circular buffer. |
+| `request_history_start` | number/`nil` | `1` | Tracks the index range requested from the server during sync. |
+| `MAX_CHAT_HISTORY` | number | `100` | Class constant defining the maximum buffer size. |
+| `NPC_CHATTER_MAX_CHAT_NO_DUPES` | number | `20` | Class constant defining how many recent messages to check for NPC duplicates. |
 
 ## Main functions
-### `JoinServer()`
-*   **Description:** Marks the manager as having completed server join, enabling normal chat history operations.
-*   **Parameters:** None.
-*   **Returns:** Nothing.
-*   **Error states:** Must be called after player joins to enable message processing.
-
-### `GetDisplayName(name, prefab)`
-*   **Description:** Resolves a display name for chat sender, falling back to unknown user string if empty.
-*   **Parameters:** `name` (string) - sender name, `prefab` (string) - sender prefab reference.
-*   **Returns:** string - resolved display name.
-
-### `OnAnnouncement(message, colour, announce_type)`
-*   **Description:** Processes server announcement messages and adds them to history.
-*   **Parameters:** `message` (string) - announcement text, `colour` (table) - RGBA colour, `announce_type` (any) - type identifier.
-*   **Returns:** Nothing.
-*   **Error states:** Returns early if `join_server` is not set.
-
-### `OnSay(guid, userid, netid, name, prefab, message, colour, whisper, isemote, user_vanity)`
-*   **Description:** Processes player chat messages, applying visibility checks and word filtering.
-*   **Parameters:** `guid` (string) - entity GUID, `userid` (string) - user ID, `netid` (string) - network ID, `name` (string) - sender name, `prefab` (string) - prefab name, `message` (string) - chat text, `colour` (table) - text colour, `whisper` (boolean) - whisper flag, `isemote` (boolean) - emote flag, `user_vanity` (table) - vanity item data.
-*   **Returns:** Nothing.
-*   **Error states:** Returns early if `join_server` is not set or message fails visibility range check.
-
-### `OnChatterMessage(inst, name_colour, message, colour, user_vanity, user_vanity_bg, priority)`
-*   **Description:** Processes NPC chatter messages with duplicate filtering and priority checks.
-*   **Parameters:** `inst` (entity) - chatter entity, `name_colour` (table) - name colour, `message` (string) - chatter text, `colour` (table) - message colour, `user_vanity` (string) - icon name, `user_vanity_bg` (string) - icon background, `priority` (number) - message priority level.
-*   **Returns:** Nothing.
-*   **Error states:** Returns early if NPC chat is disabled, priority exceeds profile setting, or message is duplicate within recent history.
-
 ### `AddToHistory(type, sender_userid, sender_netid, sender_name, message, colour, icondata, whisper, localonly, text_filter_context)`
-*   **Description:** Adds a formatted chat message to the circular history buffer with duplicate filtering for chatter.
-*   **Parameters:** `type` (number) - `ChatTypes` enum value, `sender_userid` (string) - user ID, `sender_netid` (string) - network ID, `sender_name` (string) - display name, `message` (string) - message text, `colour` (table) - colour data, `icondata` (table|string) - icon information, `whisper` (boolean) - whisper flag, `localonly` (boolean) - local visibility flag, `text_filter_context` (string) - filter context.
-*   **Returns:** table - the generated chat message object.
-*   **Error states:** Returns early if `join_server` is not set or duplicate chatter message detected.
+*   **Description:** Processes a chat message and adds it to the internal history buffer. Handles filtering and duplicate suppression for NPC chatter.
+*   **Parameters:**
+    *   `type` (number) - One of `ChatTypes` enums (e.g., `ChatTypes.Message`).
+    *   `sender_userid` (string/`nil`) - Unique ID of the sender.
+    *   `sender_netid` (string/`nil`) - Network ID of the sender.
+    *   `sender_name` (string/`nil`) - Display name of the sender.
+    *   `message` (string) - The chat content.
+    *   `colour` (table) - Color data for the message text.
+    *   `icondata` (table/`nil`) - Vanity icon data for the sender.
+    *   `whisper` (boolean) - Whether the message is a whisper.
+    *   `localonly` (boolean) - Whether the message should not be synced to server.
+    *   `text_filter_context` (string/`nil`) - Context for profanity filtering.
+*   **Returns:** The generated `chat_message` table if successful, `nil` if joined server or filtered.
+*   **Error states:** Returns early if `self.join_server` is true.
 
 ### `GetChatMessageAtIndex(idx)`
-*   **Description:** Retrieves a chat message from the history buffer by index.
-*   **Parameters:** `idx` (number) - index from `1` (newest) to `MAX_CHAT_HISTORY` (oldest).
-*   **Returns:** table - chat message object or `nil` if empty.
-*   **Error states:** Returns `nil` if no message exists at index.
+*   **Description:** Retrieves a specific message from the history buffer.
+*   **Parameters:** `idx` (number) - Index relative to the newest message (`1` is newest, `MAX_CHAT_HISTORY` is oldest).
+*   **Returns:** `chat_message` table or `nil` if empty.
 
 ### `AddChatHistoryListener(fn)`
-*   **Description:** Registers a callback function to be invoked when new messages are added to history.
-*   **Parameters:** `fn` (function) - callback receiving chat message object.
+*   **Description:** Registers a callback function to be executed whenever a new message is added to history.
+*   **Parameters:** `fn` (function) - Callback accepting the `chat_message` table as an argument.
 *   **Returns:** Nothing.
 
 ### `RemoveChatHistoryListener(fn)`
-*   **Description:** Unregisters a previously added chat history listener.
-*   **Parameters:** `fn` (function) - callback to remove.
+*   **Description:** Unregisters a previously added callback function.
+*   **Parameters:** `fn` (function) - The function to remove.
 *   **Returns:** Nothing.
+
+### `OnSay(guid, userid, netid, name, prefab, message, colour, whisper, isemote, user_vanity)`
+*   **Description:** Handler for incoming player chat messages from the network. Performs visibility checks before adding to history.
+*   **Parameters:** Various message metadata including `guid`, `userid`, `message`, `colour`, etc.
+*   **Returns:** Nothing.
+*   **Error states:** Returns early if `self.join_server` is true or if the player is too far from the entity (for non-whispers).
 
 ### `RequestChatHistory()`
-*   **Description:** Initiates a server RPC request to synchronize missing chat history entries.
+*   **Description:** Calculates hashes of local history boundaries and sends an RPC to the server to request missing messages.
 *   **Parameters:** None.
 *   **Returns:** Nothing.
-*   **Error states:** Returns early if `join_server` is not set or no pending request exists.
-
-### `RecieveChatHistory(chat_history)`
-*   **Description:** Processes received chat history data from server and inserts into buffer.
-*   **Parameters:** `chat_history` (string) - encoded and compressed history data.
-*   **Returns:** Nothing.
-*   **Error states:** Returns early if no pending request exists.
+*   **Error states:** Returns early if `self.join_server` is true or no request range is set.
 
 ### `GetChatHistory()`
-*   **Description:** Exports current history buffer as encoded save data.
+*   **Description:** Serializes the current history buffer for saving or network transmission.
 *   **Parameters:** None.
-*   **Returns:** string - compressed and encoded history data.
+*   **Returns:** Encoded string data.
 
 ### `SetChatHistory(history)`
-*   **Description:** Imports and restores history buffer from saved data.
-*   **Parameters:** `history` (string) - encoded save data from `GetChatHistory()`.
+*   **Description:** Deserializes and restores the history buffer from saved data.
+*   **Parameters:** `history` (string) - Encoded history data.
 *   **Returns:** Nothing.
 
 ## Events & listeners
-- **Listens to:** None (uses custom listener system via `AddChatHistoryListener`)
-- **Pushes:** None (invokes registered listener callbacks directly when messages are added)
+- **Listens to:** None (Does not use `inst:ListenForEvent`).
+- **Pushes:** Internal callbacks via `self.listeners` table when `AddToHistory` succeeds.
+- **Network Events:** Uses `RPC.GetChatHistory`, `CLIENT_RPC.RecieveChatHistory` for synchronization.

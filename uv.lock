@@ -1472,6 +1472,12 @@ requires-dist = [
 name = "mod-document-watcher"
 version = "0.1.0"
 source = { editable = "watcher" }
+dependencies = [
+    { name = "mod-document-rag" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "mod-document-rag", editable = "rag" }]
 
 [[package]]
 name = "mpmath"

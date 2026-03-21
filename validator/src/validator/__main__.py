@@ -1,13 +1,8 @@
 import sys
 from pathlib import Path
 
-try:
-    from validator.validator import validate_full
-    from validator.autofix_mdx import autofix_file
-except ImportError:
-    # Hỗ trợ chạy trực tiếp qua `py validator`
-    from validator import validate_full
-    from autofix_mdx import autofix_file
+from validator.validator import validate_full
+from validator.autofix_mdx import autofix_file
 
 # Đường dẫn tuyệt đối từ script (__main__.py nằm trong validator/)
 # Nơi chứa docs: d:\code\mod-document\dst-api-webdocs\docs

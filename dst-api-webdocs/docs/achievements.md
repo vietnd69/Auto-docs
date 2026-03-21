@@ -1,11 +1,11 @@
 ---
 id: achievements
 title: Achievements
-description: Defines the master list of achievement identifiers and platform-specific IDs for Steam and PSN.
-tags: [meta, data, ui, progress]
+description: Defines a lookup table of achievement constants mapped to platform-specific identifiers.
+tags: [data, progression, ui]
 sidebar_position: 10
 
-last_updated: 2026-03-20
+last_updated: 2026-03-21
 build_version: 714014
 change_status: stable
 category_type: root
@@ -15,23 +15,18 @@ system_scope: ui
 
 # Achievements
 
-> Based on game build **714014** | Last updated: 2026-03-20
+> Based on game build **714014** | Last updated: 2026-03-21
 
 ## Overview
-This module serves as a data registry for game achievements. It defines a global table mapping internal achievement names to platform-specific identifiers for Steam and PlayStation Network. The table is typically required by systems responsible for tracking player progress and displaying UI notifications. It does not contain logic for unlocking achievements, only the definition of their IDs.
+The `achievements.lua` script serves as a centralized data registry for game achievements. It constructs a global table mapping internal achievement names to platform-specific identifiers required by services like Steam or PlayStation Network. This file is typically required by UI systems or backend managers to reference achievement metadata without hardcoding IDs elsewhere in the codebase.
 
 ## Usage example
 ```lua
 local Achievements = require("achievements")
-
--- Access the first achievement entry
-local entry = Achievements[1]
-print(entry.name) 
--- Output: "survive_20"
-
--- Access platform-specific ID
-print(entry.id.steam) 
--- Output: "1_survive_20"
+-- Access the first achievement definition in the list
+local achievement = Achievements[1]
+print(achievement.name) -- Outputs: "survive_20"
+print(achievement.id.steam) -- Outputs: "1_survive_20"
 ```
 
 ## Dependencies & tags
@@ -39,10 +34,19 @@ print(entry.id.steam)
 **Tags:** None identified.
 
 ## Properties
-No public properties.
+The module returns a list (array) of achievement definition tables. Each entry in the list contains the following structure:
+
+| Property | Type | Default Value | Description |
+|----------|------|---------------|-------------|
+| `name` | string | `nil` | Internal identifier used in code to refer to this achievement. |
+| `id` | table | `nil` | Contains platform-specific IDs, keyed by `steam` (string) and `psn` (integer). |
 
 ## Main functions
-None identified.
+### `ACHIEVEMENT(id, name)`
+*   **Description:** Internal helper function used during module load to generate achievement table entries. It formats the raw ID and name into the standard data structure.
+*   **Parameters:** `id` (string) - Numeric ID string; `name` (string) - Internal achievement name key.
+*   **Returns:** table - Structured achievement data containing `name` and nested `id` table.
+*   **Error states:** This function is local to the file and not exposed in the returned module table.
 
 ## Events & listeners
 None identified.

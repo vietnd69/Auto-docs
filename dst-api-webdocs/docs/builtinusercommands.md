@@ -1,11 +1,11 @@
 ---
 id: builtinusercommands
 title: Builtinusercommands
-description: Registers default chat commands and voting logic for the server.
-tags: [commands, chat, admin, voting]
+description: Registers default chat and console commands for player and admin interactions.
+tags: [chat, admin, network]
 sidebar_position: 10
 
-last_updated: 2026-03-20
+last_updated: 2026-03-21
 build_version: 714014
 change_status: stable
 category_type: root
@@ -15,77 +15,96 @@ system_scope: network
 
 # Builtinusercommands
 
-> Based on game build **714014** | Last updated: 2026-03-20
+> Based on game build **714014** | Last updated: 2026-03-21
 
 ## Overview
-`builtinusercommands.lua` is a global initialization script that registers the default set of chat commands available to players and administrators (e.g., `/help`, `/kick`, `/roll`). It is not an Entity Component System (ECS) component attached to entities; instead, it executes on load to populate the `UserCommands` system. Modders typically reference this file to understand the structure required for adding custom commands via `AddUserCommand`.
+`builtinusercommands` is a script that registers the default set of user commands available in Don't Starve Together. It defines behavior for chat slash commands (e.g., `/help`, `/kick`) and server administration actions. This file does not define a component class but rather executes command registration logic using the `UserCommands` module. It handles permissions, voting mechanics, and network interactions for administrative tasks.
 
 ## Usage example
-Modders do not `require` this file directly. Instead, they create their own command registration scripts following the pattern established here.
+This file registers commands globally upon load. Modders can reference this structure to understand how built-in commands are configured.
 
 ```lua
-AddUserCommand("mycommand", {
-    prettyname = "My Command",
-    desc = "Does something useful.",
+AddUserCommand("roll", {
+    aliases = { "dice", "random", "diceroll" },
     permission = COMMAND_PERMISSION.USER,
     slash = true,
-    params = {"option"},
-    paramsoptional = {true},
+    params = { "dice" },
+    paramsoptional = { true },
     localfn = function(params, caller)
-        -- Client-side logic
-        TheNet:Say("Command executed by " .. caller.name)
+        -- Implementation logic for dice rolling
+        TheNet:DiceRoll(100, 1)
     end,
 })
 ```
 
 ## Dependencies & tags
-**Components used:** None (Global script).
+**Components used:** None (Script file).
+**Modules:** `usercommands`, `voteutil`.
 **Tags:** None identified.
 
 ## Properties
-This file does not instantiate a class with properties. However, the command definition tables passed to `AddUserCommand` utilize the following configuration fields observed in the source code.
-
-| Property | Type | Default Value | Description |
-|----------|------|---------------|-------------|
-| `permission` | enum | `COMMAND_PERMISSION.USER` | Required permission level (e.g., `USER`, `MODERATOR`, `ADMIN`). |
-| `slash` | boolean | `true` | Whether the command is invoked with a `/` prefix. |
-| `params` | table | `{}` | List of parameter names expected by the command. |
-| `paramsoptional` | table | `{}` | Boolean list indicating if each param is optional. |
-| `localfn` | function | `nil` | Function executed on the client when the command is called. |
-| `serverfn` | function | `nil` | Function executed on the master server (if applicable). |
-| `vote` | boolean | `false` | Whether the command requires a player vote to execute. |
-| `aliases` | table | `{}` | Alternative names for the command (e.g., `{"e", "me"}`). |
-| `votetimeout` | number | `30` | Time in seconds before a vote expires. |
-| `confirm` | boolean | `false` | Whether a confirmation dialog is shown before execution. |
+No public properties.
 
 ## Main functions
-The script defines callback functions within command tables. These are not exported methods but execution hooks called by the `UserCommands` system.
+The following commands are registered by this script. They act as the functional interface for user input.
 
-### `localfn(params, caller)`
-*   **Description:** Executed on the client when the user invokes the command. Handles UI feedback or local logic.
-*   **Parameters:** 
-    *   `params` (table) - Contains parsed command arguments (e.g., `params.user`, `params.seconds`).
-    *   `caller` (entity) - The player entity executing the command (may be `nil` during voting).
+### `help`
+*   **Description:** Displays a list of available commands or detailed info for a specific command.
+*   **Parameters:** `commandname` (string, optional) - The name of the command to inspect.
+*   **Returns:** Nothing (outputs to chat history).
+*   **Error states:** If `commandname` is invalid, displays a not found message.
+
+### `emote`
+*   **Description:** Triggers an emote animation or sends a chat message formatted as an emote. Supports aliases `e` and `me`.
+*   **Parameters:** `emotename` (string) - The emote to perform.
 *   **Returns:** Nothing.
-*   **Error states:** May return early if `caller` or `caller.HUD` is `nil`.
+*   **Error states:** Falls back to standard chat say if emote is not found.
 
-### `serverfn(params, caller)`
-*   **Description:** Executed on the master server for commands that affect world state (e.g., `/rollback`, `/regenerate`).
-*   **Parameters:** 
-    *   `params` (table) - Command arguments.
-    *   `caller` (entity) - The player entity (may be `nil` during voting).
+### `bug`
+*   **Description:** Opens the Klei bug tracker URL in the system browser.
+*   **Parameters:** None.
 *   **Returns:** Nothing.
-*   **Error states:** Checks `world.ismastersim` before executing world-altering logic.
 
-### `votecanstartfn(command, caller, targetid)`
-*   **Description:** Determines if a vote is allowed to start for this command.
-*   **Parameters:** 
-    *   `command` (table) - The command definition.
-    *   `caller` (entity) - Player attempting to start the vote.
-    *   `targetid` (string) - ID of the target (if applicable).
-*   **Returns:** Boolean (success), optional string (failure reason).
-*   **Error states:** Returns `false` if cooldowns or permissions are not met.
+### `rescue`
+*   **Description:** Forces the player entity back onto the ground (server-side).
+*   **Parameters:** None.
+*   **Returns:** Nothing.
+*   **Error states:** Server function only; requires valid caller entity.
+
+### `kick`
+*   **Description:** Removes a player from the server. Supports aliases `boot`. Requires moderator permission or a successful vote.
+*   **Parameters:** `user` (string) - The target player name or ID.
+*   **Returns:** Nothing.
+*   **Error states:** Cannot target self or admins. Vote settings apply if permission is insufficient.
+
+### `ban`
+*   **Description:** Bans a player from the server permanently or for a set duration. Requires admin permission.
+*   **Parameters:** `user` (string), `seconds` (number, optional).
+*   **Returns:** Nothing.
+*   **Error states:** Cannot target self or admins.
+
+### `stopvote`
+*   **Description:** Immediately terminates any active vote on the server. Supports alias `veto`. Requires admin permission.
+*   **Parameters:** None.
+*   **Returns:** Nothing.
+
+### `roll`
+*   **Description:** Generates a random number (dice roll). Supports aliases `dice`, `random`, `diceroll`. Includes cooldown logic.
+*   **Parameters:** `dice` (string, optional) - Format `NdS` (e.g., `1d20`) or single number for sides.
+*   **Returns:** Nothing (outputs result to chat).
+*   **Error states:** Returns early if cooldown `TUNING.DICE_ROLL_COOLDOWN` is active.
+
+### `rollback`
+*   **Description:** Reverts the world to a previous save slot. Requires admin permission or a successful vote.
+*   **Parameters:** `numsaves` (number, optional) - Number of saves to go back.
+*   **Returns:** Nothing.
+*   **Error states:** Server function only. Announces vote result if triggered by admin.
+
+### `regenerate`
+*   **Description:** Resets the world generation. Requires admin permission or a successful vote.
+*   **Parameters:** None.
+*   **Returns:** Nothing.
+*   **Error states:** Server function only. Announces vote result if triggered by admin.
 
 ## Events & listeners
-- **Listens to:** None identified.
-- **Pushes:** None identified. (Interacts directly with `TheNet` and `UserCommands` APIs).
+None identified.

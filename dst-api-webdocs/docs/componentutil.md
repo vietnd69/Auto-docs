@@ -1,11 +1,11 @@
 ---
 id: componentutil
 title: Componentutil
-description: Provides comprehensive utility functions for entity state checking, tile change handling, bridge deployment, rose residue management, corpse creation, impact sound selection, topology parsing, inventory tracking, luck-based probability calculations, and combat FX sizing.
-tags: [utilities, helpers, entities, combat, luck]
+description: Provides utility functions for entity state checking, tile change handling, bridge deployment, rose residue management, luck-based probability calculations, corpse conversion, impact sound selection, topology parsing, inventory tracking, and world migration logic.
+tags: [utility, entities, combat, world, inventory]
 sidebar_position: 10
 
-last_updated: 2026-03-20
+last_updated: 2026-03-21
 build_version: 714014
 change_status: stable
 category_type: root
@@ -15,11 +15,11 @@ system_scope: utility
 
 # Componentutil
 
-> Based on game build **714014** | Last updated: 2026-03-20
+> Based on game build **714014** | Last updated: 2026-03-21
 
 ## Overview
 
-The `componentutil` module serves as a centralized utility library for Don't Starve Together, providing helper functions that span multiple game systems including entity state validation, world tile manipulation, combat effects, inventory tracking, and probability calculations. This component does not attach to entities directly but instead exposes standalone functions that other components and prefabs can call to perform common operations. Key functionality includes checking entity death/ghost status, handling ocean and void tile changes with appropriate entity cleanup, deploying vine bridges with validation, managing rose-inspectable residue and fuel creation, computing luck-based chance modifications using configurable formulas, determining appropriate impact sounds based on entity tags, and converting entities to corpses while preserving state data. The module heavily relies on the tag system for entity filtering, component replication for network-aware checks, and tuning constants for balanced gameplay values.
+The `componentutil` module is a comprehensive utility library that provides helper functions across multiple game systems. It handles entity state validation (death, ghost status, electric immunity), tile change management for ocean and void transitions, bridge deployment validation and execution, rose-inspectable residue and fuel creation, luck-based probability calculations with configurable formulas, corpse creation and lunar mutation logic, combat impact sound selection, topology data parsing, inventory item source tracking, hermit crab decoration area validation, set bonus verification, jousting data initialization, world migration portal location computation, and passable area testing. This component serves as a central utility hub that other components and systems depend on for common operations.
 
 ## Usage example
 
@@ -27,24 +27,23 @@ The `componentutil` module serves as a centralized utility library for Don't Sta
 local ComponentUtil = require("componentutil")
 
 -- Check if entity is dead or ghost
-if ComponentUtil.IsEntityDeadOrGhost(inst, true) then
+if ComponentUtil.IsEntityDeadOrGhost(player, true) then
     return
 end
 
--- Apply luck-modified chance calculation
-local base_chance = 0.3
-local modified_chance = ComponentUtil.GetEntityLuckChance(player, base_chance, ComponentUtil.CommonChanceLuckAdditive(0.5))
+-- Apply luck-based chance modification
+local base_chance = 0.5
+local modified_chance = ComponentUtil.GetEntityLuckChance(player, base_chance, LuckFormulas.CommonChanceLuckAdditive(1))
 
--- Perform luck roll with visual effects
-if ComponentUtil.TryLuckRoll(player, modified_chance, ComponentUtil.CommonChanceLuckAdditive(0.5)) then
-    ComponentUtil.DoLuckyEffect(player, true)
+-- Perform luck roll
+if ComponentUtil.TryLuckRoll(player, modified_chance, LuckFormulas.CommonChanceLuckAdditive(1)) then
+    SpawnPrefab("horrorfuel")
 end
 
--- Spawn lightning strike at position
-ComponentUtil.StrikeLightningAtPoint("lightning", true, x, 0, z)
-
--- Convert entity to corpse if eligible
-local corpse = ComponentUtil.TryEntityToCorpse(inst, "grave")
+-- Check set bonus on entity
+if ComponentUtil.EntityHasSetBonus(player, "shadowdagger") then
+    player.components.skilltreeupdater:ActivateBonus("shadow_set")
+end
 ```
 
 ## Dependencies & tags
@@ -110,7 +109,7 @@ local corpse = ComponentUtil.TryEntityToCorpse(inst, "grave")
 - `worldmigrator` -- Used to get portal destination and activated by other
 - `playerspawner` -- Used in GetMigrationPortalLocation to get default spawn point
 - `riftspawner` -- Accessed via TheWorld.components.riftspawner to check lunar portal state
-- `corpsepersistmanager` -- Accessed via TheWorld.components.corpsepersistmanager to determine corpse persistence rules
+- `corpsepersistmanager` -- Accessed via TheWorld.components.corpsepersistmanager for corpse persistence rules
 - `container` -- Referenced inside MakeComponentAnInventoryItemSource to verify container validity
 - `setbonus` -- Accessed on head and body items to verify matching setname
 - `luckuser` -- Used via inst.components.luckuser:GetLuck() in GetEntityLuck
@@ -652,7 +651,6 @@ local corpse = ComponentUtil.TryEntityToCorpse(inst, "grave")
 * **Parameters:**
   - `s` -- Topology ID string in format 'task/index/room' or 'StaticLayoutIsland/layout'
 * **Returns:** table: array of string segments
-* **Error states:** None; handles empty strings as empty table.
 
 ### `ConvertTopologyIdToData(idname)`
 * **Description:** Parses a topology ID string into structured data: layout_id, task_id, index_id, and room_id.
@@ -728,7 +726,6 @@ local corpse = ComponentUtil.TryEntityToCorpse(inst, "grave")
   - `z` -- Z world coordinate
   - `extra_radius` -- Additional radius margin; defaults to 0
 * **Returns:** boolean or nil: true if covered, otherwise nil
-* **Error states:** Uses MAX_PHYSICS_RADIUS as upper bound for FindEntities.
 
 ### `EntityHasSetBonus(inst, setname)`
 * **Description:** Verifies that both head and body inventory slots contain items with matching setbonus.setname.

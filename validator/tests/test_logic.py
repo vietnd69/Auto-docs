@@ -1,11 +1,7 @@
 
 import sys
-from pathlib import Path
 
-# Add parent to path to import validator modules
-sys.path.append(str(Path(__file__).parent))
-
-from autofix_mdx import remove_pure_emojis, remove_extra_dividers, fix_frontmatter_delimiters
+from validator.autofix_mdx import remove_pure_emojis, remove_extra_dividers, fix_frontmatter_delimiters
 
 def test_emoji_removal():
     print("Testing emoji removal...")
@@ -21,37 +17,35 @@ def test_emoji_removal():
 
 def test_divider_removal():
     print("\nTesting divider removal...")
-    text = """---
-id: test
----
----
-Invalid divider (no blank line above)
-# Heading
----
-Valid divider (HR)
 
----
-Invalid divider (no blank line below)
-Text here
-"""
-    fixed, count = remove_extra_dividers(text)
-    print(f"Fixed text:\n{fixed}")
-    print(f"Count: {count}")
-    
-    # Valid HR should remain (it has blank lines before and after in the source, 
-    # 1. --- immediately after FM closing (invalid)
-    # 2. --- immediately after Text (invalid, missing blank line before)
-    # 3. --- between two blank lines (valid HR)
-    precise_text = "---\nid: test\n---\n---\nText\n---\n\n---\n\nMore Text\n"
-    
-    fixed, count = remove_extra_dividers(precise_text)
-    print(f"Precise Fixed:\n{repr(fixed)}")
-    print(f"Count: {count}")
-    
+    # 1. Trailing --- at end of body -> removed
+    text_trailing = "---\nid: test\n---\nContent\n\n---\n"
+    fixed, count = remove_extra_dividers(text_trailing)
+    assert count == 1
+    assert fixed == "---\nid: test\n---\nContent\n"
+    print("  trailing --- removed ✓")
+
+    # 2. --- in middle of body (valid HR) -> kept
+    text_middle = "---\nid: test\n---\nBefore\n\n---\n\nAfter\n"
+    fixed, count = remove_extra_dividers(text_middle)
+    assert count == 0
+    assert "\n\n---\n\n" in fixed
+    print("  middle HR kept ✓")
+
+    # 3. Multiple trailing --- -> all removed
+    text_multi = "---\nid: test\n---\nContent\n---\n---\n"
+    fixed, count = remove_extra_dividers(text_multi)
     assert count == 2
-    assert "Text\n---\n" not in fixed # The one after text should be gone
-    assert "\n\n---\n\n" in fixed      # The valid HR should remain
-    
+    assert fixed == "---\nid: test\n---\nContent\n"
+    print("  multiple trailing --- removed ✓")
+
+    # 4. No trailing --- -> unchanged
+    text_none = "---\nid: test\n---\n---\nText\n---\n\n---\n\nMore Text\n"
+    fixed, count = remove_extra_dividers(text_none)
+    assert count == 0
+    assert fixed == text_none
+    print("  no trailing --- unchanged ✓")
+
     print("✅ Divider removal logic verified!")
 
 def test_frontmatter_delimiters():
@@ -62,7 +56,7 @@ def test_frontmatter_delimiters():
     assert changed == False # Should already match if we improved the regex or handled it
     
     # Test our new regex in fix_yaml_mapping_colon_in_description
-    from autofix_mdx import fix_yaml_mapping_colon_in_description
+    from validator.autofix_mdx import fix_yaml_mapping_colon_in_description
     text_no_newline = "---\ndescription: test: colon\n---"
     fixed, changed = fix_yaml_mapping_colon_in_description(text_no_newline)
     assert changed == True
