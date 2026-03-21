@@ -24,7 +24,7 @@ from rag.docs import (
 )
 from prompts.update import build_update_prompt
 from core.pipeline.standard import generate_doc
-from validator.validate_update import validate_update, validate_batch, append_to_validation_log
+from validator.update.validate_update import validate_update, validate_batch, append_to_validation_log
 
 from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR
 
@@ -230,7 +230,7 @@ def main():
                         "unified_diff": ""
                     }
                 )
-                if errors != ["OK"]:
+                if errors:
                     hard_errors = [e for e in errors if not e.startswith("[warning")]
                     warnings = [e for e in errors if e.startswith("[warning")]
                     if hard_errors:
@@ -347,7 +347,7 @@ def main():
                     }
                 )
 
-                if errors != ["OK"]:
+                if errors:
                     hard_errors = [e for e in errors if not e.startswith("[warning")]
                     warnings = [e for e in errors if e.startswith("[warning")]
                     if hard_errors:
