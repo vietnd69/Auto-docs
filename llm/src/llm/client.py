@@ -94,3 +94,7 @@ def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
 
     _account_counter += n
     raise Exception(f"Tất cả {n} account đều bị rate limit: {'; '.join(errors)}")
+
+
+# === COMPRESSION CONFIG ===
+COMPRESSION_MODEL = "qwen3.5:cloud"   # model dùng cho compression (có thể override)
