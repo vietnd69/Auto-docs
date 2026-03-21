@@ -16,11 +16,10 @@ When asked about code in this project, call:
 - `lookup_symbol(symbol_name=..., workspace_id="mod-document")` — find class/function
 - `get_file_context(file_path=..., workspace_id="mod-document")` — full file content
 
-## .venv
-project use .venv
-not use system python
-call `./.venv/Scripts/Activate.ps1`
-use `python <file_name.py>`
+## Environment
+project sử dụng uv workspace
+chạy: `uv sync` để cài dependencies
+chạy: `uv run mod-document` thay cho `python main.py`
 
 ## Project Overview
 
@@ -30,15 +29,15 @@ This is a Python-based document generation system that automatically creates API
 
 ### Document Generation Pipeline
 
-**Main Flow (main.py:53-153):**
+**Main Flow (core/src/core/main.py):**
 1. **File Discovery**: Scans `dst-scripts/` directory for `.lua` files
 2. **Reference Analysis**: Extracts cross-file dependencies and connected content
 3. **Token Counting**: Determines if chunked processing is needed (>32K tokens)
 4. **Processing Strategy**:
-   - **Standard Pipeline**: Direct LLM call for smaller files via `olm.py`
-   - **Chunked Pipeline**: Multi-stage processing via `chunked_olm.py` for large files
+   - **Standard Pipeline**: Direct LLM call for smaller files via `core/src/core/pipeline/standard.py`
+   - **Chunked Pipeline**: Multi-stage processing via `core/src/core/pipeline/chunked.py` for large files
 
-**Chunked Processing (chunked_olm.py):**
+**Chunked Processing (core/src/core/pipeline/chunked.py):**
 - Splits large files into manageable chunks
 - Generates analysis for each chunk independently
 - Hierarchically merges results into final documentation
@@ -46,60 +45,48 @@ This is a Python-based document generation system that automatically creates API
 
 ### Key Components
 
-**Configuration System (config.py):**
-- Multi-account Ollama Cloud API management with automatic failover
-- Round-robin load balancing with rate limit detection
-- Project path configuration and model settings
+**Configuration System:**
+- `llm/src/llm/client.py`: Multi-account Ollama Cloud API management with automatic failover and round-robin load balancing
+- `core/src/core/config.py`: Project path configuration and model settings
 
 **Content Analysis:**
-- `rag_get_fnc_content.py`: Extracts function signatures and connected code
-- `get_docs.py`: Handles Lua reference extraction and file reading
-- `prompt.py` & `chunked_prompt.py`: Template generation for LLM prompts
+- `rag/src/rag/content.py`: Extracts function signatures and connected code
+- `rag/src/rag/docs.py`: Handles Lua reference extraction and file reading
+- `prompts/src/prompts/standard.py` & `prompts/src/prompts/chunked.py`: Template generation for LLM prompts
 
 **Processing Modules:**
-- `chunked.py`: Token counting and chunking logic
-- `olm.py`: Standard document generation
-- `chunked_olm.py`: Multi-stage chunked processing with hierarchical merging
+- `core/src/core/pipeline/chunking.py` + `llm/src/llm/tokens.py`: Token counting and chunking logic
+- `core/src/core/pipeline/standard.py`: Standard document generation
+- `core/src/core/pipeline/chunked.py`: Multi-stage chunked processing with hierarchical merging
 
 ## Common Development Commands
 
 ### Running the System
 
 ```bash
-# Activate Python virtual environment
-.venv/Scripts/activate
+# Chạy document generation
+uv run mod-document
 
-# Run main document generation
-python main.py
+# Chạy diff watcher
+uv run mod-watcher
 
-# Run specific tests
-python test_per_chunk.py
+# Test riêng từng package
+uv run pytest core/tests/
+uv run pytest rag/tests/
+uv run pytest prompts/tests/
+uv run pytest watcher/tests/
 
-# Check Python syntax for all files
-python -c "import ast; ast.parse(open('main.py', encoding='utf-8').read()); print('main.py: OK')"
+# Test toàn workspace
+uv run pytest
 ```
-
-### Environment Setup
-
-The project requires:
-- Python virtual environment in `.venv/`
-- Dependencies from `requirements.txt`
-- Ollama API keys configured in `.env` file
-- LlamaIndex, Ollama, and related ML libraries
-
-### Testing
-
-Test files follow the pattern `test_*.py`:
-- `test_per_chunk.py`: Tests chunked content extraction
-- Individual module tests for validation
 
 ## Architecture Notes
 
 ### File Processing Strategy
 
 The system automatically chooses between two processing modes:
-- **Files < 32K tokens**: Direct processing via `olm.generate_doc()`
-- **Files ≥ 32K tokens**: Chunked processing via `chunked_olm.process_chunked_file()`
+- **Files < 32K tokens**: Direct processing via `core/src/core/pipeline/standard.py`
+- **Files ≥ 32K tokens**: Chunked processing via `core/src/core/pipeline/chunked.py`
 
 ### Connected Content System
 
@@ -111,8 +98,8 @@ Files are analyzed for dependencies using:
 ### Prompt Engineering
 
 Two distinct prompt systems:
-- `prompt.py`: Standard single-pass documentation generation
-- `chunked_prompt.py`: Multi-stage prompts for chunk analysis and merging
+- `prompts/src/prompts/standard.py`: Standard single-pass documentation generation
+- `prompts/src/prompts/chunked.py`: Multi-stage prompts for chunk analysis and merging
 
 ### Error Handling & Resilience
 
@@ -123,9 +110,9 @@ Two distinct prompt systems:
 
 ## Important Files
 
-- `main.py`: Entry point and orchestration
-- `config.py`: Configuration and Ollama API management
-- `chunked_olm.py`: Core chunked processing logic
-- `rag_get_fnc_content.py`: Content extraction utilities
-- `requirements.txt`: Python dependencies
+- `core/src/core/main.py`: Entry point and orchestration
+- `llm/src/llm/client.py`: LLM client and Ollama API management
+- `core/src/core/config.py`: Project configuration and settings
+- `core/src/core/pipeline/chunked.py`: Core chunked processing logic
+- `rag/src/rag/content.py`: Content extraction utilities
 - `.env`: API keys and environment variables (not in repo)
