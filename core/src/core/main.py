@@ -1,3 +1,4 @@
+import argparse
 import os
 import signal
 import sys
@@ -21,6 +22,21 @@ from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR
 
 
 def main():
+    # === CLI ARGUMENTS ===
+    parser = argparse.ArgumentParser(description="Generate API docs for DST Lua mods")
+    parser.add_argument(
+        "file",
+        nargs="?",
+        default=None,
+        help="Path to a single .lua file to generate docs for (skip full scan)",
+    )
+    parser.add_argument(
+        "-f", "--force",
+        action="store_true",
+        help="Force regenerate even if docs already exist",
+    )
+    args = parser.parse_args()
+
     # === CONFIGURATION — Lấy từ config.py và tuỳ chỉnh ===
     ENTER_DEEP_DIR = True
     LUA_DIR = os.path.join(BASE_LUA_DIR, "")
@@ -45,15 +61,38 @@ def main():
 
     signal.signal(signal.SIGINT, handle_sigint)
 
+    # === Build file list ===
+    if args.file:
+        # Single file mode: resolve path relative to LUA_DIR
+        lua_path = os.path.abspath(args.file)
+        if not lua_path.endswith(".lua"):
+            print(f"[Lỗi] File phải có đuôi .lua: {lua_path}")
+            sys.exit(1)
+        if not os.path.isfile(lua_path):
+            print(f"[Lỗi] File không tồn tại: {lua_path}")
+            sys.exit(1)
+        lua_dir_abs = os.path.abspath(LUA_DIR)
+        if not lua_path.startswith(lua_dir_abs):
+            print(f"[Lỗi] File phải nằm trong thư mục: {lua_dir_abs}")
+            sys.exit(1)
+        file_list = [os.path.relpath(lua_path, lua_dir_abs).replace("\\", "/")]
+        force_regen = True  # Single file mode → always regenerate
+    else:
+        file_list = get_lua_files(LUA_DIR, deep=ENTER_DEEP_DIR)
+        force_regen = args.force
+
     # === MAIN LOOP ===
     stats = {"processed": 0, "skipped": 0, "failed": 0, "failed_list": []}
 
-    print(f"Bắt đầu xử lý thư mục: {LUA_DIR}")
+    if args.file:
+        print(f"Xử lý file đơn: {file_list[0]}")
+    else:
+        print(f"Bắt đầu xử lý thư mục: {LUA_DIR}")
     print(f"Output: {DOCS_DIR}")
     print(f"Model: {MODEL_NAME}")
     print("-" * 60)
 
-    for filename in get_lua_files(LUA_DIR, deep=ENTER_DEEP_DIR):
+    for filename in file_list:
         if shutdown.stop_requested:
             print("[Hệ thống] Đã dừng vòng lặp an toàn.")
             break
@@ -68,8 +107,8 @@ def main():
         # Đảm bảo thư mục con tồn tại
         os.makedirs(os.path.dirname(md_filepath), exist_ok=True)
 
-        # Bỏ qua file đã có docs
-        if os.path.exists(md_filepath):
+        # Bỏ qua file đã có docs (trừ khi force hoặc single file mode)
+        if not force_regen and os.path.exists(md_filepath):
             print(f"  Bỏ qua {md_filename} (đã tồn tại)")
             stats["skipped"] += 1
             continue
