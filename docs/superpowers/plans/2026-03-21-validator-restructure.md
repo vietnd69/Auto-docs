@@ -1734,7 +1734,7 @@ git commit -m "feat(validator): add content/chunked.py placeholder for future st
 - Create: `validator/src/validator/pipeline.py`
 - Create: `validator/tests/test_pipeline.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Create `validator/tests/test_pipeline.py`:
 
@@ -1784,12 +1784,12 @@ def test_file_result_statuses():
         assert result.final_status == status
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `uv run pytest validator/tests/test_pipeline.py -v`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `pipeline.py`**
+- [x] **Step 3: Implement `pipeline.py`**
 
 Create `validator/src/validator/pipeline.py`:
 
@@ -1921,12 +1921,12 @@ def process_batch(target: str, config: PipelineConfig) -> list[FileResult]:
     return results
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest validator/tests/test_pipeline.py -v`
 Expected: All PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add validator/src/validator/pipeline.py validator/tests/test_pipeline.py
@@ -1941,11 +1941,11 @@ git commit -m "feat(validator): add pipeline.py — full content+format orchestr
 - Create: `validator/src/validator/update/__init__.py`
 - Create: `validator/src/validator/update/validate_update.py` (adapted copy)
 
-- [ ] **Step 1: Create update package init**
+- [x] **Step 1: Create update package init**
 
 Create empty `validator/src/validator/update/__init__.py`.
 
-- [ ] **Step 2: Copy and adapt validate_update.py**
+- [x] **Step 2: Copy and adapt validate_update.py**
 
 Copy `validator/src/validator/validate_update.py` to `validator/src/validator/update/validate_update.py`.
 
@@ -1984,12 +1984,12 @@ from validator.format.checks import validate_all
 
 All other code stays the same. Note: callers that check `== ["OK"]` must be updated to check `== []` or `not errors`. Check `watcher/` package for any such callers.
 
-- [ ] **Step 3: Verify import works**
+- [x] **Step 3: Verify import works**
 
 Run: `uv run python -c "from validator.update.validate_update import validate_update; print('OK')"`
 Expected: prints "OK"
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add validator/src/validator/update/__init__.py validator/src/validator/update/validate_update.py
@@ -2003,7 +2003,7 @@ git commit -m "refactor(validator): move validate_update.py to update/ package"
 **Files:**
 - Modify: `validator/src/validator/__main__.py`
 
-- [ ] **Step 1: Rewrite `__main__.py`**
+- [x] **Step 1: Rewrite `__main__.py`**
 
 Replace entire content of `validator/src/validator/__main__.py`:
 
@@ -2050,12 +2050,12 @@ if __name__ == "__main__":
     main()
 ```
 
-- [ ] **Step 2: Verify CLI help works**
+- [x] **Step 2: Verify CLI help works**
 
 Run: `uv run python -m validator --help`
 Expected: Shows usage with `--content-only`, `--format-only`, `--max-iterations`, etc.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add validator/src/validator/__main__.py
@@ -2070,7 +2070,7 @@ git commit -m "refactor(validator): rewrite __main__.py with CLI args for new pi
 - Modify: `validator/src/validator/constants.py`
 - Create: `validator/tests/test_smoke.py`
 
-- [ ] **Step 1: Add content loop constants**
+- [x] **Step 1: Add content loop constants**
 
 Update `validator/src/validator/constants.py`:
 
@@ -2083,7 +2083,7 @@ DEFAULT_MODEL = "qwen3.5:cloud"
 __all__ = ["MDX_NODE_TIMEOUT", "DEFAULT_MAX_ITERATIONS", "DEFAULT_MODEL"]
 ```
 
-- [ ] **Step 2: Create smoke test**
+- [x] **Step 2: Create smoke test**
 
 Create `validator/tests/test_smoke.py`:
 
@@ -2142,12 +2142,12 @@ def test_import_constants():
     assert DEFAULT_MAX_ITERATIONS == 3
 ```
 
-- [ ] **Step 3: Run all new tests**
+- [x] **Step 3: Run all new tests**
 
 Run: `uv run pytest validator/tests/test_smoke.py -v`
 Expected: All PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add validator/src/validator/constants.py validator/tests/test_smoke.py
@@ -2172,12 +2172,12 @@ git commit -m "chore(validator): update constants and add smoke test for all new
 - After Task 3 (moving `validate_mdx.mjs`), the old `autofix_mdx.py` and `validator.py` will be broken. Tasks 1-16 should be executed as a single migration — the old code is not expected to work mid-migration.
 - The old `validate_full()` returned `["OK"]` on success. The new `validate_all()` returns an empty list `[]`. Any callers in `watcher/` or other packages that check `== ["OK"]` need to be updated.
 
-- [ ] **Step 1: Run all NEW tests to confirm everything works before deletion**
+- [x] **Step 1: Run all NEW tests to confirm everything works before deletion**
 
 Run: `uv run pytest validator/tests/test_smoke.py validator/tests/test_format_checks.py validator/tests/test_format_autofix.py validator/tests/test_utils.py validator/tests/test_content_reviewer.py validator/tests/test_content_writer.py validator/tests/test_content_loop.py validator/tests/test_pipeline.py -v`
 Expected: All PASS
 
-- [ ] **Step 2: Delete old source files**
+- [x] **Step 2: Delete old source files**
 
 ```bash
 git rm validator/src/validator/validator.py
@@ -2186,7 +2186,7 @@ git rm validator/src/validator/fix_format.py
 git rm validator/src/validator/validate_update.py
 ```
 
-- [ ] **Step 3: Delete old test files**
+- [x] **Step 3: Delete old test files**
 
 ```bash
 git rm validator/tests/test.py
@@ -2194,17 +2194,17 @@ git rm validator/tests/test_logic.py
 git rm validator/tests/test_fix_ref.py
 ```
 
-- [ ] **Step 4: Run ALL remaining tests**
+- [x] **Step 4: Run ALL remaining tests**
 
 Run: `uv run pytest validator/tests/ -v`
 Expected: All PASS — no import errors, no broken references
 
-- [ ] **Step 5: Verify CLI still works**
+- [x] **Step 5: Verify CLI still works**
 
 Run: `uv run python -m validator --help`
 Expected: Shows help text with all CLI options
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A
