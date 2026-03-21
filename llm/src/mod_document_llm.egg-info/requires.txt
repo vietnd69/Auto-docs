@@ -1,0 +1,3 @@
+ollama
+tiktoken
+python-dotenv

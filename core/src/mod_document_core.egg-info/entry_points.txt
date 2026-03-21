@@ -1,0 +1,2 @@
+[console_scripts]
+mod-document = core.main:main

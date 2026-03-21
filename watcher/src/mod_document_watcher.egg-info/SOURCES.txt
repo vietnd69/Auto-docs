@@ -1,0 +1,9 @@
+pyproject.toml
+src/mod_document_watcher.egg-info/PKG-INFO
+src/mod_document_watcher.egg-info/SOURCES.txt
+src/mod_document_watcher.egg-info/dependency_links.txt
+src/mod_document_watcher.egg-info/entry_points.txt
+src/mod_document_watcher.egg-info/top_level.txt
+src/watcher/__init__.py
+src/watcher/diff.py
+src/watcher/hash.py
