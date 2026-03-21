@@ -7,14 +7,13 @@ Chứa logic:
 """
 
 import re
-import math
 
 try:
     import tiktoken
 except ImportError:
     tiktoken = None
 
-from llm.tokens import count_tokens, estimate_merge_tokens
+from llm.tokens import count_tokens
 from prompts.chunked import build_chunk_prompt   # used in calc_token_budget
 
 # ── Ngưỡng và cấu hình ──────────────────────────────────────────

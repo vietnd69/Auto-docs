@@ -20,8 +20,6 @@ from pathlib import Path
 from llm import client as config
 from core.utils import shutdown
 
-# ── Checkpoint System ──────────────────────────────────────────
-
 from core.config import CHECKPOINT_DIR
 
 
@@ -63,12 +61,12 @@ from rag.content import (
     extract_compact_content,
     compress_connected_content,
 )
+from llm.tokens import estimate_merge_tokens
 from core.pipeline.chunking import (
     needs_chunking,
     split_lua_into_chunks,
     strip_bulk_data,
     calc_token_budget,
-    estimate_merge_tokens,
     MERGE_TOKEN_LIMIT,
     CONTEXT_RESERVE,
 )
