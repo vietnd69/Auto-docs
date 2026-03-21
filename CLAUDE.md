@@ -17,9 +17,16 @@ When asked about code in this project, call:
 - `get_file_context(file_path=..., workspace_id="mod-document")` — full file content
 
 ## Environment
-project sử dụng uv workspace
-chạy: `uv sync` để cài dependencies
-chạy: `uv run mod-document` thay cho `python main.py`
+
+Project sử dụng **uv workspace** với Python 3.11 (`.venv` trong project root).
+
+**QUAN TRỌNG — luôn dùng `uv run` thay cho `python` trực tiếp:**
+- `uv sync` — cài dependencies
+- `uv run mod-document` — chạy document generation (thay cho `python main.py`)
+- `uv run pytest` — chạy tests
+- `uv run python ...` — chạy bất kỳ script Python nào
+
+KHÔNG BAO GIỜ gọi `python` hay `python3` trực tiếp — luôn prefix bằng `uv run` để đảm bảo dùng đúng `.venv` của project (Python 3.11), tránh dùng nhầm system Python.
 
 ## Project Overview
 

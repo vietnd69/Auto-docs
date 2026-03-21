@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 passed = 0
 failed = 0
 
-def test(name, condition, msg=""):
+def check(name, condition, msg=""):
     global passed, failed
     if condition:
         print(f"  [PASS] {name}")
@@ -51,25 +51,25 @@ def run_load_skill_tests():
         _make_skill(d, "skills/alpha.md", content)
         idx = _make_index(d, [{"name": "alpha", "file": "skills/alpha.md", "inject_into": ["single_prompt"]}])
         result = load_skill("alpha", index_path=idx)
-        test("load_skill returns file content (header stripped)", result == "Hello world", f"got: {result!r}")
+        check("load_skill returns file content (header stripped)", result == "Hello world", f"got: {result!r}")
 
     # T2: unknown name raises KeyError
     with tempfile.TemporaryDirectory() as d:
         idx = _make_index(d, [])
         try:
             load_skill("ghost", index_path=idx)
-            test("load_skill unknown name raises KeyError", False, "no exception raised")
+            check("load_skill unknown name raises KeyError", False, "no exception raised")
         except KeyError as e:
-            test("load_skill unknown name raises KeyError", "not found" in str(e), str(e))
+            check("load_skill unknown name raises KeyError", "not found" in str(e), str(e))
 
     # T3: skill file missing raises FileNotFoundError
     with tempfile.TemporaryDirectory() as d:
         idx = _make_index(d, [{"name": "missing", "file": "skills/missing.md", "inject_into": ["single_prompt"]}])
         try:
             load_skill("missing", index_path=idx)
-            test("load_skill missing file raises FileNotFoundError", False, "no exception raised")
+            check("load_skill missing file raises FileNotFoundError", False, "no exception raised")
         except FileNotFoundError:
-            test("load_skill missing file raises FileNotFoundError", True)
+            check("load_skill missing file raises FileNotFoundError", True)
 
     # T4: reads utf-8 content correctly (Vietnamese characters, header stripped)
     with tempfile.TemporaryDirectory() as d:
@@ -77,7 +77,7 @@ def run_load_skill_tests():
         _make_skill(d, "skills/utf.md", content)
         idx = _make_index(d, [{"name": "utf_skill", "file": "skills/utf.md", "inject_into": ["single_prompt"]}])
         result = load_skill("utf_skill", index_path=idx)
-        test("load_skill reads utf-8 content", "Việt Nam" in result and "# Skill:" not in result, f"got: {result!r}")
+        check("load_skill reads utf-8 content", "Việt Nam" in result and "# Skill:" not in result, f"got: {result!r}")
 
     # T5: malformed index — entry has no 'file:' line → ValueError
     with tempfile.TemporaryDirectory() as d:
@@ -88,9 +88,9 @@ def run_load_skill_tests():
         )
         try:
             load_skill("bad_skill", index_path=bad_index)
-            test("load_skill malformed index raises ValueError", False, "no exception raised")
+            check("load_skill malformed index raises ValueError", False, "no exception raised")
         except ValueError as e:
-            test("load_skill malformed index raises ValueError", "missing 'file:'" in str(e), str(e))
+            check("load_skill malformed index raises ValueError", "missing 'file:'" in str(e), str(e))
 
 
 # ── load_skills_for tests ─────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ def run_load_skills_for_tests():
             {"name": "skill_c", "file": "skills/c.md", "inject_into": ["merge_prompt"]},
         ])
         result = load_skills_for("single_prompt", index_path=idx)
-        test("load_skills_for returns matching skills",
+        check("load_skills_for returns matching skills",
              set(result.keys()) == {"skill_a", "skill_b"} and result["skill_a"] == "content a",
              f"keys: {set(result.keys())}")
 
@@ -118,7 +118,7 @@ def run_load_skills_for_tests():
         _make_skill(d, "skills/a.md", "content a")
         idx = _make_index(d, [{"name": "skill_a", "file": "skills/a.md", "inject_into": ["chunk_prompt"]}])
         result = load_skills_for("merge_prompt", index_path=idx)
-        test("load_skills_for returns empty dict when no match", result == {}, f"got: {result}")
+        check("load_skills_for returns empty dict when no match", result == {}, f"got: {result}")
 
     # T8: all 3 allowed targets work as filters
     with tempfile.TemporaryDirectory() as d:
@@ -134,7 +134,7 @@ def run_load_skills_for_tests():
             set(load_skills_for("merge_prompt",  index_path=idx).keys()) == {"s2"} and
             set(load_skills_for("single_prompt", index_path=idx).keys()) == {"s3"}
         )
-        test("load_skills_for all 3 targets work", ok)
+        check("load_skills_for all 3 targets work", ok)
 
 
 # ── entry point ───────────────────────────────────────────────────────────────

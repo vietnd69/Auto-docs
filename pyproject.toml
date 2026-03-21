@@ -1,5 +1,18 @@
+[project]
+name = "mod-document"
+version = "0.1.0"
+requires-python = ">=3.11"
+
 [tool.uv.workspace]
 members = ["llm", "core", "rag", "prompts", "watcher", "validator"]
 
 [tool.uv]
 dev-dependencies = ["pytest>=8.0"]
+
+[tool.uv.sources]
+mod-document-llm = { workspace = true }
+mod-document-core = { workspace = true }
+mod-document-rag = { workspace = true }
+mod-document-prompts = { workspace = true }
+mod-document-watcher = { workspace = true }
+mod-document-validator = { workspace = true }

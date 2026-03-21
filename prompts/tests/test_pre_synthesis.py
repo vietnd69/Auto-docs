@@ -13,7 +13,7 @@ from prompts.pre_synthesis import pre_synthesize, _empty_result
 passed = 0
 failed = 0
 
-def test(name, condition, msg=""):
+def check(name, condition, msg=""):
     global passed, failed
     if condition:
         print(f"  [PASS] {name}")
@@ -44,27 +44,27 @@ print("\n── _empty_result() ──")
 
 result = _empty_result()
 
-test("no 'tags' attribute",
+check("no 'tags' attribute",
      not hasattr(result, "tags"),
      "PreSynthesisResult still has deprecated 'tags' field")
 
-test("has 'game_tags' attribute",
+check("has 'game_tags' attribute",
      hasattr(result, "game_tags"),
      "game_tags field missing")
 
-test("has 'external_deps' attribute",
+check("has 'external_deps' attribute",
      hasattr(result, "external_deps"),
      "external_deps field missing")
 
-test("game_tags default is []",
+check("game_tags default is []",
      result.game_tags == [],
      f"got {result.game_tags!r}")
 
-test("external_deps default is []",
+check("external_deps default is []",
      result.external_deps == [],
      f"got {result.external_deps!r}")
 
-test("system_scope default is 'entity'",
+check("system_scope default is 'entity'",
      result.system_scope == "entity",
      f"got {result.system_scope!r}")
 
@@ -84,19 +84,19 @@ chunks_game_tags = {
 }
 r, malformed = pre_synthesize(chunks_game_tags)
 
-test("no malformed chunks", malformed == [], f"malformed: {malformed}")
+check("no malformed chunks", malformed == [], f"malformed: {malformed}")
 
 names = {t["name"] for t in r.game_tags}
-test("game_tags: all unique names collected",
+check("game_tags: all unique names collected",
      names == {"player", "fire", "heavy"},
      f"got names {names}")
 
 fire_entries = [t for t in r.game_tags if t["name"] == "fire"]
-test("game_tags: 'fire' deduped to one entry",
+check("game_tags: 'fire' deduped to one entry",
      len(fire_entries) == 1,
      f"got {len(fire_entries)} entries for 'fire'")
 
-test("game_tags: first-seen operation preserved for 'fire'",
+check("game_tags: first-seen operation preserved for 'fire'",
      fire_entries[0]["operation"] == "check",
      f"got {fire_entries[0]['operation']!r}")
 
@@ -116,15 +116,15 @@ chunks_ext = {
 }
 r2, malformed2 = pre_synthesize(chunks_ext)
 
-test("no malformed chunks", malformed2 == [], f"malformed: {malformed2}")
+check("no malformed chunks", malformed2 == [], f"malformed: {malformed2}")
 
 ext_names = {d["name"] for d in r2.external_deps}
-test("external_deps: all unique names collected",
+check("external_deps: all unique names collected",
      ext_names == {"TheWorld", "class", "TheNet"},
      f"got {ext_names}")
 
 theworld = next((d for d in r2.external_deps if d["name"] == "TheWorld"), None)
-test("external_deps: first-seen usage preserved for TheWorld",
+check("external_deps: first-seen usage preserved for TheWorld",
      theworld is not None and theworld["usage"].startswith("TheWorld:HasTag()"),
      f"got {theworld!r}")
 
@@ -145,7 +145,7 @@ chunk_old_format = {
 }
 r3, m3 = pre_synthesize({1: json.dumps(chunk_old_format)})
 
-test("old 'tags' key in chunk JSON does not populate game_tags",
+check("old 'tags' key in chunk JSON does not populate game_tags",
      r3.game_tags == [],
      f"game_tags unexpectedly populated: {r3.game_tags}")
 
@@ -160,10 +160,10 @@ chunks_none = {
     ),
 }
 r4, _ = pre_synthesize(chunks_none)
-test("game_tags: 'None' string filtered out",
+check("game_tags: 'None' string filtered out",
      r4.game_tags == [],
      f"got {r4.game_tags}")
-test("external_deps: 'None' string filtered out",
+check("external_deps: 'None' string filtered out",
      r4.external_deps == [],
      f"got {r4.external_deps}")
 
