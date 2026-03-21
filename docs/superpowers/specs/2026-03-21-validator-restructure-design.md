@@ -37,6 +37,7 @@ validator/src/validator/
 ├── __init__.py
 ├── __main__.py              # Entry point — CLI args for content/format/full
 ├── constants.py             # Shared constants
+├── utils.py                 # Shared utilities: resolve_lua_path(), DOCS_DIR resolution
 │
 ├── content/                 # Group 1: LLM-based content validation
 │   ├── __init__.py
@@ -63,13 +64,41 @@ validator/src/validator/
 
 | Current File | New Location | Notes |
 |---|---|---|
-| `validator.py` | `format/checks.py` + `format/mdx.py` | Split: checks vs MDX wrapper |
-| `autofix_mdx.py` | `format/autofix.py` | Renamed, restructured return types |
-| `fix_format.py` | **Deleted** | Replaced by `content/loop.py` |
-| `validate_update.py` | `update/validate_update.py` | Moved, logic unchanged |
+| `validator.py` | `format/checks.py` + `format/mdx.py` | Split + extract: `check_frontmatter`, `check_required_headings`, `check_duplication` exist as functions; `check_emoji` and `check_filler_text` are **new extractions** from inline logic in `validate_full()` |
+| `autofix_mdx.py` | `format/autofix.py` | Renamed, restructured return types. **Behavioral change:** Phase 2 now calls `checks.validate_all()` for detection instead of inline `get_mdx_errors()` |
+| `fix_format.py` | **Deleted** | Replaced by `content/loop.py`. Lua path resolution logic (md→lua mapping) ported to shared `utils.py` |
+| `validate_update.py` | `update/validate_update.py` | Moved. **Import changes required:** `from .validator import validate_full` → `from validator.format.checks import validate_all`; adapt `["OK"]` check to empty `list[ValidationError]` check |
 | `validate_mdx.mjs` | `format/validate_mdx.mjs` | Moved, unchanged |
 | `constants.py` | `constants.py` | Stays at package root |
-| `__main__.py` | `__main__.py` | Rewritten for new pipeline |
+| `__main__.py` | `__main__.py` | Rewritten for new pipeline. **Fix:** `DOCS_DIR` resolution uses `llm.paths.PROJECT_ROOT` instead of relative `__file__` path |
+
+---
+
+## Shared Utilities (`utils.py`)
+
+Ported from `fix_format.py` lines 117-131. Contains non-trivial business logic for mapping between .md docs and Lua source files.
+
+```python
+from llm.paths import PROJECT_ROOT
+
+DOCS_DIR = PROJECT_ROOT / "dst-api-webdocs" / "docs"
+LUA_DIR = PROJECT_ROOT / "dst-scripts"
+
+def resolve_lua_path(md_filepath: str) -> str | None:
+    """
+    Map .md doc path to corresponding .lua source path.
+    e.g. dst-api-webdocs/docs/map/rooms/four.md → dst-scripts/map/rooms/four.lua
+    Returns None if Lua file doesn't exist.
+    """
+
+def resolve_connected_content(lua_filepath: str) -> tuple[str, str]:
+    """
+    Extract connected section + connected content from Lua source.
+    Calls rag.docs.extract_lua_references() + rag.docs.format_connected_section()
+    + rag.content.extract_connected_content()
+    Returns (connected_section, connected_content)
+    """
+```
 
 ---
 
@@ -152,8 +181,10 @@ def run_content_loop(
 ) -> ContentLoopResult:
 ```
 
+Internally calls `utils.resolve_connected_content(lua_filepath)` to obtain connected content for both reviewer and writer. This creates a dependency on `rag` package (via `utils.py`).
+
 **Loop steps:**
-1. Read .md + lua source + connected content
+1. Read .md + lua source + resolve connected content via `utils.py`
 2. LLM2 review → `ReviewResult`
 3. If `approved=True` → return success
 4. If `approved=False` → LLM1 rewrite using feedback → write .md
@@ -253,12 +284,18 @@ class FileResult:
     format_result: FixResult | None
     final_status: str   # "ok", "content_failed", "format_failed"
 
-def process_file(md_filepath: str, config: PipelineConfig) -> FileResult
+def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
+    """
+    Resolves lua_filepath via utils.resolve_lua_path(md_filepath).
+    If Lua source not found and content validation requested, logs warning and skips content step.
+    """
+
 def process_batch(target: str, config: PipelineConfig) -> list[FileResult]
 ```
 
 **Per-file flow:**
-1. If `skip_content=False`: run content loop
+1. Resolve Lua source path via `utils.resolve_lua_path(md_filepath)`
+2. If `skip_content=False` and Lua source exists: run content loop
 2. If `skip_format=False`: run format checks → autofix if needed → re-validate
 3. Return `FileResult` with combined status
 
@@ -289,15 +326,23 @@ Moved from root. Logic unchanged. Called separately when needed (requires `diff_
 
 ### New Python Dependencies
 
-None. Uses existing `llm` package (`ollama_chat`) and `rag` package for connected content extraction.
+Add workspace dependencies to `validator/pyproject.toml`:
+- `mod-document-llm` — for `ollama_chat` (content loop LLM calls)
+- `mod-document-rag` — for `extract_connected_content`, `extract_lua_references`, etc.
+
+No new external (PyPI) dependencies needed.
 
 ### Cross-Package Imports
 
 ```
-content/loop.py
-  → llm.client.ollama_chat          # LLM calls
+utils.py
+  → llm.paths.PROJECT_ROOT          # Path resolution
   → rag.content.extract_connected_content  # Connected content
   → rag.docs.safe_read_lua, extract_lua_references, format_connected_section
+
+content/loop.py
+  → utils.resolve_connected_content  # Connected content (via utils)
+  → llm.client.ollama_chat           # LLM calls
 
 format/checks.py
   → format/mdx.py                   # MDX validation subprocess
@@ -313,6 +358,21 @@ pipeline.py
 
 ---
 
+## Test Migration
+
+| Current Test | New Location | Changes |
+|---|---|---|
+| `tests/test.py` | `tests/test_smoke.py` | Update imports |
+| `tests/test_fix_ref.py` | `tests/test_format_autofix.py` | `from validator.autofix_mdx` → `from validator.format.autofix` |
+| `tests/test_logic.py` | `tests/test_format_checks.py` | `from validator.autofix_mdx` → `from validator.format.autofix`; fix `AssertionError` typo → `AssertionError` |
+
+New tests to add:
+- `tests/test_content_reviewer.py` — test ReviewResult parsing from LLM response
+- `tests/test_content_loop.py` — test loop termination conditions (approved, max iterations)
+- `tests/test_utils.py` — test `resolve_lua_path` mapping logic
+
+---
+
 ## What Gets Deleted
 
 - `fix_format.py` — entirely replaced by content validation loop
@@ -322,6 +382,11 @@ pipeline.py
 ## What Stays Unchanged
 
 - `validate_mdx.mjs` — Node.js MDX validation logic
-- `validate_update.py` — metadata validation logic (only moved)
 - `constants.py` — shared constants (may add new ones for content loop)
 - All existing auto-fix strategies in `autofix_mdx.py` — logic preserved, just reorganized
+
+## What Requires Adaptation (not just move)
+
+- `validate_update.py` — import paths change, `["OK"]` return contract replaced by `list[ValidationError]`
+- `autofix_mdx.py` → `autofix.py` — Phase 2 detection delegates to `checks.validate_all()` instead of inline `get_mdx_errors()`
+- `__main__.py` — full rewrite; `DOCS_DIR` resolution fixed via `utils.py`
