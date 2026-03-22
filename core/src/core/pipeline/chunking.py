@@ -14,23 +14,13 @@ except ImportError:
     tiktoken = None
 
 from llm.tokens import count_tokens
+from llm.settings import PROMPT_TOKEN_LIMIT, MERGE_TOKEN_LIMIT, CONTEXT_RESERVE
 from prompts.chunked import build_chunk_prompt   # used in calc_token_budget
 
 # ── Ngưỡng và cấu hình ──────────────────────────────────────────
 
 CHUNK_THRESHOLD = 3000       # Ngưỡng dòng fallback nếu không có tiktoken
 CHUNK_MAX_LINES = 1500       # Mỗi chunk tối đa ~1500 dòng (fallback)
-
-# Ngưỡng token cho TOÀN BỘ PROMPT (bao gồm system instruction + context + code)
-PROMPT_TOKEN_LIMIT = 16000   # Nếu full prompt > 16K token thì phải chunk
-
-# Ngưỡng token cho MERGE (tổng chunk results)
-MERGE_TOKEN_LIMIT = 20000
-
-# Token reserve dành cho per-chunk connected context (signatures hoặc full bodies).
-# calc_token_budget() sẽ tự trừ khoản này khỏi code budget.
-# CALIBRATION: Full bodies 3–5 refs ~2000–3000 tokens; signatures 30 refs ~1500 tokens.
-CONTEXT_RESERVE = 7000    # Nếu tổng chunk results > ngưỡng này → dùng hierarchical
 
 
 def calc_token_budget(

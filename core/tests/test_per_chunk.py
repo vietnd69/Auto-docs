@@ -15,7 +15,7 @@ from rag.content import (
     extract_connected_content,
 )
 from llm.tokens import count_tokens
-from core.pipeline.chunking import CONTEXT_RESERVE
+from llm.settings import CONTEXT_RESERVE
 
 passed = 0
 failed = 0
