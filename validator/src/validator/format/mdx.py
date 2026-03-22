@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from validator.constants import MDX_NODE_TIMEOUT
+from llm.settings import MDX_NODE_TIMEOUT
 from validator.format.checks import ValidationError
 
 

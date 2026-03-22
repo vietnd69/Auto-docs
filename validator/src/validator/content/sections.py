@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 
 from llm.tokens import count_tokens
+from llm.settings import LUA_CONTEXT_TOKENS
 
 
 @dataclass
@@ -131,12 +132,12 @@ def _extract_block(lines: list[str], def_idx: int) -> str:
     return "\n".join(block)
 
 
-def _truncate_blocks_to_8k(blocks: list[str]) -> str:
-    """Return the longest prefix of blocks whose token count stays ≤ 8000."""
+def _truncate_blocks_to_lua_limit(blocks: list[str]) -> str:
+    """Return the longest prefix of blocks whose token count stays ≤ LUA_CONTEXT_TOKENS."""
     kept: list[str] = []
     for block in blocks:
         candidate = "\n".join(kept + [block])
-        if count_tokens(candidate) > 8_000:
+        if count_tokens(candidate) > LUA_CONTEXT_TOKENS:
             break
         kept.append(block)
     result = "\n".join(kept)
@@ -175,7 +176,7 @@ def extract_lua_context(lua_source: str, fn_names: list[str]) -> str:
 
     # Token guard
     token_count = count_tokens(result)
-    if token_count != -1 and token_count > 8_000:
-        result = _truncate_blocks_to_8k(blocks)
+    if token_count != -1 and token_count > LUA_CONTEXT_TOKENS:
+        result = _truncate_blocks_to_lua_limit(blocks)
 
     return result

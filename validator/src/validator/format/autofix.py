@@ -3,7 +3,7 @@ import re
 import subprocess
 import json
 from pathlib import Path
-from validator.constants import MDX_NODE_TIMEOUT
+from llm.settings import MDX_NODE_TIMEOUT
 from dataclasses import dataclass
 from validator.format.checks import ValidationError
 
