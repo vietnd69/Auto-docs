@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 
 from llm.client import ollama_chat
+from llm.tokens import count_tokens
 from validator.content.prompts import build_writer_prompt
 from validator.content.reviewer import ReviewResult
 
@@ -65,6 +66,7 @@ def rewrite_document(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
+    print(f"  [content/writer] Prompt: {count_tokens(prompt):,} tokens")
     response = ollama_chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],

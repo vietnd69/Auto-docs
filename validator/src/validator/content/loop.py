@@ -17,7 +17,7 @@ def _never_stop() -> bool:
 @dataclass
 class ContentLoopConfig:
     """Configuration for the content validation loop."""
-    max_iterations: int = 3
+    max_iterations: int = 5
     writer_model: str = "qwen3.5:cloud"
     reviewer_model: str = "qwen3.5:cloud"
     stop_check: Callable[[], bool] = field(default=_never_stop, repr=False)

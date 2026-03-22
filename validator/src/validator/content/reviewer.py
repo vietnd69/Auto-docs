@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass
 
 from llm.client import ollama_chat
+from llm.tokens import count_tokens
 from validator.content.prompts import build_reviewer_prompt
 
 
@@ -47,6 +48,7 @@ def review_document(
 ) -> ReviewResult:
     """Send document to LLM2 for review. Returns structured ReviewResult."""
     prompt = build_reviewer_prompt(md_content, lua_source, connected_content)
+    print(f"  [content/reviewer] Prompt: {count_tokens(prompt):,} tokens")
     response = ollama_chat(
         model=model,
         messages=[{"role": "user", "content": prompt}],
