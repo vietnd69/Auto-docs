@@ -4,7 +4,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import httpx
 import ollama
-from llm.settings import OLLAMA_NUM_CTX
+from llm.settings import OLLAMA_NUM_CTX, OLLAMA_TIMEOUT, OLLAMA_TIMEOUT_RETRIES
 # Re-exported so rag/content.py can continue: from llm.client import COMPRESSION_MODEL
 from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL
 
@@ -13,9 +13,6 @@ load_dotenv(Path(__file__).parents[3] / ".env")
 
 # === OLLAMA CLOUD API ===
 OLLAMA_HOST = "https://ollama.com"
-
-OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "300"))      # seconds per attempt
-OLLAMA_TIMEOUT_RETRIES = int(os.getenv("OLLAMA_TIMEOUT_RETRIES", "2"))  # retries on timeout
 
 TOTAL_ACCOUNT = int(os.getenv("TOTAL_ACCOUNT", "0"))
 OLLAMA_API_KEYS: list[str] = []
@@ -68,6 +65,13 @@ def _is_timeout_error(error: Exception) -> bool:
     return isinstance(error, (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.TimeoutException))
 
 
+def _is_retryable_error(error: Exception) -> bool:
+    """Kiểm tra xem lỗi có thể retry không (500, 502 — transient server errors)."""
+    if isinstance(error, ollama.ResponseError):
+        return error.status_code in (500, 502)
+    return False
+
+
 def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
     """
     Wrapper gọi ollama chat với tự động failover khi bị rate limit,
@@ -80,9 +84,9 @@ def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
 
     opts = kwargs.pop("options", {}) or {}
     opts["num_ctx"] = OLLAMA_NUM_CTX
-    opts["mirostat"] = 2
-    opts["mirostat_tau"] = 5.0
-    opts["mirostat_eta"] = 0.1
+    # opts["mirostat"] = 2
+    # opts["mirostat_tau"] = 5.0
+    # opts["mirostat_eta"] = 0.1
 
     n = len(OLLAMA_API_KEYS)
     errors: list[str] = []
@@ -109,6 +113,12 @@ def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
                     remaining = OLLAMA_TIMEOUT_RETRIES - timeout_attempt
                     print(f"  [TIMEOUT] Account {idx + 1} timeout sau {OLLAMA_TIMEOUT:.0f}s → retry ({remaining} còn lại)")
                     errors.append(f"Account {idx + 1}: timeout")
+                    break  # exit inner loop → outer loop retries
+                elif _is_retryable_error(e):
+                    status = e.status_code  # type: ignore[attr-defined]
+                    remaining = OLLAMA_TIMEOUT_RETRIES - timeout_attempt
+                    print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → retry ({remaining} còn lại)")
+                    errors.append(f"Account {idx + 1}: {status}")
                     break  # exit inner loop → outer loop retries
                 else:
                     raise

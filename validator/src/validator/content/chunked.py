@@ -3,6 +3,21 @@
 import re
 from pathlib import Path
 
+_DATA_CONFIG_DIRS = {"map", "languages", "util"}
+
+
+def _detect_file_type(lua_filepath: str) -> str:
+    """Returns 'component' or 'data_config' based on path relative to dst-scripts/."""
+    parts = Path(lua_filepath).parts
+    try:
+        dst_idx = next(i for i, p in enumerate(parts) if p == "dst-scripts")
+        rel = parts[dst_idx + 1:]
+    except StopIteration:
+        rel = parts
+    if len(rel) <= 1 or rel[0].lower() in _DATA_CONFIG_DIRS:
+        return "data_config"
+    return "component"
+
 from llm.client import ollama_chat
 from llm.settings import BATCH_TOKEN_LIMIT, SECTION_TOKEN_THRESHOLD
 from llm.tokens import count_tokens
@@ -27,12 +42,23 @@ from validator.content.sections import (
 from validator.content.writer import Patch, apply_patches, parse_writer_response
 
 
-def review_section(section_text: str, lua_context: str, model: str) -> ReviewResult:
+def review_section(
+    section_text: str,
+    lua_context: str,
+    model: str,
+    section_heading: str = "",
+    file_type: str = "component",
+) -> ReviewResult:
     """Send one markdown section to the reviewer LLM."""
-    prompt = build_section_reviewer_prompt(section_text, lua_context)
+    prompt = build_section_reviewer_prompt(
+        section_text, lua_context, section_heading, file_type
+    )
     print(f"  [content/chunked] Reviewer prompt: {count_tokens(prompt):,} tokens")
+    print(f"  [DEBUG] ── Reviewer prompt ──\n{prompt}\n  [DEBUG] ── end ──")
     response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
-    return parse_review_response(response["message"]["content"])
+    raw = response["message"]["content"]
+    print(f"  [DEBUG] ── Reviewer response ──\n{raw}\n  [DEBUG] ── end ──")
+    return parse_review_response(raw)
 
 
 def write_section_patches(
@@ -40,14 +66,20 @@ def write_section_patches(
     lua_context: str,
     review: ReviewResult,
     model: str,
+    section_heading: str = "",
+    file_type: str = "component",
 ) -> list[Patch]:
     """Ask the writer LLM to patch one section based on review feedback."""
     prompt = build_section_writer_prompt(
-        section_text, lua_context, review.issues, review.suggestions
+        section_text, lua_context, review.issues, review.suggestions,
+        section_heading, file_type
     )
     print(f"  [content/chunked] Writer prompt: {count_tokens(prompt):,} tokens")
+    print(f"  [DEBUG] ── Writer prompt ──\n{prompt}\n  [DEBUG] ── end ──")
     response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
-    patches = parse_writer_response(response["message"]["content"])
+    raw = response["message"]["content"]
+    print(f"  [DEBUG] ── Writer response ──\n{raw}\n  [DEBUG] ── end ──")
+    patches = parse_writer_response(raw)
     if not patches:
         print("  [content/chunked] Writer returned no patches")
     else:
@@ -67,6 +99,7 @@ def run_chunked_content_loop(
     """
     md_content = Path(md_filepath).read_text(encoding="utf-8")
     lua_source = safe_read_lua(lua_filepath)
+    file_type = _detect_file_type(lua_filepath)
     if lua_source is None:
         return ContentLoopResult(
             approved=False,
@@ -136,7 +169,8 @@ def run_chunked_content_loop(
                         f"reviewing... (iter {i + 1}/{config.max_iterations})"
                     )
                     batch_last_review = review_section(
-                        batch_text, lua_ctx, config.reviewer_model
+                        batch_text, lua_ctx, config.reviewer_model,
+                        section.heading, file_type
                     )
                     if batch_last_review.approved:
                         batch_approved = True
@@ -147,7 +181,8 @@ def run_chunked_content_loop(
                         break
 
                     patches = write_section_patches(
-                        batch_text, lua_ctx, batch_last_review, config.writer_model
+                        batch_text, lua_ctx, batch_last_review, config.writer_model,
+                        section.heading, file_type
                     )
                     if not patches:
                         print(
@@ -165,7 +200,8 @@ def run_chunked_content_loop(
                     # max_iterations exhausted — final review on post-patch text
                     total_iterations += 1
                     batch_last_review = review_section(
-                        batch_text, lua_ctx, config.reviewer_model
+                        batch_text, lua_ctx, config.reviewer_model,
+                        section.heading, file_type
                     )
                     batch_approved = batch_last_review.approved
 
@@ -212,6 +248,13 @@ def run_chunked_content_loop(
                 f"{section.heading!r} — {fn_desc} found"
             )
 
+            if not fn_names:
+                print(
+                    f"  [content/chunked] Section {idx}/{len(sections)} — "
+                    "skipped (no function entries to validate)"
+                )
+                continue
+
             section_approved = False
             last_review: ReviewResult | None = None
 
@@ -228,7 +271,10 @@ def run_chunked_content_loop(
                     f"  [content/chunked] Section {idx}/{len(sections)} — "
                     f"reviewing... (iter {i + 1}/{config.max_iterations})"
                 )
-                last_review = review_section(section.text, lua_ctx, config.reviewer_model)
+                last_review = review_section(
+                    section.text, lua_ctx, config.reviewer_model,
+                    section.heading, file_type
+                )
 
                 if last_review.approved:
                     section_approved = True
@@ -239,7 +285,8 @@ def run_chunked_content_loop(
                     break
 
                 patches = write_section_patches(
-                    section.text, lua_ctx, last_review, config.writer_model
+                    section.text, lua_ctx, last_review, config.writer_model,
+                    section.heading, file_type
                 )
                 if not patches:
                     print(
@@ -263,7 +310,10 @@ def run_chunked_content_loop(
                     "max iterations reached, running final review"
                 )
                 total_iterations += 1
-                last_review = review_section(section.text, lua_ctx, config.reviewer_model)
+                last_review = review_section(
+                    section.text, lua_ctx, config.reviewer_model,
+                    section.heading, file_type
+                )
                 section_approved = last_review.approved
 
             if not section_approved and last_review is not None:

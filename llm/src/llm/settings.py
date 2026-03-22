@@ -44,9 +44,11 @@ CHUNKED_TOKEN_THRESHOLD: int = _get("tokens", "chunked_validate", 16000)
 OLLAMA_NUM_CTX: int          = _get("tokens", "ollama_ctx",       256000)
 
 # === Timing ===
-CHUNK_SLEEP: int  = _get("timing", "chunk_sleep",  10)
-MERGE_SLEEP: int  = _get("timing", "merge_sleep",  40)
-NORMAL_SLEEP: int = _get("timing", "normal_sleep", 20)
+CHUNK_SLEEP: int           = _get("timing", "chunk_sleep",     10)
+MERGE_SLEEP: int           = _get("timing", "merge_sleep",     40)
+NORMAL_SLEEP: int          = _get("timing", "normal_sleep",    20)
+OLLAMA_TIMEOUT: float      = _get("timing", "ollama_timeout",  300.0)
+OLLAMA_TIMEOUT_RETRIES: int = _get("timing", "timeout_retries", 2)
 
 # === Validator ===
 VALIDATOR_MAX_ITERATIONS: int      = _get("validator", "max_iterations",      10)

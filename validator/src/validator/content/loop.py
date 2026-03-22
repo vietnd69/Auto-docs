@@ -1,5 +1,6 @@
 """Orchestrates the content validation loop: review -> fix -> review -> approve."""
 
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,7 +9,7 @@ from rag.docs import safe_read_lua
 from validator.content.reviewer import review_document
 from validator.content.writer import rewrite_document, apply_patches
 from validator.utils import resolve_connected_content
-from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN
+from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, NORMAL_SLEEP
 
 
 def _never_stop() -> bool:
@@ -106,6 +107,9 @@ def run_content_loop(
 
         # Write updated content to disk
         Path(md_filepath).write_text(md_content, encoding="utf-8")
+
+        print(f"  [content] Sleeping {NORMAL_SLEEP}s before next iteration...")
+        time.sleep(NORMAL_SLEEP)
 
     # Max iterations reached — do final review to get current status
     print(f"  [content] Max iterations reached, running final review...")
