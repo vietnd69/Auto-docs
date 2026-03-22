@@ -3,108 +3,135 @@
 **Date:** 2026-03-22
 **Status:** Approved
 
-## Problem
-
-Currently `uv run mod-document` only generates documentation. Validation (`uv run python -m validator`) is a separate manual step. This means a doc can be "generated" but invalid — requiring the user to re-run the validator and track failures separately.
-
 ## Goal
 
 Integrate validation into the generation pipeline so each Lua file goes through:
-
-```
-generate doc → content loop → format autofix → next file
-```
+`generate doc → content loop → format autofix → next file`
 
 ## Approach
 
-Inline integration in `core/src/core/main.py` using the existing `validator.pipeline.process_file()` function. No new modules or abstraction layers needed.
+Inline integration in `core/src/core/main.py` using the existing `validator.pipeline.process_file()`.
 
 ## Flow Per File
 
+Replace the existing `if result: stats["processed"]++ ... else: stats["failed"]++` block with:
+
+```python
+# Step 1: generate (existing try/except KeyboardInterrupt block — unchanged)
+try:
+    if needs_chunking(prompt_text):
+        result = process_chunked_file(...)
+    else:
+        result = generate_doc(...)
+except KeyboardInterrupt:
+    result = os.path.basename(md_filepath) if os.path.exists(md_filepath) else None
+
+# Step 2: route on generate result
+if not result:
+    stats["failed"] += 1
+    stats["failed_list"].append(filename)
+    continue
+
+# Step 3: skip validation if requested
+if args.no_validate:
+    stats["processed"] += 1
+    continue
+
+# Step 4: validate — uses md_filepath (full path), NOT result (which is basename only)
+try:
+    file_result = process_file(md_filepath, PipelineConfig(
+        writer_model=MODEL_NAME,
+        reviewer_model=MODEL_NAME,
+    ))
+except KeyboardInterrupt:
+    # Do NOT re-raise — mirror existing generate block behavior.
+    # Outer loop exits via shutdown.stop_requested on next iteration.
+    stats["failed"] += 1
+    stats["validate_failed"] += 1
+    stats["failed_list"].append(filename)
+    shutdown.request_stop()
+    continue
+except Exception as e:
+    print(f"  [Lỗi validate] {filename}: {e}")
+    stats["failed"] += 1
+    stats["validate_failed"] += 1
+    stats["failed_list"].append(filename)
+    continue
+
+# Step 5: handle validation outcome
+if file_result.final_status in ("ok", "skipped_chunked"):
+    stats["processed"] += 1
+elif file_result.final_status == "content_failed":
+    try:
+        os.remove(md_filepath)
+    except OSError as e:
+        print(f"  [Cảnh báo] Không thể xóa {md_filepath}: {e}")
+    stats["failed"] += 1
+    stats["validate_failed"] += 1
+    stats["failed_list"].append(filename)
+elif file_result.final_status == "format_failed":
+    # Keep file.md on disk — has content, just has remaining format errors
+    stats["failed"] += 1
+    stats["validate_failed"] += 1
+    stats["failed_list"].append(filename)
 ```
-for each .lua file:
 
-  1. generate_doc() / process_chunked_file()
-       fail  → stats["failed"]++, continue
-       success → file.md written to disk
+## Known Limitations (no action required)
 
-  2. [skip entirely if --no-validate]
-     validator.pipeline.process_file(md_filepath, PipelineConfig)
+**Chunked threshold mismatch:** The generation pipeline chunks when the full prompt > 16K tokens. The validator skips content review (`skipped_chunked`) when Lua source itself > 32K tokens. These thresholds are independent — a file can go through chunked generation but still receive content review in the validator, or vice versa. This is acceptable: `skipped_chunked` reflects the validator's own capacity limit, not the generation pipeline's decision.
 
-     content loop (LLM review → patch → repeat, max 3 iterations):
-       → approved          → proceed to format fix
-       → not approved      → DELETE file.md, stats["failed"]++, stats["validate_failed"]++, continue
-       → skipped_chunked   → proceed to format fix (chunked files skip content by design)
+**`skipped_chunked` skips format autofix:** `pipeline.process_file()` returns early before running format autofix for `skipped_chunked` files. These files count as `processed` with no format check. This is a known limitation — users can run `uv run python -m validator --format-only` separately for chunked files.
 
-     format autofix:
-       → remaining_errors  → stats["failed"]++, stats["validate_failed"]++, file stays on disk
-       → no errors         → stats["processed"]++
+**Pre-generate failures in stats:** `safe_read_lua()` returning `None` (lines 120–123 of existing main.py) increments `stats["failed"]` before the generate step. The summary `generate_fail = failed - validate_failed` will include these. "Generate fail" is used as a label for "failed before or during generation", which is acceptable.
 
-  3. next file
-```
+**Content validation silent skip in pipeline:** If `pipeline.process_file()` cannot read the Lua source via `resolve_lua_path()`, content validation is silently skipped and the file may return `"ok"`. This is existing `validator/pipeline.py` behavior — out of scope for this change.
 
-## CLI Changes
-
-Add to `argparse` in `main.py`:
+## CLI
 
 ```python
 parser.add_argument(
-    "--no-validate", "-n",
+    "--no-validate",
     action="store_true",
     help="Skip validation (generate only, no content loop or format fix)",
 )
 ```
+No short flag. Works in both batch mode and single-file mode, independent of `force_regen`.
 
-## Stats Changes
+## Stats
 
 ```python
 stats = {
-    "processed": 0,        # generate + validate OK (or generate OK when --no-validate)
-    "skipped": 0,          # docs already exist, skipped
-    "failed": 0,           # generate fail OR validation fail
-    "failed_list": [],     # filenames of all failures
-    "validate_failed": 0,  # breakdown: how many failures were due to validation
+    "processed": 0,       # generate + validate OK (or generate-only with --no-validate)
+    "skipped": 0,         # docs already exist
+    "failed": 0,          # any failure (generate, pre-generate, or validation)
+    "failed_list": [],    # relative .lua filenames — consistent for all failure types
+    "validate_failed": 0, # subset of failed: caused by validation (not generation)
 }
 ```
 
-## Summary Output
+## Summary Display
 
+```python
+if stats["failed"] > 0:
+    print(f"  Thất bại  : {stats['failed']} file")
+    generate_fail = stats["failed"] - stats["validate_failed"]
+    if not args.no_validate and stats["validate_failed"] > 0:
+        print(f"    → Validation fail: {stats['validate_failed']}")
+    if generate_fail > 0:
+        print(f"    → Generate fail  : {generate_fail}")
+if stats["failed_list"]:
+    print(f"  Danh sách file lỗi: {', '.join(stats['failed_list'])}")
 ```
-============================================================
-[Thống kê] Hoàn tất!
-  Đã xử lý : 42 file
-  Đã bỏ qua: 10 file
-  Thất bại  : 3 file
-    → Validation fail: 2
-    → Generate fail  : 1
-  Danh sách file lỗi: ...
-============================================================
-```
-
-When `--no-validate` is used, the "Validation fail" breakdown line is omitted.
 
 ## What Changes
 
-### `core/src/core/main.py`
-- Add `--no-validate` / `-n` CLI flag
-- Import `validator.pipeline.process_file` and `PipelineConfig`
-- After successful generate: if not `--no-validate`, call `process_file(md_filepath, PipelineConfig())`
-- Handle `final_status`:
-  - `"content_failed"` → `os.remove(md_filepath)`, count `failed` + `validate_failed`
-  - `"format_failed"` → count `failed` + `validate_failed` (file stays on disk)
-  - `"ok"` or `"skipped_chunked"` → count `processed`
-- Update summary print to include `validate_failed` breakdown
+**`core/src/core/main.py` only:**
+- Add `--no-validate` flag to `argparse`
+- Add `from validator.pipeline import process_file, PipelineConfig`
+- Add `validate_failed: 0` to `stats` dict
+- Replace `if result: ... else: ...` block with flow above
+- Update summary print with new display rules
 
 ## What Does NOT Change
 
-- `validator/pipeline.py` — used as-is
-- `validator/content/loop.py` — used as-is
-- `validator/format/autofix.py` — used as-is
-- `core/pipeline/standard.py` — used as-is
-- `core/pipeline/chunked.py` — used as-is
-
-## Constraints
-
-- `PipelineConfig` defaults: `content_max_iterations=3`, models from existing config
-- Chunked files (Lua source ≥ 32K tokens) skip content loop automatically — this is existing behavior in `validator/pipeline.py`, no special handling needed in `main.py`
-- `--no-validate` when used with single-file mode (`uv run mod-document file.lua`) also works — validation is simply skipped
+`validator/pipeline.py`, content loop, format autofix, standard/chunked pipeline — all used as-is.
