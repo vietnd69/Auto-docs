@@ -179,3 +179,111 @@ def test_section_writer_prompt_contains_format_rules():
     assert "FORMAT RULES" in prompt
     assert "NEVER" in prompt
     assert "minimal substring" in prompt.lower() or "MINIMAL" in prompt
+
+
+import re as _re
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _make_fn_block(name: str, desc: str = "Does something.") -> str:
+    return (
+        f"### `{name}(arg)`\n"
+        f"* **Description:** {desc}\n"
+        f"* **Parameters:**\n  - `arg` (number) -- an argument.\n"
+        f"* **Returns:** nil\n\n"
+    )
+
+
+def _make_large_md(n_funcs: int = 5) -> str:
+    """Build a doc with one large ## section containing n_funcs ### entries."""
+    section = "## Main functions\n\n"
+    for i in range(n_funcs):
+        section += _make_fn_block(f"Func{i:03d}")
+    return f"---\ntitle: Test\n---\n# Module\n\n{section}"
+
+
+LARGE_LUA = "\n".join(
+    f"function Func{i:03d}(arg) end" for i in range(5)
+) + "\n"
+
+
+# ── tests ─────────────────────────────────────────────────────────────────────
+
+@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)   # always trigger
+@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 200)        # 1-2 fns per batch
+def test_large_section_all_batches_approved(tmp_path):
+    """Large section split into batches; all approved → result.approved True."""
+    md_path = tmp_path / "doc.md"
+    lua_path = tmp_path / "doc.lua"
+    md_path.write_text(_make_large_md(n_funcs=5), encoding="utf-8")
+    lua_path.write_text(LARGE_LUA, encoding="utf-8")
+
+    with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
+        result = run_chunked_content_loop(str(md_path), str(lua_path), _config())
+
+    assert result.approved is True
+
+
+@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)
+@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 200)
+def test_large_section_preserves_all_fn_entries(tmp_path):
+    """After validation, all original ### entries are still present in the file."""
+    md_path = tmp_path / "doc.md"
+    lua_path = tmp_path / "doc.lua"
+    original_md = _make_large_md(n_funcs=5)
+    md_path.write_text(original_md, encoding="utf-8")
+    lua_path.write_text(LARGE_LUA, encoding="utf-8")
+
+    with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
+        run_chunked_content_loop(str(md_path), str(lua_path), _config())
+
+    result_md = md_path.read_text(encoding="utf-8")
+    for i in range(5):
+        assert f"### `Func{i:03d}(arg)`" in result_md
+
+
+@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)
+@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 200)
+def test_large_section_restores_deleted_fn_entry(tmp_path):
+    """If writer deletes a ### entry, restore_lost_blocks adds it back."""
+    md_path = tmp_path / "doc.md"
+    lua_path = tmp_path / "doc.lua"
+    md_path.write_text(_make_large_md(n_funcs=3), encoding="utf-8")
+    lua_path.write_text("\n".join(f"function Func{i:03d}(arg) end" for i in range(3)) + "\n",
+                        encoding="utf-8")
+
+    original_block = _make_fn_block("Func001")
+
+    call_count = 0
+    def _deleting_writer(model, messages, **kw):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # reviewer rejects
+            return _rejected(["Wrong description"])
+        if call_count == 2:
+            # writer deletes Func001 entry entirely
+            body = json.dumps([{
+                "old_text": original_block,
+                "new_text": "",
+                "reason": "remove it"
+            }])
+            return {"message": {"content": body}}
+        # subsequent reviews approve
+        return _approved()
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=_deleting_writer):
+        run_chunked_content_loop(str(md_path), str(lua_path), _config(max_iterations=5))
+
+    result_md = md_path.read_text(encoding="utf-8")
+    assert "### `Func001(arg)`" in result_md   # restored by snapshot+restore
+
+
+@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 99999)  # never trigger
+def test_small_section_uses_existing_path(tmp_path):
+    """Section below threshold still uses the original per-section loop."""
+    md, lua = _write_fixtures(tmp_path)
+    with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
+        result = run_chunked_content_loop(md, lua, _config())
+    assert result.approved is True
