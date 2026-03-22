@@ -1,6 +1,8 @@
 # validator/tests/test_sections.py
 import pytest
+from unittest.mock import patch
 from validator.content.sections import DocSection, split_md_sections, join_md_sections, extract_function_names
+from validator.content.sections import extract_lua_context
 
 
 def test_split_no_frontmatter():
@@ -144,3 +146,107 @@ def test_extract_fn_offset_ordering():
 def test_extract_fn_empty_text():
     """Empty section returns empty list."""
     assert extract_function_names("") == []
+
+
+def test_extract_lua_empty_names():
+    """No function names → empty string immediately."""
+    assert extract_lua_context("function Foo() end\n", []) == ""
+
+
+def test_extract_lua_no_match():
+    """Name not in Lua source → empty string."""
+    assert extract_lua_context("function Foo() end\n", ["Bar"]) == ""
+
+
+def test_extract_lua_single_line_fn():
+    """Function with 'end' on the definition line → only that line extracted."""
+    lua = "function GetOwner() return self.owner end\n"
+    result = extract_lua_context(lua, ["GetOwner"])
+    assert "function GetOwner()" in result
+    assert result.count("end") == 1
+    assert "\n" not in result.strip()  # single line
+
+
+def test_extract_lua_multi_line_fn():
+    """Multi-line function body with closing end is fully extracted."""
+    lua = "function GetOwner()\n    return self.owner\nend\n"
+    result = extract_lua_context(lua, ["GetOwner"])
+    assert "function GetOwner()" in result
+    assert "return self.owner" in result
+    assert result.count("end") == 1
+
+
+def test_extract_lua_method_pattern():
+    """Entity:Method() definition is matched."""
+    lua = "function Entity:GetOwner()\n    return self.owner\nend\n"
+    result = extract_lua_context(lua, ["GetOwner"])
+    assert "Entity:GetOwner" in result
+
+
+def test_extract_lua_table_field():
+    """Table.Name = function() definition is matched."""
+    lua = "Entity.GetOwner = function(self)\n    return self.owner\nend\n"
+    result = extract_lua_context(lua, ["GetOwner"])
+    assert "Entity.GetOwner = function" in result
+
+
+def test_extract_lua_local_var_assignment():
+    """Local variable assignment (Name = function()) definition is matched."""
+    lua = "local GetOwner = function(self)\n    return self.owner\nend\n"
+    result = extract_lua_context(lua, ["GetOwner"])
+    assert "GetOwner = function" in result
+
+
+def test_extract_lua_nested_if_depth():
+    """Nested if/end increases depth; only the outer end closes extraction."""
+    lua = (
+        "function Foo()\n"
+        "    if true then\n"
+        "        return 1\n"
+        "    end\n"
+        "end\n"
+    )
+    result = extract_lua_context(lua, ["Foo"])
+    assert "if true then" in result
+    assert result.count("end") == 2  # inner if-end + outer fn-end
+
+
+def test_extract_lua_repeat_until():
+    """repeat/until block depth tracked; until line emitted as closing boundary."""
+    lua = (
+        "function Foo()\n"
+        "    repeat\n"
+        "        x = x + 1\n"
+        "    until x > 10\n"
+        "end\n"
+    )
+    result = extract_lua_context(lua, ["Foo"])
+    assert "repeat" in result
+    assert "until x > 10" in result
+    assert "end" in result
+
+
+def test_extract_lua_token_guard_minus1():
+    """-1 from count_tokens → skip guard; full string returned even if large."""
+    big_lua = "function GetOwner()\n" + "    -- comment\n" * 500 + "end\n"
+    with patch("validator.content.sections.count_tokens", return_value=-1):
+        result = extract_lua_context(big_lua, ["GetOwner"])
+    assert "-- [truncated]" not in result
+    assert "function GetOwner()" in result
+
+
+def test_extract_lua_token_guard_truncates():
+    """Result > 8000 tokens → truncated to last complete block; marker appended."""
+    lua = (
+        "function Alpha()\n    -- alpha\nend\n"
+        "function Beta()\n    -- beta\nend\n"
+    )
+
+    def mock_count(text: str) -> int:
+        # Alpha alone fits; Alpha+Beta would exceed 8K
+        return 9_000 if "Beta" in text else 4_000
+
+    with patch("validator.content.sections.count_tokens", side_effect=mock_count):
+        result = extract_lua_context(lua, ["Alpha", "Beta"])
+    assert "Alpha" in result
+    assert "-- [truncated]" in result
