@@ -21,7 +21,7 @@
 
 Currently `count_tokens` is imported inside the loop body (line 161). Move it to module level so it can be patched in tests.
 
-- [ ] **Step 1: Move the import**
+- [x] **Step 1: Move the import**
 
 Remove this line from inside the `for filename in file_list:` loop body (line ~161):
 ```python
@@ -33,7 +33,7 @@ Add at the top of `main.py` with the other imports (after `from core.pipeline.ch
 from llm.tokens import count_tokens
 ```
 
-- [ ] **Step 2: Verify the system still runs**
+- [x] **Step 2: Verify the system still runs**
 
 ```bash
 cd /d/code/mod-document && uv run mod-document --help
@@ -41,7 +41,7 @@ cd /d/code/mod-document && uv run mod-document --help
 
 Expected: help text prints without error.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit** → `9a3bff5`
 
 ```bash
 git add core/src/core/main.py
@@ -55,7 +55,7 @@ git commit -m "refactor(main): move count_tokens import to module level"
 **Files:**
 - Create: `core/tests/test_main_validate_routing.py`
 
-- [ ] **Step 1: Create the test file**
+- [x] **Step 1: Create the test file**
 
 ```python
 # core/tests/test_main_validate_routing.py
@@ -198,7 +198,7 @@ class TestGenerateFailSkipsValidation:
         mock_pf.assert_not_called()
 ```
 
-- [ ] **Step 2: Run tests — expect failures**
+- [x] **Step 2: Run tests — expect failures**
 
 ```bash
 cd /d/code/mod-document && uv run pytest core/tests/test_main_validate_routing.py -v 2>&1 | head -40
@@ -206,7 +206,7 @@ cd /d/code/mod-document && uv run pytest core/tests/test_main_validate_routing.p
 
 Expected: errors about missing `--no-validate` flag or `core.main.process_file` not found.
 
-- [ ] **Step 3: Commit the failing tests**
+- [x] **Step 3: Commit the failing tests** → `a59752c`
 
 ```bash
 git add core/tests/test_main_validate_routing.py
@@ -220,7 +220,7 @@ git commit -m "test(main): add failing tests for per-file validation routing"
 **Files:**
 - Modify: `core/src/core/main.py`
 
-- [ ] **Step 1: Add validator import**
+- [x] **Step 1: Add validator import**
 
 Add after line 19 (`from core.pipeline.chunked import process_chunked_file`):
 
@@ -228,7 +228,7 @@ Add after line 19 (`from core.pipeline.chunked import process_chunked_file`):
 from validator.pipeline import process_file, PipelineConfig
 ```
 
-- [ ] **Step 2: Add `--no-validate` CLI flag**
+- [x] **Step 2: Add `--no-validate` CLI flag**
 
 Add after the `--force` argument block (after line 37):
 
@@ -240,7 +240,7 @@ Add after the `--force` argument block (after line 37):
     )
 ```
 
-- [ ] **Step 3: Add `validate_failed` to stats dict**
+- [x] **Step 3: Add `validate_failed` to stats dict**
 
 Replace line 85:
 ```python
@@ -251,7 +251,7 @@ With:
     stats = {"processed": 0, "skipped": 0, "failed": 0, "failed_list": [], "validate_failed": 0}
 ```
 
-- [ ] **Step 4: Replace the post-generate routing block**
+- [x] **Step 4: Replace the post-generate routing block**
 
 Replace the existing block (lines ~200–204):
 ```python
@@ -310,7 +310,7 @@ With:
             stats["failed_list"].append(filename)
 ```
 
-- [ ] **Step 5: Update summary display**
+- [x] **Step 5: Update summary display**
 
 Replace the summary block (lines ~207–214):
 ```python
@@ -344,7 +344,7 @@ With:
     print("=" * 60)
 ```
 
-- [ ] **Step 6: Run the tests — expect all pass**
+- [x] **Step 6: Run the tests — expect all pass**
 
 ```bash
 cd /d/code/mod-document && uv run pytest core/tests/test_main_validate_routing.py -v
@@ -352,7 +352,7 @@ cd /d/code/mod-document && uv run pytest core/tests/test_main_validate_routing.p
 
 Expected: all tests PASS
 
-- [ ] **Step 7: Run full test suite for regressions**
+- [x] **Step 7: Run full test suite for regressions**
 
 ```bash
 cd /d/code/mod-document && uv run pytest core/tests/ validator/tests/ -v --ignore=core/tests/chunked_test.py --ignore=core/tests/test.py --ignore=core/tests/test_per_chunk.py --ignore=core/tests/test_file_type_detection.py
@@ -360,7 +360,7 @@ cd /d/code/mod-document && uv run pytest core/tests/ validator/tests/ -v --ignor
 
 Expected: all existing tests still pass
 
-- [ ] **Step 8: Commit the implementation**
+- [x] **Step 8: Commit the implementation** → `b699c5e`
 
 ```bash
 git add core/src/core/main.py
@@ -381,7 +381,7 @@ git commit -m "feat(main): integrate per-file validation into generation pipelin
 
 ### Task 4: Manual smoke test
 
-- [ ] **Step 1: Verify CLI help shows new flag**
+- [x] **Step 1: Verify CLI help shows new flag**
 
 ```bash
 cd /d/code/mod-document && uv run mod-document --help
@@ -392,7 +392,7 @@ Expected output includes:
   --no-validate         Skip validation (generate only, no content loop or format fix)
 ```
 
-- [ ] **Step 2: Verify `--no-validate` skips validation in single-file mode**
+- [x] **Step 2: Verify `--no-validate` skips validation in single-file mode**
 
 Pick any `.lua` file that already has a corresponding `.md` in `dst-api-webdocs/docs/`, delete the `.md`, then run:
 
@@ -402,7 +402,7 @@ uv run mod-document <path-to.lua> --no-validate
 
 Expected: doc generated, no `[content]` or `[pipeline]` lines in output, summary shows `Đã xử lý: 1 file`, `Thất bại: 0 file`.
 
-- [ ] **Step 3: Empty commit as sign-off**
+- [x] **Step 3: Empty commit as sign-off** → `2f95e6b`
 
 ```bash
 git commit --allow-empty -m "chore: smoke test passed for per-file validation pipeline"
