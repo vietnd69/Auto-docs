@@ -54,6 +54,24 @@ def join_md_sections(frontmatter: str, sections: list[DocSection]) -> str:
     return frontmatter + "".join(s.text for s in sections)
 
 
+def split_section_blocks(section_text: str) -> tuple[str, list[str]]:
+    """Split a ## section into (preamble, fn_blocks).
+
+    preamble: ## heading line + all content before the first line-anchored ### line.
+              Always non-empty (contains at least the ## heading).
+    fn_blocks: list[str], each starts with a ### line. Empty if no ### found.
+
+    Round-trip invariant: preamble + "".join(fn_blocks) == section_text
+    """
+    match = re.search(r'(?m)^### ', section_text)
+    if not match:
+        return section_text, []
+    preamble = section_text[: match.start()]
+    rest = section_text[match.start():]
+    fn_blocks = [b for b in re.split(r'(?m)^(?=### )', rest) if b]
+    return preamble, fn_blocks
+
+
 _FN_PATTERNS: list[tuple[str, int]] = [
     (r'^###\s+`?(\w+)`?', re.MULTILINE),  # ### FunctionName heading
     (r'`(\w+)\s*\(',      0),             # `FuncName(
