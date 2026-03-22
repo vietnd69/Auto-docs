@@ -10,6 +10,7 @@ Configuration parameters are currently scattered across 6+ locations:
 | Constant | Location | Issue |
 |---|---|---|
 | `MODEL_NAME = "qwen3.5:cloud"` | `core/config.py`, `validator/constants.py`, `validator/pipeline.py` | 3 bản, 2 giá trị khác nhau |
+| `COMPRESSION_MODEL = "qwen3.5:cloud"` | `llm/src/llm/client.py` | Hardcoded riêng, không liên kết với `MODEL_NAME` |
 | `MDX_NODE_TIMEOUT = 20` | `core/config.py` + `validator/constants.py` | Trùng lặp hoàn toàn |
 | `PROMPT_TOKEN_LIMIT = 16_000` | `core/pipeline/chunking.py` | — |
 | `CHUNKED_TOKEN_THRESHOLD = 16_000` | `validator/pipeline.py` | Cùng giá trị nhưng định nghĩa lại |
@@ -64,9 +65,10 @@ core/, rag/, validator/, prompts/
 # Example: MOD_DOC_MODEL_MAIN=qwen3-coder:cloud uv run mod-document
 
 [model]
-main   = "qwen3.5:cloud"             # Pipeline chính (doc gen + validator)
-update = "qwen3-coder-next:cloud"    # core/update/docs.py
-embed  = "BAAI/bge-small-en-v1.5"   # RAG embedding model
+main     = "qwen3.5:cloud"             # Pipeline chính (doc gen + validator)
+update   = "qwen3-coder-next:cloud"    # core/update/docs.py
+embed    = "BAAI/bge-small-en-v1.5"   # RAG embedding model
+compress = "qwen3.5:cloud"            # Compression stub generation (llm/client.py)
 
 [tokens]
 prompt_limit     = 16000   # Full prompt > limit → chunked doc gen
@@ -121,9 +123,10 @@ def _get(section: str, key: str, default):
     return type(default)(env_val)
 
 # === Model ===
-MODEL_MAIN: str   = _get("model", "main",   "qwen3.5:cloud")
-MODEL_UPDATE: str = _get("model", "update", "qwen3-coder-next:cloud")
-MODEL_EMBED: str  = _get("model", "embed",  "BAAI/bge-small-en-v1.5")
+MODEL_MAIN: str     = _get("model", "main",     "qwen3.5:cloud")
+MODEL_UPDATE: str   = _get("model", "update",   "qwen3-coder-next:cloud")
+MODEL_EMBED: str    = _get("model", "embed",    "BAAI/bge-small-en-v1.5")
+MODEL_COMPRESS: str = _get("model", "compress", "qwen3.5:cloud")
 
 # === Tokens ===
 PROMPT_TOKEN_LIMIT: int      = _get("tokens", "prompt_limit",     16000)
@@ -145,9 +148,11 @@ MDX_NODE_TIMEOUT: int              = _get("validator", "mdx_timeout",         20
 LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  8000)
 ```
 
-**Graceful fallback:** Nếu `config.toml` không tồn tại, dùng default values. Không raise exception.
+**Graceful fallback:** Nếu `config.toml` không tồn tại (fresh clone), dùng default values. Không raise exception. `config.toml.template` và `.gitignore` phải được commit cùng nhau trong cùng 1 commit để mọi clone đều có template tham khảo.
 
 **Type casting:** `type(default)(env_val)` — cast env string sang `int`/`float`/`str` dựa trên type của default.
+
+**Giới hạn:** `type(default)(env_val)` KHÔNG hỗ trợ `bool` (`bool("false") == True` trong Python). Tất cả settings hiện tại đều là `int` hoặc `str` — không thêm `bool` defaults vào `_get()` mà không sửa hàm này trước.
 
 ---
 
@@ -162,19 +167,19 @@ LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  80
 - `validator/src/validator/constants.py` — toàn bộ nội dung chuyển sang `settings.py`
 
 ### Files rút gọn
-- `core/src/core/config.py` — chỉ giữ `get_shared_file_tree()`, `TODAY_DATE`, `CHECKPOINT_DIR`
+- `core/src/core/config.py` — xóa `MODEL_NAME`, `MDX_NODE_TIMEOUT`, `CHUNK_SLEEP`, `MERGE_SLEEP`, `NORMAL_SLEEP`; chỉ giữ `get_shared_file_tree()`, `TODAY_DATE`, `CHECKPOINT_DIR`
 
 ### Files cập nhật import
 
 | File | Thay đổi |
 |---|---|
-| `llm/src/llm/client.py` | `OLLAMA_NUM_CTX = 256_000` → `from llm.settings import OLLAMA_NUM_CTX` |
+| `llm/src/llm/client.py` | `OLLAMA_NUM_CTX = 256_000` → `from llm.settings import OLLAMA_NUM_CTX`; `COMPRESSION_MODEL = "qwen3.5:cloud"` → `from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL` |
 | `llm/src/llm/tokens.py` | `STUB_FULL_THRESHOLD = 400` → `from llm.settings import STUB_FULL_THRESHOLD` |
 | `core/src/core/pipeline/chunking.py` | Xóa 3 constants, import từ `llm.settings` |
-| `core/src/core/main.py` | `from llm.settings import MODEL_MAIN as MODEL_NAME` |
+| `core/src/core/main.py` | Xóa `MODEL_NAME = config.MODEL_NAME` (dòng 54); thay bằng `from llm.settings import MODEL_MAIN as MODEL_NAME` ở top-level imports |
 | `core/src/core/update/docs.py` | `from llm.settings import MODEL_UPDATE as MODEL_NAME` |
 | `rag/src/rag/indexer.py` | `from llm.settings import MODEL_EMBED as EMBED_MODEL_NAME` |
-| `validator/src/validator/pipeline.py` | Xóa `CHUNKED_TOKEN_THRESHOLD`; dùng `VALIDATOR_MAX_ITERATIONS` làm default `PipelineConfig` |
+| `validator/src/validator/pipeline.py` | Xóa module-level `CHUNKED_TOKEN_THRESHOLD = 16_000`; thêm `from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS`; dùng `VALIDATOR_MAX_ITERATIONS` làm default cho `PipelineConfig.content_max_iterations` |
 | `validator/src/validator/content/loop.py` | Dùng `VALIDATOR_LOOP_MAX_ITERATIONS` làm default `ContentLoopConfig` |
 | `validator/src/validator/content/sections.py` | `8_000` → `from llm.settings import LUA_CONTEXT_TOKENS` |
 | `validator/src/validator/format/autofix.py` | `from llm.settings import MDX_NODE_TIMEOUT` |
@@ -184,11 +189,11 @@ LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  80
 
 | File | Thay đổi |
 |---|---|
-| `validator/tests/test_smoke.py` | Import từ `llm.settings` |
+| `validator/tests/test_smoke.py` | Đổi `from validator.constants import MDX_NODE_TIMEOUT, DEFAULT_MAX_ITERATIONS` → `from llm.settings import MDX_NODE_TIMEOUT, VALIDATOR_MAX_ITERATIONS`; đổi assertion `DEFAULT_MAX_ITERATIONS == 10` → `VALIDATOR_MAX_ITERATIONS == 10` |
 | `rag/tests/test_require_stubs.py` | Import `STUB_FULL_THRESHOLD` từ `llm.settings` |
 | `llm/tests/test_client.py` | Import `OLLAMA_NUM_CTX` từ `llm.settings` |
 | `core/tests/test_per_chunk.py` | Import `CONTEXT_RESERVE` từ `llm.settings` |
-| `validator/tests/test_pipeline.py` | Import `CHUNKED_TOKEN_THRESHOLD` từ `llm.settings` |
+| `validator/tests/test_pipeline.py` | Đổi `from validator.pipeline import ..., CHUNKED_TOKEN_THRESHOLD` → thêm `from llm.settings import CHUNKED_TOKEN_THRESHOLD` (import riêng, không còn re-exported từ `validator.pipeline`) |
 
 ---
 
