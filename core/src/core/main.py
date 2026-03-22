@@ -17,6 +17,7 @@ from prompts.standard import build_prompt
 from core.pipeline.standard import generate_doc
 from core.pipeline.chunking import needs_chunking
 from core.pipeline.chunked import process_chunked_file
+from llm.tokens import count_tokens
 
 from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR
 
@@ -158,7 +159,6 @@ def main():
         )
 
         # Đếm token toàn bộ prompt
-        from llm.tokens import count_tokens
         token_count = count_tokens(prompt_text)
         if token_count >= 0:
             print(f"  [PROMPT] Độ dài: {token_count} tokens")
