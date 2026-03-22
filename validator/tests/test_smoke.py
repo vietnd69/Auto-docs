@@ -46,7 +46,7 @@ def test_import_update():
     assert validate_update is not None
 
 
-def test_import_constants():
-    from validator.constants import MDX_NODE_TIMEOUT, DEFAULT_MAX_ITERATIONS
+def test_import_settings():
+    from llm.settings import MDX_NODE_TIMEOUT, VALIDATOR_MAX_ITERATIONS
     assert MDX_NODE_TIMEOUT == 20
-    assert DEFAULT_MAX_ITERATIONS == 3
+    assert VALIDATOR_MAX_ITERATIONS == 10

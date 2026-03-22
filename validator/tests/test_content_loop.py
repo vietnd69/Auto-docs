@@ -1,17 +1,18 @@
 import pytest
 from validator.content.loop import ContentLoopConfig, ContentLoopResult
+from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN
 
 
 def test_content_loop_config_defaults():
     config = ContentLoopConfig()
-    assert config.max_iterations == 6
-    assert config.writer_model == "qwen3.5:cloud"
-    assert config.reviewer_model == "qwen3.5:cloud"
+    assert config.max_iterations == VALIDATOR_LOOP_MAX_ITERATIONS
+    assert config.writer_model == MODEL_MAIN
+    assert config.reviewer_model == MODEL_MAIN
 
 
 def test_content_loop_config_custom():
-    config = ContentLoopConfig(max_iterations=5, writer_model="a", reviewer_model="b")
-    assert config.max_iterations == 6
+    config = ContentLoopConfig(max_iterations=7, writer_model="a", reviewer_model="b")
+    assert config.max_iterations == 7
     assert config.writer_model == "a"
     assert config.reviewer_model == "b"
 

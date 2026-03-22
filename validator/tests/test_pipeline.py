@@ -2,14 +2,15 @@ import pytest
 from unittest.mock import patch
 
 from validator.content.loop import ContentLoopResult
-from validator.pipeline import PipelineConfig, FileResult, process_file, CHUNKED_TOKEN_THRESHOLD
+from validator.pipeline import PipelineConfig, FileResult, process_file
+from llm.settings import CHUNKED_TOKEN_THRESHOLD, MODEL_MAIN
 
 
 def test_pipeline_config_defaults():
     config = PipelineConfig()
-    assert config.content_max_iterations == 3
-    assert config.writer_model == "qwen3.5:cloud"
-    assert config.reviewer_model == "qwen3.5:cloud"
+    assert config.content_max_iterations == 10
+    assert config.writer_model == MODEL_MAIN
+    assert config.reviewer_model == MODEL_MAIN
     assert config.skip_content is False
     assert config.skip_format is False
 
