@@ -4,7 +4,7 @@ import signal
 import sys
 import core.config as config
 from core.utils import shutdown
-from llm.settings import MODEL_MAIN as _MODEL_NAME
+from llm.settings import MODEL_MAIN as MODEL_NAME
 
 from rag.content import extract_connected_content
 from rag.docs import (
@@ -52,7 +52,6 @@ def main():
     VERSION = config.VERSION
     CATEGORY_TYPE = "root"
     TODAY_DATE = config.TODAY_DATE
-    MODEL_NAME = _MODEL_NAME
     FILE_TREE = config.get_shared_file_tree()
 
     os.makedirs(DOCS_DIR, exist_ok=True)
