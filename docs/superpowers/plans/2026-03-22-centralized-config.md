@@ -17,7 +17,7 @@
 **Files:**
 - Create: `llm/tests/test_settings.py`
 
-- [ ] **Step 1: Write failing tests for `settings.py`**
+- [x] **Step 1: Write failing tests for `settings.py`**
 
 Create `llm/tests/test_settings.py`:
 
@@ -92,7 +92,7 @@ def test_graceful_fallback_without_config_toml(tmp_path, monkeypatch):
     importlib.reload(s)  # restore module state to match restored _CONFIG_PATH
 ```
 
-- [ ] **Step 2: Run tests to verify they fail (module not yet created)**
+- [x] **Step 2: Run tests to verify they fail (module not yet created)**
 
 ```
 uv run pytest llm/tests/test_settings.py -v
@@ -107,7 +107,7 @@ Expected: `ERRORS` — `ModuleNotFoundError: No module named 'llm.settings'`
 **Files:**
 - Create: `llm/src/llm/settings.py`
 
-- [ ] **Step 3: Create `llm/src/llm/settings.py`**
+- [x] **Step 3: Create `llm/src/llm/settings.py`**
 
 ```python
 import os
@@ -167,7 +167,7 @@ MDX_NODE_TIMEOUT: int              = _get("validator", "mdx_timeout",         20
 LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  8000)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 ```
 uv run pytest llm/tests/test_settings.py -v
@@ -184,7 +184,7 @@ Expected: all 7 tests PASS
 - Create: `config.toml`
 - Modify: `.gitignore`
 
-- [ ] **Step 5: Create `config.toml.template`**
+- [x] **Step 5: Create `config.toml.template`**
 
 ```toml
 # mod-document configuration
@@ -220,7 +220,7 @@ mdx_timeout         = 20    # Timeout (giây) cho Node.js MDX validation
 lua_context_tokens  = 8000  # Token guard cho Lua context extract per section
 ```
 
-- [ ] **Step 6: Create `config.toml`** (same content as template, without the instructional header comment)
+- [x] **Step 6: Create `config.toml`** (same content as template, without the instructional header comment)
 
 ```toml
 # mod-document configuration
@@ -252,7 +252,7 @@ mdx_timeout         = 20
 lua_context_tokens  = 8000
 ```
 
-- [ ] **Step 7: Add `config.toml` to `.gitignore`**
+- [x] **Step 7: Add `config.toml` to `.gitignore`**
 
 In `.gitignore`, add this line under the `# Environment` section (after the `.env` line):
 
@@ -260,7 +260,7 @@ In `.gitignore`, add this line under the `# Environment` section (after the `.en
 config.toml
 ```
 
-- [ ] **Step 8: Commit Chunk 1 (template + settings + tests + .gitignore; NOT config.toml)**
+- [x] **Step 8: Commit Chunk 1 (template + settings + tests + .gitignore; NOT config.toml)**
 
 ```bash
 git add llm/tests/test_settings.py llm/src/llm/settings.py config.toml.template .gitignore
@@ -269,7 +269,7 @@ git commit -m "feat(config): add llm/settings.py with config.toml support and en
 
 ---
 
-## Chunk 2: Migrate llm and core packages
+## Chunk 2: Migrate llm and core packages ✅ DONE (2026-03-23)
 
 ### Task 4: Migrate `llm/src/llm/client.py` and `llm/src/llm/tokens.py`
 
@@ -280,7 +280,7 @@ git commit -m "feat(config): add llm/settings.py with config.toml support and en
 - Modify: `llm/tests/test_client.py:1-5` — update import source for `OLLAMA_NUM_CTX`
 - Modify: `rag/tests/test_require_stubs.py:6` — update import source for `STUB_FULL_THRESHOLD`
 
-- [ ] **Step 1: Run existing llm and rag tests to establish baseline**
+- [x] **Step 1: Run existing llm and rag tests to establish baseline**
 
 ```
 uv run pytest llm/tests/ rag/tests/ -v
@@ -288,7 +288,7 @@ uv run pytest llm/tests/ rag/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 2: Update `llm/src/llm/client.py` — replace `OLLAMA_NUM_CTX` definition**
+- [x] **Step 2: Update `llm/src/llm/client.py` — replace `OLLAMA_NUM_CTX` definition**
 
 Replace line 13 only (keep the surrounding comment block intact):
 ```python
@@ -300,7 +300,7 @@ OLLAMA_NUM_CTX = 256_000
 from llm.settings import OLLAMA_NUM_CTX
 ```
 
-- [ ] **Step 3: Update `llm/src/llm/client.py` — replace `COMPRESSION_MODEL` definition**
+- [x] **Step 3: Update `llm/src/llm/client.py` — replace `COMPRESSION_MODEL` definition**
 
 Replace line 122 only (keep the `# === COMPRESSION CONFIG ===` comment on line 121 intact):
 ```python
@@ -313,7 +313,7 @@ COMPRESSION_MODEL = "qwen3.5:cloud"   # model dùng cho compression (có thể o
 from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL
 ```
 
-- [ ] **Step 4: Update `llm/src/llm/tokens.py`**
+- [x] **Step 4: Update `llm/src/llm/tokens.py`**
 
 Replace line 7:
 ```python
@@ -325,7 +325,7 @@ STUB_FULL_THRESHOLD = 400
 from llm.settings import STUB_FULL_THRESHOLD
 ```
 
-- [ ] **Step 5: Update `llm/tests/test_client.py` — import `OLLAMA_NUM_CTX` from `llm.settings`**
+- [x] **Step 5: Update `llm/tests/test_client.py` — import `OLLAMA_NUM_CTX` from `llm.settings`**
 
 Replace lines 1-5:
 ```python
@@ -346,7 +346,7 @@ from llm.client import (
 from llm.settings import OLLAMA_NUM_CTX
 ```
 
-- [ ] **Step 6: Update `rag/tests/test_require_stubs.py` — import `STUB_FULL_THRESHOLD` from `llm.settings`**
+- [x] **Step 6: Update `rag/tests/test_require_stubs.py` — import `STUB_FULL_THRESHOLD` from `llm.settings`**
 
 Replace line 6:
 ```python
@@ -358,7 +358,7 @@ from llm.tokens import STUB_FULL_THRESHOLD
 from llm.settings import STUB_FULL_THRESHOLD
 ```
 
-- [ ] **Step 7: Run llm and rag tests to verify no regressions**
+- [x] **Step 7: Run llm and rag tests to verify no regressions**
 
 ```
 uv run pytest llm/tests/ rag/tests/ -v
@@ -366,7 +366,7 @@ uv run pytest llm/tests/ rag/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add llm/src/llm/client.py llm/src/llm/tokens.py llm/tests/test_client.py rag/tests/test_require_stubs.py
@@ -380,7 +380,7 @@ git commit -m "refactor(llm): import OLLAMA_NUM_CTX, STUB_FULL_THRESHOLD, COMPRE
 **Files:**
 - Modify: `core/src/core/config.py` — delete 5 constants, keep 3 items + `get_shared_file_tree()`
 
-- [ ] **Step 1: Run existing core tests to establish baseline**
+- [x] **Step 1: Run existing core tests to establish baseline**
 
 ```
 uv run pytest core/tests/ -v
@@ -388,7 +388,7 @@ uv run pytest core/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 2: Replace the entire content of `core/src/core/config.py`**
+- [x] **Step 2: Replace the entire content of `core/src/core/config.py`**
 
 ```python
 from datetime import datetime
@@ -409,7 +409,7 @@ def get_shared_file_tree(max_depth=3):
     return generate_slim_tree(BASE_LUA_DIR, max_depth=max_depth)
 ```
 
-- [ ] **Step 3: Run core tests to verify no regressions**
+- [x] **Step 3: Run core tests to verify no regressions**
 
 ```
 uv run pytest core/tests/ -v
@@ -417,7 +417,7 @@ uv run pytest core/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add core/src/core/config.py
@@ -431,7 +431,7 @@ git commit -m "refactor(core): remove MODEL_NAME, MDX_NODE_TIMEOUT, timing const
 **Files:**
 - Modify: `core/src/core/main.py` — add top-level import for `MODEL_MAIN`, delete line 54
 
-- [ ] **Step 1: Update `core/src/core/main.py`**
+- [x] **Step 1: Update `core/src/core/main.py`**
 
 Add a new line immediately after line 23 (`from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR`):
 ```python
@@ -451,7 +451,7 @@ from llm.settings import MODEL_MAIN as MODEL_NAME
 ```
 And inside `main()`, line 54 should no longer exist — `MODEL_NAME` is now from the module-level import.
 
-- [ ] **Step 2: Verify the module loads correctly**
+- [x] **Step 2: Verify the module loads correctly**
 
 ```
 uv run python -c "from core.main import main; print('OK')"
@@ -459,7 +459,7 @@ uv run python -c "from core.main import main; print('OK')"
 
 Expected: `OK`
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add core/src/core/main.py
@@ -474,7 +474,7 @@ git commit -m "refactor(core): import MODEL_NAME from llm.settings instead of co
 - Modify: `core/src/core/pipeline/chunking.py:24-33` — remove 3 constants, import from `llm.settings`
 - Modify: `core/tests/test_per_chunk.py:18` — update import source for `CONTEXT_RESERVE`
 
-- [ ] **Step 1: Update `core/src/core/pipeline/chunking.py`**
+- [x] **Step 1: Update `core/src/core/pipeline/chunking.py`**
 
 Replace lines 24-33 (the three-constant block including comments):
 ```python
@@ -495,7 +495,7 @@ CONTEXT_RESERVE = 7000    # Nếu tổng chunk results > ngưỡng này → dùn
 from llm.settings import PROMPT_TOKEN_LIMIT, MERGE_TOKEN_LIMIT, CONTEXT_RESERVE
 ```
 
-- [ ] **Step 2: Update `core/tests/test_per_chunk.py` — import `CONTEXT_RESERVE` from `llm.settings`**
+- [x] **Step 2: Update `core/tests/test_per_chunk.py` — import `CONTEXT_RESERVE` from `llm.settings`**
 
 Replace line 18:
 ```python
@@ -507,7 +507,7 @@ from core.pipeline.chunking import CONTEXT_RESERVE
 from llm.settings import CONTEXT_RESERVE
 ```
 
-- [ ] **Step 3: Run core tests**
+- [x] **Step 3: Run core tests**
 
 ```
 uv run pytest core/tests/ -v
@@ -515,7 +515,7 @@ uv run pytest core/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add core/src/core/pipeline/chunking.py core/tests/test_per_chunk.py
@@ -530,7 +530,7 @@ git commit -m "refactor(core): import PROMPT_TOKEN_LIMIT, MERGE_TOKEN_LIMIT, CON
 - Modify: `core/src/core/update/docs.py:36` — `MODEL_NAME = "qwen3-coder-next:cloud"` → import
 - Modify: `rag/src/rag/indexer.py:24` — `EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"` → import
 
-- [ ] **Step 1: Update `core/src/core/update/docs.py`**
+- [x] **Step 1: Update `core/src/core/update/docs.py`**
 
 Replace line 36:
 ```python
@@ -542,7 +542,7 @@ MODEL_NAME = "qwen3-coder-next:cloud"
 from llm.settings import MODEL_UPDATE as MODEL_NAME
 ```
 
-- [ ] **Step 2: Update `rag/src/rag/indexer.py`**
+- [x] **Step 2: Update `rag/src/rag/indexer.py`**
 
 Replace line 24:
 ```python
@@ -554,7 +554,7 @@ EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 from llm.settings import MODEL_EMBED as EMBED_MODEL_NAME
 ```
 
-- [ ] **Step 3: Verify imports**
+- [x] **Step 3: Verify imports**
 
 ```
 uv run python -c "from core.update.docs import MODEL_NAME; print(MODEL_NAME)"
@@ -567,7 +567,7 @@ qwen3-coder-next:cloud
 BAAI/bge-small-en-v1.5
 ```
 
-- [ ] **Step 4: Run rag tests**
+- [x] **Step 4: Run rag tests**
 
 ```
 uv run pytest rag/tests/ -v
@@ -575,7 +575,7 @@ uv run pytest rag/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/src/core/update/docs.py rag/src/rag/indexer.py
@@ -584,14 +584,14 @@ git commit -m "refactor(core,rag): import MODEL_UPDATE and MODEL_EMBED from llm.
 
 ---
 
-## Chunk 3: Migrate validator package and delete constants.py
+## Chunk 3: Migrate validator package and delete constants.py ✅ DONE (2026-03-23)
 
 ### Task 9: Migrate `validator/src/validator/pipeline.py`
 
 **Files:**
 - Modify: `validator/src/validator/pipeline.py` — remove `CHUNKED_TOKEN_THRESHOLD` module-level definition, update `PipelineConfig` defaults, add imports
 
-- [ ] **Step 1: Run validator tests to establish baseline**
+- [x] **Step 1: Run validator tests to establish baseline**
 
 ```
 uv run pytest validator/tests/ -v
@@ -599,7 +599,7 @@ uv run pytest validator/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 2: Update `validator/src/validator/pipeline.py`**
+- [x] **Step 2: Update `validator/src/validator/pipeline.py`**
 
 Add import after line 13 (after existing imports, before `def _never_stop()`):
 ```python
@@ -628,7 +628,7 @@ CHUNKED_TOKEN_THRESHOLD = 16_000
 
 Note: `CHUNKED_TOKEN_THRESHOLD` is referenced in `process_file()` lines 62 and 64. After deleting the module-level assignment and adding the import above, the name resolves correctly via the import — no further changes needed.
 
-- [ ] **Step 3: Run validator tests**
+- [x] **Step 3: Run validator tests**
 
 ```
 uv run pytest validator/tests/test_pipeline.py -v
@@ -636,7 +636,7 @@ uv run pytest validator/tests/test_pipeline.py -v
 
 Expected: FAIL — `test_pipeline.py` line 5 still imports `CHUNKED_TOKEN_THRESHOLD` from `validator.pipeline` (will be fixed in Task 12). Verify exact error: `ImportError: cannot import name 'CHUNKED_TOKEN_THRESHOLD' from 'validator.pipeline'`
 
-- [ ] **Step 4: Commit (test intentionally broken — will be fixed in Task 12)**
+- [x] **Step 4: Commit (test intentionally broken — will be fixed in Task 12)**
 
 ```bash
 git add validator/src/validator/pipeline.py
@@ -650,7 +650,7 @@ git commit -m "refactor(validator): import CHUNKED_TOKEN_THRESHOLD, max_iteratio
 **Files:**
 - Modify: `validator/src/validator/content/loop.py` — update `ContentLoopConfig` defaults
 
-- [ ] **Step 1: Update `validator/src/validator/content/loop.py`**
+- [x] **Step 1: Update `validator/src/validator/content/loop.py`**
 
 Add import after line 10 (after `from validator.utils import resolve_connected_content`), before `def _never_stop()`:
 ```python
@@ -671,7 +671,7 @@ Update `ContentLoopConfig` defaults (lines 20-22):
     reviewer_model: str = MODEL_MAIN
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add validator/src/validator/content/loop.py
@@ -687,7 +687,7 @@ git commit -m "refactor(validator): import VALIDATOR_LOOP_MAX_ITERATIONS and MOD
 - Modify: `validator/src/validator/format/autofix.py:6` — replace `validator.constants` import
 - Modify: `validator/src/validator/format/mdx.py:8` — replace `validator.constants` import
 
-- [ ] **Step 1: Update `validator/src/validator/content/sections.py`**
+- [x] **Step 1: Update `validator/src/validator/content/sections.py`**
 
 **This step requires three edits that must all be applied — they are interdependent.**
 
@@ -746,7 +746,7 @@ grep -n "_truncate_blocks_to_8k\|8_000" validator/src/validator/content/sections
 ```
 Expected: no matches
 
-- [ ] **Step 2: Update `validator/src/validator/format/autofix.py`**
+- [x] **Step 2: Update `validator/src/validator/format/autofix.py`**
 
 Replace line 6:
 ```python
@@ -758,7 +758,7 @@ from validator.constants import MDX_NODE_TIMEOUT
 from llm.settings import MDX_NODE_TIMEOUT
 ```
 
-- [ ] **Step 3: Update `validator/src/validator/format/mdx.py`**
+- [x] **Step 3: Update `validator/src/validator/format/mdx.py`**
 
 Replace line 8:
 ```python
@@ -770,7 +770,7 @@ from validator.constants import MDX_NODE_TIMEOUT
 from llm.settings import MDX_NODE_TIMEOUT
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add validator/src/validator/content/sections.py validator/src/validator/format/autofix.py validator/src/validator/format/mdx.py
@@ -787,7 +787,7 @@ git commit -m "refactor(validator): replace magic 8_000 with LUA_CONTEXT_TOKENS,
 - Modify: `validator/tests/test_content_loop.py:1-9` — update model default assertions, move settings import to module level
 - Delete: `validator/src/validator/constants.py`
 
-- [ ] **Step 1: Verify no remaining consumers of `DEFAULT_MODEL` from `validator.constants`**
+- [x] **Step 1: Verify no remaining consumers of `DEFAULT_MODEL` from `validator.constants`**
 
 Before deleting `constants.py`, check whether anything imports `DEFAULT_MODEL` (the third export not covered by the rest of this migration):
 
@@ -801,7 +801,7 @@ validator/tests/test_smoke.py:    from validator.constants import MDX_NODE_TIMEO
 ```
 (Only `test_smoke.py`, which will be updated in Step 2. If any other file appears, update it to import from `llm.settings` before proceeding.)
 
-- [ ] **Step 2: Update `validator/tests/test_smoke.py`**
+- [x] **Step 2: Update `validator/tests/test_smoke.py`**
 
 Replace lines 49-52 (`test_import_constants`):
 ```python
@@ -819,7 +819,7 @@ def test_import_settings():
     assert VALIDATOR_MAX_ITERATIONS == 10
 ```
 
-- [ ] **Step 3: Update `validator/tests/test_pipeline.py`**
+- [x] **Step 3: Update `validator/tests/test_pipeline.py`**
 
 Replace line 5:
 ```python
@@ -844,7 +844,7 @@ Replace lines 11-12 in `test_pipeline_config_defaults`:
     assert config.reviewer_model == MODEL_MAIN
 ```
 
-- [ ] **Step 4: Update `validator/tests/test_content_loop.py`**
+- [x] **Step 4: Update `validator/tests/test_content_loop.py`**
 
 Add module-level imports at the top of the file (after line 2, after the existing `from validator.content.loop import ContentLoopConfig, ContentLoopResult`):
 ```python
@@ -869,13 +869,13 @@ def test_content_loop_config_defaults():
     assert config.reviewer_model == MODEL_MAIN
 ```
 
-- [ ] **Step 5: Delete `validator/src/validator/constants.py`**
+- [x] **Step 5: Delete `validator/src/validator/constants.py`**
 
 ```bash
 git rm validator/src/validator/constants.py
 ```
 
-- [ ] **Step 6: Run all validator tests**
+- [x] **Step 6: Run all validator tests**
 
 ```
 uv run pytest validator/tests/ -v
@@ -883,7 +883,7 @@ uv run pytest validator/tests/ -v
 
 Expected: all PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add validator/tests/test_smoke.py validator/tests/test_pipeline.py validator/tests/test_content_loop.py
@@ -896,7 +896,7 @@ git commit -m "refactor(validator): update tests to import from llm.settings, de
 
 ### Task 13: Full workspace test run and smoke check
 
-- [ ] **Step 1: Run the full test suite**
+- [x] **Step 1: Run the full test suite**
 
 ```
 uv run pytest -v
@@ -904,7 +904,7 @@ uv run pytest -v
 
 Expected: all tests PASS across all packages (`llm`, `core`, `rag`, `prompts`, `validator`, `watcher`)
 
-- [ ] **Step 2: Verify no remaining references to deleted `validator.constants`**
+- [x] **Step 2: Verify no remaining references to deleted `validator.constants`**
 
 ```
 grep -r "from validator.constants" --include="*.py" .
@@ -913,7 +913,7 @@ grep -r "import validator.constants" --include="*.py" .
 
 Expected: no matches. If any match appears, update the file to import from `llm.settings` instead.
 
-- [ ] **Step 3: Verify no remaining hardcoded constants that should come from settings**
+- [x] **Step 3: Verify no remaining hardcoded constants that should come from settings**
 
 ```
 grep -rn "OLLAMA_NUM_CTX\s*=" --include="*.py" .
@@ -928,7 +928,7 @@ grep -rn "CONTEXT_RESERVE\s*=" --include="*.py" .
 
 For each grep: the only match should be in `llm/src/llm/settings.py`. If any match appears in a different file, that file was not migrated — update it before proceeding.
 
-- [ ] **Step 4: Verify `config.toml` is git-excluded**
+- [x] **Step 4: Verify `config.toml` is git-excluded**
 
 ```bash
 git check-ignore -v config.toml
@@ -936,7 +936,7 @@ git check-ignore -v config.toml
 
 Expected output: `.gitignore:N:config.toml    config.toml` (where N is the line number)
 
-- [ ] **Step 5: Verify `config.toml.template` is git-tracked**
+- [x] **Step 5: Verify `config.toml.template` is git-tracked**
 
 ```bash
 git log --oneline config.toml.template
