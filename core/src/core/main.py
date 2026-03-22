@@ -2,10 +2,12 @@ import argparse
 import os
 import signal
 import sys
+from datetime import datetime
+from pathlib import Path
 import core.config as config
 from core.utils import shutdown
 from llm.settings import MODEL_MAIN as MODEL_NAME
-
+from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR, DATA_DIR
 from rag.content import extract_connected_content
 from rag.docs import (
     extract_lua_references,
@@ -21,10 +23,50 @@ from core.pipeline.chunked import process_chunked_file
 from llm.tokens import count_tokens
 from validator.pipeline import process_file, PipelineConfig
 
-from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR
+
+class _TeeWriter:
+    """Mirrors writes to both the original stdout and a log file."""
+
+    def __init__(self, log_path: str):
+        self._stdout = sys.stdout
+        self._log = open(log_path, "w", encoding="utf-8", buffering=1)
+
+    def write(self, data: str) -> int:
+        self._stdout.write(data)
+        self._log.write(data)
+        self._log.flush()  # real-time: flush after every write
+        return len(data)
+
+    def flush(self):
+        self._stdout.flush()
+        self._log.flush()
+
+    def close(self):
+        sys.stdout = self._stdout
+        self._log.close()
+
+    # Delegate attribute access so code that checks sys.stdout.fileno() etc. still works
+    def __getattr__(self, name):
+        return getattr(self._stdout, name)
 
 
 def main():
+    # === SESSION LOG — mirror all stdout to data/logs/run_<timestamp>.log ===
+    logs_dir = Path(DATA_DIR) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_filename = datetime.now().strftime("run_%Y-%m-%d_%H-%M-%S.log")
+    log_path = str(logs_dir / log_filename)
+    tee = _TeeWriter(log_path)
+    sys.stdout = tee
+    print(f"[Log] Session log: {log_path}")
+
+    try:
+        _main_impl()
+    finally:
+        tee.close()
+
+
+def _main_impl():
     # === CLI ARGUMENTS ===
     parser = argparse.ArgumentParser(description="Generate API docs for DST Lua mods")
     parser.add_argument(
