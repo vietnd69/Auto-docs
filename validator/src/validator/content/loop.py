@@ -8,6 +8,7 @@ from rag.docs import safe_read_lua
 from validator.content.reviewer import review_document
 from validator.content.writer import rewrite_document, apply_patches
 from validator.utils import resolve_connected_content
+from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN
 
 
 def _never_stop() -> bool:
@@ -17,9 +18,9 @@ def _never_stop() -> bool:
 @dataclass
 class ContentLoopConfig:
     """Configuration for the content validation loop."""
-    max_iterations: int = 5
-    writer_model: str = "qwen3.5:cloud"
-    reviewer_model: str = "qwen3.5:cloud"
+    max_iterations: int = VALIDATOR_LOOP_MAX_ITERATIONS
+    writer_model: str = MODEL_MAIN
+    reviewer_model: str = MODEL_MAIN
     stop_check: Callable[[], bool] = field(default=_never_stop, repr=False)
 
 
