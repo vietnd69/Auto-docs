@@ -53,3 +53,5 @@ VALIDATOR_MAX_ITERATIONS: int      = _get("validator", "max_iterations",      10
 VALIDATOR_LOOP_MAX_ITERATIONS: int = _get("validator", "loop_max_iterations", 5)
 MDX_NODE_TIMEOUT: int              = _get("validator", "mdx_timeout",         20)
 LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  8000)
+SECTION_TOKEN_THRESHOLD: int = _get("validator", "section_token_threshold", 4000)
+BATCH_TOKEN_LIMIT: int       = _get("validator", "batch_token_limit",       3000)
