@@ -1,10 +1,9 @@
+from llm.settings import STUB_FULL_THRESHOLD
+
 try:
     import tiktoken
 except ImportError:
     tiktoken = None
-
-# Token threshold: require-only files nhỏ hơn ngưỡng này được include đầy đủ
-from llm.settings import STUB_FULL_THRESHOLD
 
 
 def count_tokens(text: str) -> int:

@@ -4,13 +4,15 @@ from pathlib import Path
 from dotenv import load_dotenv
 import httpx
 import ollama
+from llm.settings import OLLAMA_NUM_CTX
+# Re-exported so rag/content.py can continue: from llm.client import COMPRESSION_MODEL
+from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL
 
 # Load .env từ workspace root (parents[3] từ llm/src/llm/client.py)
 load_dotenv(Path(__file__).parents[3] / ".env")
 
 # === OLLAMA CLOUD API ===
 OLLAMA_HOST = "https://ollama.com"
-from llm.settings import OLLAMA_NUM_CTX
 
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "300"))      # seconds per attempt
 OLLAMA_TIMEOUT_RETRIES = int(os.getenv("OLLAMA_TIMEOUT_RETRIES", "2"))  # retries on timeout
@@ -118,6 +120,3 @@ def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
     raise Exception(f"Tất cả account thất bại: {'; '.join(errors)}")
 
 
-# === COMPRESSION CONFIG ===
-# Re-exported so rag/content.py can continue: from llm.client import COMPRESSION_MODEL
-from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL
