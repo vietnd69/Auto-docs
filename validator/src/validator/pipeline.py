@@ -11,6 +11,7 @@ from validator.content.chunked import run_chunked_content_loop
 from validator.format.autofix import FixResult, autofix_file
 from validator.format.checks import validate_all, ValidationError
 from validator.utils import resolve_lua_path
+from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN
 
 
 def _never_stop() -> bool:
@@ -20,9 +21,9 @@ def _never_stop() -> bool:
 @dataclass
 class PipelineConfig:
     """Configuration for the full validation pipeline."""
-    content_max_iterations: int = 3
-    writer_model: str = "qwen3.5:cloud"
-    reviewer_model: str = "qwen3.5:cloud"
+    content_max_iterations: int = VALIDATOR_MAX_ITERATIONS
+    writer_model: str = MODEL_MAIN
+    reviewer_model: str = MODEL_MAIN
     skip_content: bool = False
     skip_format: bool = False
     stop_check: Callable[[], bool] = field(default=_never_stop, repr=False)
@@ -35,9 +36,6 @@ class FileResult:
     content_result: ContentLoopResult | None
     format_result: FixResult | None
     final_status: str   # "ok", "content_failed", "format_failed"
-
-
-CHUNKED_TOKEN_THRESHOLD = 32_000
 
 
 def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
