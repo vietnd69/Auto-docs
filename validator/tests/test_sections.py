@@ -287,3 +287,40 @@ def test_split_section_blocks_triple_hash_in_code_fence_not_matched():
     # The regex is anchored but ### is at line start inside the fence too.
     # Test verifies the roundtrip still holds.
     assert preamble + "".join(blocks) == text
+
+
+from validator.content.sections import sub_chunk_section
+
+
+def test_sub_chunk_section_single_batch_when_under_limit():
+    """All blocks fit in one batch → one batch returned."""
+    blocks = ["### `Foo()`\ncontent\n", "### `Bar()`\ncontent\n"]
+    # patch count_tokens: each block = 50 tokens, limit = 200
+    with patch("validator.content.sections.count_tokens", return_value=50):
+        batches = sub_chunk_section(blocks, limit=200)
+    assert len(batches) == 1
+    assert batches[0] == blocks
+
+
+def test_sub_chunk_section_splits_at_limit():
+    """Blocks split into two batches when combined would exceed limit."""
+    blocks = [f"### `F{i}()`\ncontent\n" for i in range(4)]
+    # Each block = 60 tokens, limit = 100 → max 1 per batch (60+60=120 > 100)
+    with patch("validator.content.sections.count_tokens", return_value=60):
+        batches = sub_chunk_section(blocks, limit=100)
+    assert len(batches) == 4   # each block in its own batch
+    assert all(len(b) == 1 for b in batches)
+
+
+def test_sub_chunk_section_preserves_all_blocks():
+    """Every block appears in exactly one batch."""
+    blocks = [f"### `F{i}()`\ncontent\n" for i in range(10)]
+    with patch("validator.content.sections.count_tokens", return_value=30):
+        batches = sub_chunk_section(blocks, limit=100)
+    all_blocks = [b for batch in batches for b in batch]
+    assert all_blocks == blocks
+
+
+def test_sub_chunk_section_empty_input():
+    """Empty fn_blocks → empty batches list."""
+    assert sub_chunk_section([], limit=3000) == []

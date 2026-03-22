@@ -72,6 +72,28 @@ def split_section_blocks(section_text: str) -> tuple[str, list[str]]:
     return preamble, fn_blocks
 
 
+def sub_chunk_section(fn_blocks: list[str], limit: int) -> list[list[str]]:
+    """Group fn_blocks into batches where each batch's token count <= limit.
+
+    A single block that exceeds limit is placed in its own batch (never split).
+    """
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_tokens = 0
+    for block in fn_blocks:
+        block_tokens = count_tokens(block)
+        if current and current_tokens + block_tokens > limit:
+            batches.append(current)
+            current = [block]
+            current_tokens = block_tokens
+        else:
+            current.append(block)
+            current_tokens += block_tokens
+    if current:
+        batches.append(current)
+    return batches
+
+
 _FN_PATTERNS: list[tuple[str, int]] = [
     (r'^###\s+`?(\w+)`?', re.MULTILINE),  # ### FunctionName heading
     (r'`(\w+)\s*\(',      0),             # `FuncName(
