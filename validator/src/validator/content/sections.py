@@ -49,3 +49,31 @@ def split_md_sections(md_content: str) -> tuple[str, list[DocSection]]:
 def join_md_sections(frontmatter: str, sections: list[DocSection]) -> str:
     """Reassemble document from frontmatter and section list."""
     return frontmatter + "".join(s.text for s in sections)
+
+
+_FN_PATTERNS: list[tuple[str, int]] = [
+    (r'^###\s+`?(\w+)`?', re.MULTILINE),  # ### FunctionName heading
+    (r'`(\w+)\s*\(',      0),             # `FuncName(
+    (r'[\w.]+:(\w+)\s*\(', 0),           # inst:Method(
+    (r'`([A-Z][A-Za-z_]\w*)`', 0),       # `CapitalizedName` (no parens)
+]
+
+
+def extract_function_names(section_text: str) -> list[str]:
+    """Extract Lua function names mentioned in a markdown section.
+
+    Runs four regex patterns; results deduplicated and ordered by first occurrence.
+    """
+    matches: list[tuple[int, str]] = []
+    for pattern, flags in _FN_PATTERNS:
+        for m in re.finditer(pattern, section_text, flags):
+            matches.append((m.start(), m.group(1)))
+
+    matches.sort(key=lambda x: x[0])
+    seen: set[str] = set()
+    result: list[str] = []
+    for _, name in matches:
+        if name not in seen:
+            seen.add(name)
+            result.append(name)
+    return result

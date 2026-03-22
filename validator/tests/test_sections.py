@@ -1,6 +1,6 @@
 # validator/tests/test_sections.py
 import pytest
-from validator.content.sections import DocSection, split_md_sections, join_md_sections
+from validator.content.sections import DocSection, split_md_sections, join_md_sections, extract_function_names
 
 
 def test_split_no_frontmatter():
@@ -92,3 +92,55 @@ def test_join_md_sections():
     ]
     result = join_md_sections("---\ntitle: T\n---\n", sections)
     assert result == "---\ntitle: T\n---\n## A\ntext\n## B\nmore\n"
+
+
+def test_extract_fn_heading_pattern():
+    """### FunctionName headings (with optional backtick) are captured."""
+    text = "## Functions\n### GetOwner\nReturns owner.\n### `SetOwner`\nSets owner.\n"
+    names = extract_function_names(text)
+    assert "GetOwner" in names
+    assert "SetOwner" in names
+
+
+def test_extract_fn_backtick_paren():
+    """`FuncName(` pattern captured."""
+    text = "Call `GetOwner()` to get the owner.\n"
+    assert "GetOwner" in extract_function_names(text)
+
+
+def test_extract_fn_method_call():
+    """`inst:Method(` captures Method (not inst)."""
+    text = "Use `inst:GetOwner()` or `self:SetOwner()`.\n"
+    names = extract_function_names(text)
+    assert "GetOwner" in names
+    assert "SetOwner" in names
+
+
+def test_extract_fn_capitalized_standalone_backtick():
+    """`CapitalizedName` (no parens, capital first letter) is captured."""
+    text = "The `GetOwner` function returns the owner.\n"
+    assert "GetOwner" in extract_function_names(text)
+
+
+def test_extract_fn_lowercase_standalone_not_captured():
+    """`lowercase` standalone backtick NOT captured (false-positive filter)."""
+    text = "The `owner` variable holds the owner.\n"
+    assert "owner" not in extract_function_names(text)
+
+
+def test_extract_fn_deduplication():
+    """Same name via multiple patterns appears only once."""
+    text = "`GetOwner()` mentioned again as `GetOwner`.\n"
+    names = extract_function_names(text)
+    assert names.count("GetOwner") == 1
+
+
+def test_extract_fn_offset_ordering():
+    """Names ordered by first occurrence position in text."""
+    text = "`Alpha()` then `Beta()`.\n"
+    assert extract_function_names(text) == ["Alpha", "Beta"]
+
+
+def test_extract_fn_empty_text():
+    """Empty section returns empty list."""
+    assert extract_function_names("") == []
