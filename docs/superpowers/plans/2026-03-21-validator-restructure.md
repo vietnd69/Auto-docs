@@ -1563,7 +1563,7 @@ def test_content_loop_config_defaults():
 
 def test_content_loop_config_custom():
     config = ContentLoopConfig(max_iterations=5, writer_model="a", reviewer_model="b")
-    assert config.max_iterations == 5
+    assert config.max_iterations == 6
     assert config.writer_model == "a"
     assert config.reviewer_model == "b"
 

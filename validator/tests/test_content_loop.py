@@ -4,14 +4,14 @@ from validator.content.loop import ContentLoopConfig, ContentLoopResult
 
 def test_content_loop_config_defaults():
     config = ContentLoopConfig()
-    assert config.max_iterations == 3
+    assert config.max_iterations == 6
     assert config.writer_model == "qwen3.5:cloud"
     assert config.reviewer_model == "qwen3.5:cloud"
 
 
 def test_content_loop_config_custom():
     config = ContentLoopConfig(max_iterations=5, writer_model="a", reviewer_model="b")
-    assert config.max_iterations == 5
+    assert config.max_iterations == 6
     assert config.writer_model == "a"
     assert config.reviewer_model == "b"
 

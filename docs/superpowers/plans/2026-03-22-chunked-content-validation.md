@@ -18,7 +18,7 @@
 - Create: `validator/src/validator/content/sections.py`
 - Create: `validator/tests/test_sections.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests** _(done: 41f7d98)_
 
 ```python
 # validator/tests/test_sections.py
@@ -117,7 +117,7 @@ def test_join_md_sections():
     assert result == "---\ntitle: T\n---\n## A\ntext\n## B\nmore\n"
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail** _(done: confirmed ModuleNotFoundError)_
 
 ```bash
 uv run pytest validator/tests/test_sections.py -v
@@ -125,7 +125,7 @@ uv run pytest validator/tests/test_sections.py -v
 
 Expected: `ModuleNotFoundError: No module named 'validator.content.sections'`
 
-- [ ] **Step 3: Implement sections.py (split/join only)**
+- [x] **Step 3: Implement sections.py (split/join only)** _(done: 41f7d98)_
 
 ```python
 # validator/src/validator/content/sections.py
@@ -181,7 +181,7 @@ def join_md_sections(frontmatter: str, sections: list[DocSection]) -> str:
     return frontmatter + "".join(s.text for s in sections)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass** _(done: 10/10 passed)_
 
 ```bash
 uv run pytest validator/tests/test_sections.py -v
@@ -189,7 +189,7 @@ uv run pytest validator/tests/test_sections.py -v
 
 Expected: All 10 tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** _(done: 41f7d98)_
 
 ```bash
 git add validator/src/validator/content/sections.py validator/tests/test_sections.py
@@ -206,7 +206,7 @@ git commit -m "feat(sections): add DocSection, split_md_sections, join_md_sectio
 - Modify: `validator/src/validator/content/sections.py` (append)
 - Modify: `validator/tests/test_sections.py` (append)
 
-- [ ] **Step 1: Append failing tests for extract_function_names**
+- [x] **Step 1: Append failing tests for extract_function_names** _(done: c071031)_
 
 ```python
 # Append to validator/tests/test_sections.py
@@ -265,7 +265,7 @@ def test_extract_fn_empty_text():
     assert extract_function_names("") == []
 ```
 
-- [ ] **Step 2: Run new tests to verify they fail**
+- [x] **Step 2: Run new tests to verify they fail** _(done: confirmed ImportError)_
 
 ```bash
 uv run pytest validator/tests/test_sections.py -k "extract_fn" -v
@@ -273,7 +273,7 @@ uv run pytest validator/tests/test_sections.py -k "extract_fn" -v
 
 Expected: `ImportError: cannot import name 'extract_function_names'`
 
-- [ ] **Step 3: Append extract_function_names to sections.py**
+- [x] **Step 3: Append extract_function_names to sections.py** _(done: c071031)_
 
 ```python
 # Append to validator/src/validator/content/sections.py
@@ -306,7 +306,7 @@ def extract_function_names(section_text: str) -> list[str]:
     return result
 ```
 
-- [ ] **Step 4: Run all sections tests**
+- [x] **Step 4: Run all sections tests** _(done: 18/18 passed)_
 
 ```bash
 uv run pytest validator/tests/test_sections.py -v
@@ -314,7 +314,7 @@ uv run pytest validator/tests/test_sections.py -v
 
 Expected: All tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** _(done: c071031)_
 
 ```bash
 git add validator/src/validator/content/sections.py validator/tests/test_sections.py
@@ -329,7 +329,7 @@ git commit -m "feat(sections): add extract_function_names with 4 patterns and of
 - Modify: `validator/src/validator/content/sections.py` (append)
 - Modify: `validator/tests/test_sections.py` (append)
 
-- [ ] **Step 1: Append failing tests for extract_lua_context**
+- [x] **Step 1: Append failing tests for extract_lua_context** _(done: 2e3fde9)_
 
 ```python
 # Append to validator/tests/test_sections.py
@@ -441,7 +441,7 @@ def test_extract_lua_token_guard_truncates():
     assert "-- [truncated]" in result
 ```
 
-- [ ] **Step 2: Run new tests to verify they fail**
+- [x] **Step 2: Run new tests to verify they fail** _(done: confirmed ImportError)_
 
 ```bash
 uv run pytest validator/tests/test_sections.py -k "extract_lua" -v
@@ -449,7 +449,7 @@ uv run pytest validator/tests/test_sections.py -k "extract_lua" -v
 
 Expected: `ImportError: cannot import name 'extract_lua_context'`
 
-- [ ] **Step 3: Append extract_lua_context to sections.py**
+- [x] **Step 3: Append extract_lua_context to sections.py** _(done: 2e3fde9)_
 
 Add this import at the **top** of `sections.py` (alongside existing imports):
 ```python
@@ -561,7 +561,7 @@ def extract_lua_context(lua_source: str, fn_names: list[str]) -> str:
     return result
 ```
 
-- [ ] **Step 4: Run all sections tests**
+- [x] **Step 4: Run all sections tests** _(done: 29/29 passed)_
 
 ```bash
 uv run pytest validator/tests/test_sections.py -v
@@ -569,7 +569,7 @@ uv run pytest validator/tests/test_sections.py -v
 
 Expected: All tests pass.
 
-- [ ] **Step 5: Run full validator suite to catch any regressions**
+- [x] **Step 5: Run full validator suite to catch any regressions** _(done: no regressions)_
 
 ```bash
 uv run pytest validator/tests/ -v
@@ -577,7 +577,7 @@ uv run pytest validator/tests/ -v
 
 Expected: All existing tests still pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit** _(done: 2e3fde9)_
 
 ```bash
 git add validator/src/validator/content/sections.py validator/tests/test_sections.py
@@ -593,7 +593,7 @@ git commit -m "feat(sections): add extract_lua_context with depth scan and 8K to
 **Files:**
 - Modify: `validator/src/validator/content/prompts.py` (append two functions)
 
-- [ ] **Step 1: Append section-level prompt functions to prompts.py**
+- [x] **Step 1: Append section-level prompt functions to prompts.py** _(done: 37d6290)_
 
 ```python
 # Append to validator/src/validator/content/prompts.py
@@ -682,7 +682,7 @@ Rules:
 - Do NOT modify YAML frontmatter"""
 ```
 
-- [ ] **Step 2: Verify existing tests still pass (prompts are tested via integration)**
+- [x] **Step 2: Verify existing tests still pass (prompts are tested via integration)** _(done: 37d6290)_
 
 ```bash
 uv run pytest validator/tests/ -v
@@ -690,7 +690,7 @@ uv run pytest validator/tests/ -v
 
 Expected: All pass. No new prompt unit tests needed — prompt correctness is verified in Task 5 integration tests.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit** _(done: 37d6290)_
 
 ```bash
 git add validator/src/validator/content/prompts.py
@@ -705,7 +705,7 @@ git commit -m "feat(prompts): add build_section_reviewer_prompt and build_sectio
 - Modify: `validator/src/validator/content/chunked.py` (replace stub)
 - Create: `validator/tests/test_content_chunked.py`
 
-- [ ] **Step 1: Write failing integration tests**
+- [x] **Step 1: Write failing integration tests** _(done: 5d8bfdf)_
 
 ```python
 # validator/tests/test_content_chunked.py
@@ -868,7 +868,7 @@ def test_multiple_sections_partial_failure(tmp_path):
     assert "Beta wrong" in result.final_issues
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail** _(done: 5d8bfdf)_
 
 ```bash
 uv run pytest validator/tests/test_content_chunked.py -v
@@ -876,7 +876,7 @@ uv run pytest validator/tests/test_content_chunked.py -v
 
 Expected: `ImportError: cannot import name 'run_chunked_content_loop'` (stub has no exports)
 
-- [ ] **Step 3: Implement chunked.py**
+- [x] **Step 3: Implement chunked.py** _(done: 5d8bfdf)_
 
 ```python
 # validator/src/validator/content/chunked.py
@@ -1039,7 +1039,7 @@ def run_chunked_content_loop(
     )
 ```
 
-- [ ] **Step 4: Run chunked tests**
+- [x] **Step 4: Run chunked tests** _(done: 5d8bfdf)_
 
 ```bash
 uv run pytest validator/tests/test_content_chunked.py -v
@@ -1047,7 +1047,7 @@ uv run pytest validator/tests/test_content_chunked.py -v
 
 Expected: All 8 tests pass.
 
-- [ ] **Step 5: Run full validator suite**
+- [x] **Step 5: Run full validator suite** _(done: 5d8bfdf)_
 
 ```bash
 uv run pytest validator/tests/ -v
@@ -1055,7 +1055,7 @@ uv run pytest validator/tests/ -v
 
 Expected: All tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit** _(done: 5d8bfdf)_
 
 ```bash
 git add validator/src/validator/content/chunked.py validator/tests/test_content_chunked.py
@@ -1072,7 +1072,7 @@ git commit -m "feat(chunked): implement run_chunked_content_loop with per-sectio
 - Modify: `validator/src/validator/pipeline.py`
 - Modify: `validator/tests/test_pipeline.py`
 
-- [ ] **Step 1: Update test_pipeline.py — add regression test, remove skipped_chunked from valid statuses**
+- [x] **Step 1: Update test_pipeline.py — add regression test, remove skipped_chunked from valid statuses** _(done: ff2f24a)_
 
 In `validator/tests/test_pipeline.py`:
 
@@ -1117,7 +1117,7 @@ def test_chunked_file_runs_content_validation(tmp_path):
     assert result.final_status != "skipped_chunked"
 ```
 
-- [ ] **Step 2: Run tests to verify the new test fails**
+- [x] **Step 2: Run tests to verify the new test fails** _(done: confirmed ImportError on run_chunked_content_loop)_
 
 ```bash
 uv run pytest validator/tests/test_pipeline.py -v
@@ -1125,7 +1125,7 @@ uv run pytest validator/tests/test_pipeline.py -v
 
 Expected: `test_chunked_file_runs_content_validation` fails — pipeline still skips.
 
-- [ ] **Step 3: Update pipeline.py**
+- [x] **Step 3: Update pipeline.py** _(done: ff2f24a)_
 
 **Add import** after the existing `run_content_loop` import line:
 ```python
@@ -1176,7 +1176,7 @@ from validator.content.chunked import run_chunked_content_loop
     print(f"{'='*40}")
 ```
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests** _(done: 124/124 passed)_
 
 ```bash
 uv run pytest validator/tests/ -v
@@ -1184,7 +1184,7 @@ uv run pytest validator/tests/ -v
 
 Expected: All tests pass including `test_chunked_file_runs_content_validation`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** _(done: ff2f24a)_
 
 ```bash
 git add validator/src/validator/pipeline.py validator/tests/test_pipeline.py
@@ -1195,7 +1195,7 @@ git commit -m "feat(pipeline): route chunked files to per-section validation, re
 
 ## Final Verification
 
-- [ ] **Run the complete test suite one last time**
+- [x] **Run the complete test suite one last time** _(done: 124/124 passed)_
 
 ```bash
 uv run pytest validator/tests/ -v --tb=short
@@ -1203,7 +1203,7 @@ uv run pytest validator/tests/ -v --tb=short
 
 Expected: All tests green, no warnings about missing modules.
 
-- [ ] **Smoke check — ensure the module graph is importable**
+- [x] **Smoke check — ensure the module graph is importable** _(done: OK)_
 
 ```bash
 uv run python -c "from validator.content.chunked import run_chunked_content_loop; print('OK')"
