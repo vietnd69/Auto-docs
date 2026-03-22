@@ -27,13 +27,13 @@ from core.pipeline.standard import generate_doc
 from validator.update.validate_update import validate_update, validate_batch, append_to_validation_log
 
 from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR
+from llm.settings import MODEL_UPDATE as MODEL_NAME
 
 # Lấy chung constant format để parse paths
 _WORKSPACE_ROOT = Path(__file__).parents[4]
 DOCS_DIR = BASE_DOCS_DIR
 SCRIPTS_DIR = BASE_LUA_DIR
 DIFF_REPORT = str(_WORKSPACE_ROOT / "data" / "diff_report.json")
-MODEL_NAME = "qwen3-coder-next:cloud"
 TODAY_DATE = datetime.now().strftime("%Y-%m-%d")
 
 stop_requested = False

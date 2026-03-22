@@ -12,6 +12,8 @@ import json
 import gc
 from pathlib import Path
 
+from llm.settings import MODEL_EMBED as EMBED_MODEL_NAME
+
 
 # === CONSTANTS ===
 _WORKSPACE_ROOT = Path(__file__).parents[3]
@@ -21,7 +23,6 @@ SCRIPTS_DIR = str(_WORKSPACE_ROOT / "dst-scripts")
 CHROMA_DIR = str(_WORKSPACE_ROOT / "dst_chroma_db")
 TRACKER_FILE = str(_DATA_DIR / "file_tracker.json")
 
-EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 EMBED_BATCH_SIZE = 16
 CHUNK_SIZE = 512
 CHUNK_OVERLAP = 100
