@@ -1,10 +1,11 @@
 """Auto-fix strategies for format validation. Returns FixResult with changes and remaining errors."""
+import json
 import re
 import subprocess
-import json
-from pathlib import Path
-from llm.settings import MDX_NODE_TIMEOUT
 from dataclasses import dataclass
+from pathlib import Path
+
+from llm.settings import MDX_NODE_TIMEOUT
 from validator.format.checks import ValidationError
 
 @dataclass
