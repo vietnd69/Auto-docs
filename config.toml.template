@@ -1,0 +1,31 @@
+# mod-document configuration
+# Env override: MOD_DOC_<SECTION>_<KEY> (uppercase)
+# Example: MOD_DOC_MODEL_MAIN=qwen3-coder:cloud uv run mod-document
+#
+# Copy this file to config.toml and adjust values as needed.
+# config.toml is git-excluded; this template is tracked.
+
+[model]
+main     = "qwen3.5:cloud"             # Pipeline chính (doc gen + validator)
+update   = "qwen3-coder-next:cloud"    # core/update/docs.py
+embed    = "BAAI/bge-small-en-v1.5"   # RAG embedding model
+compress = "qwen3.5:cloud"            # Compression stub generation
+
+[tokens]
+prompt_limit     = 16000   # Full prompt > limit → chunked doc gen
+merge_limit      = 20000   # Chunk results > limit → hierarchical merge
+context_reserve  = 7000    # Reserved cho connected content per chunk
+stub_threshold   = 400     # File ≤ threshold → include full (không compress)
+chunked_validate = 16000   # Lua tokens ≥ threshold → per-section validation
+ollama_ctx       = 256000  # Ollama context window size
+
+[timing]
+chunk_sleep  = 10   # Giây chờ giữa các chunk LLM call
+merge_sleep  = 40   # Giây chờ sau merge
+normal_sleep = 20   # Giây chờ trong standard pipeline
+
+[validator]
+max_iterations      = 10    # PipelineConfig default (CLI entry point)
+loop_max_iterations = 5     # ContentLoopConfig default (standalone)
+mdx_timeout         = 20    # Timeout (giây) cho Node.js MDX validation
+lua_context_tokens  = 8000  # Token guard cho Lua context extract per section

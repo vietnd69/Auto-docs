@@ -5,6 +5,7 @@ __pycache__/
 
 # Environment
 .env
+config.toml
 node_modules/
 
 # RAG database
