@@ -7,6 +7,7 @@ from pathlib import Path
 from llm.tokens import count_tokens
 from rag.docs import safe_read_lua
 from validator.content.loop import ContentLoopConfig, ContentLoopResult, run_content_loop
+from validator.content.chunked import run_chunked_content_loop
 from validator.format.autofix import FixResult, autofix_file
 from validator.format.checks import validate_all, ValidationError
 from validator.utils import resolve_lua_path
@@ -33,7 +34,7 @@ class FileResult:
     filepath: str
     content_result: ContentLoopResult | None
     format_result: FixResult | None
-    final_status: str   # "ok", "content_failed", "format_failed", "skipped_chunked"
+    final_status: str   # "ok", "content_failed", "format_failed"
 
 
 CHUNKED_TOKEN_THRESHOLD = 32_000
@@ -51,28 +52,29 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
         if lua_filepath is None:
             print(f"  [pipeline] No Lua source found for {Path(md_filepath).name}, skipping content")
         else:
-            # Check if Lua source is too large for single-context LLM review
-            # (token count is on Lua source since that's what must fit in LLM context)
-            lua_code = safe_read_lua(lua_filepath)
-            if lua_code and count_tokens(lua_code) >= CHUNKED_TOKEN_THRESHOLD:
-                print(f"  [pipeline] File is chunked (>={CHUNKED_TOKEN_THRESHOLD} tokens), skipping content")
-                return FileResult(
-                    filepath=md_filepath,
-                    content_result=None,
-                    format_result=None,
-                    final_status="skipped_chunked",
-                )
-
             content_config = ContentLoopConfig(
                 max_iterations=config.content_max_iterations,
                 writer_model=config.writer_model,
                 reviewer_model=config.reviewer_model,
                 stop_check=config.stop_check,
             )
-            content_result = run_content_loop(md_filepath, lua_filepath, content_config)
+            lua_code = safe_read_lua(lua_filepath)
+            if lua_code and count_tokens(lua_code) >= CHUNKED_TOKEN_THRESHOLD:
+                print(
+                    f"  [pipeline] File is chunked (>={CHUNKED_TOKEN_THRESHOLD} tokens), "
+                    "running per-section validation..."
+                )
+                content_result = run_chunked_content_loop(
+                    md_filepath, lua_filepath, content_config
+                )
+                # falls through — format validation also runs for chunked files
+            else:
+                content_result = run_content_loop(md_filepath, lua_filepath, content_config)
 
-            if not content_result.approved:
-                print(f"  [pipeline] Content not approved after {content_result.iterations} iterations")
+            if content_result and not content_result.approved:
+                print(
+                    f"  [pipeline] Content not approved after {content_result.iterations} iterations"
+                )
 
     # --- Format validation ---
     if not config.skip_format:
@@ -121,12 +123,11 @@ def process_batch(target: str, config: PipelineConfig) -> list[FileResult]:
         print(f"\n[Ctrl+C] Stopped after {len(results)}/{len(files)} files")
 
     # Summary
-    ok = sum(1 for r in results if r.final_status == "ok")
+    ok     = sum(1 for r in results if r.final_status == "ok")
     failed = sum(1 for r in results if "failed" in r.final_status)
-    skipped = sum(1 for r in results if r.final_status == "skipped_chunked")
 
     print(f"\n{'='*40}")
-    print(f"  OK: {ok} | Failed: {failed} | Skipped (chunked): {skipped}")
+    print(f"  OK: {ok} | Failed: {failed}")
     print(f"{'='*40}")
 
     return results
