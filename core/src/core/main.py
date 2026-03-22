@@ -18,6 +18,7 @@ from core.pipeline.standard import generate_doc
 from core.pipeline.chunking import needs_chunking
 from core.pipeline.chunked import process_chunked_file
 from llm.tokens import count_tokens
+from validator.pipeline import process_file, PipelineConfig
 
 from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR
 
@@ -35,6 +36,11 @@ def main():
         "-f", "--force",
         action="store_true",
         help="Force regenerate even if docs already exist",
+    )
+    parser.add_argument(
+        "--no-validate",
+        action="store_true",
+        help="Skip validation (generate only, no content loop or format fix)",
     )
     args = parser.parse_args()
 
@@ -83,7 +89,7 @@ def main():
         force_regen = args.force
 
     # === MAIN LOOP ===
-    stats = {"processed": 0, "skipped": 0, "failed": 0, "failed_list": []}
+    stats = {"processed": 0, "skipped": 0, "failed": 0, "failed_list": [], "validate_failed": 0}
 
     if args.file:
         print(f"Xử lý file đơn: {file_list[0]}")
@@ -197,10 +203,52 @@ def main():
             # File có thể đã được ghi thành công trước khi bị ngắt (ví dụ: ngắt trong lúc sleep)
             result = os.path.basename(md_filepath) if os.path.exists(md_filepath) else None
 
-        if result:
-            stats["processed"] += 1
-        else:
+        if not result:
             stats["failed"] += 1
+            stats["failed_list"].append(filename)
+            continue
+
+        # Resolve actual generated file path from result (basename) + md_filepath's directory.
+        generated_path = os.path.join(os.path.dirname(md_filepath), result)
+
+        if args.no_validate:
+            stats["processed"] += 1
+            continue
+
+        # --- Validation ---
+        try:
+            file_result = process_file(generated_path, PipelineConfig(
+                writer_model=MODEL_NAME,
+                reviewer_model=MODEL_NAME,
+            ))
+        except KeyboardInterrupt:
+            # Do NOT re-raise — outer loop exits via shutdown.stop_requested.
+            stats["failed"] += 1
+            stats["validate_failed"] += 1
+            stats["failed_list"].append(filename)
+            shutdown.request_stop()
+            continue
+        except Exception as e:
+            # Unexpected validator error (e.g. disk issue) — counts as validate_failed.
+            print(f"  [Lỗi validate] {filename}: {e}")
+            stats["failed"] += 1
+            stats["validate_failed"] += 1
+            stats["failed_list"].append(filename)
+            continue
+
+        if file_result.final_status in ("ok", "skipped_chunked"):
+            stats["processed"] += 1
+        elif file_result.final_status == "content_failed":
+            try:
+                os.remove(generated_path)
+            except OSError as e:
+                print(f"  [Cảnh báo] Không thể xóa {generated_path}: {e}")
+            stats["failed"] += 1
+            stats["validate_failed"] += 1
+            stats["failed_list"].append(filename)
+        elif file_result.final_status == "format_failed":
+            stats["failed"] += 1
+            stats["validate_failed"] += 1
             stats["failed_list"].append(filename)
 
     # === Thống kê ===
@@ -208,7 +256,15 @@ def main():
     print(f"[Thống kê] Hoàn tất!")
     print(f"  Đã xử lý : {stats['processed']} file")
     print(f"  Đã bỏ qua: {stats['skipped']} file")
-    print(f"  Thất bại : {stats['failed']} file")
+    if stats["failed"] > 0:
+        print(f"  Thất bại  : {stats['failed']} file")
+        generate_fail = stats["failed"] - stats["validate_failed"]
+        if not args.no_validate and stats["validate_failed"] > 0:
+            print(f"    → Validation fail: {stats['validate_failed']}")
+        if generate_fail > 0:
+            print(f"    → Generate fail  : {generate_fail}")
+    else:
+        print(f"  Thất bại  : 0 file")
     if stats["failed_list"]:
         print(f"  Danh sách file lỗi: {', '.join(stats['failed_list'])}")
     print("=" * 60)
