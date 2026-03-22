@@ -157,3 +157,25 @@ def test_multiple_sections_partial_failure(tmp_path):
         result = run_chunked_content_loop(md, lua, _config())
     assert result.approved is False
     assert "Beta wrong" in result.final_issues
+
+
+from validator.content.prompts import (
+    build_section_reviewer_prompt,
+    build_section_writer_prompt,
+)
+
+
+def test_section_reviewer_prompt_contains_format_contract():
+    prompt = build_section_reviewer_prompt("## Functions\n### `Foo(x)`\n* **Description:** x\n", "")
+    assert "FORMAT CONTRACT" in prompt
+    assert "* **Description:**" in prompt
+    assert "CHECK BOTH" in prompt
+
+
+def test_section_writer_prompt_contains_format_rules():
+    prompt = build_section_writer_prompt(
+        "## Functions\n### `Foo(x)`\n* **Description:** x\n", "", [], []
+    )
+    assert "FORMAT RULES" in prompt
+    assert "NEVER" in prompt
+    assert "minimal substring" in prompt.lower() or "MINIMAL" in prompt

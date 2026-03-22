@@ -1,5 +1,34 @@
 """Prompt templates for content validation writer and reviewer."""
 
+_FORMAT_CONTRACT = """
+## FORMAT CONTRACT
+Each function entry MUST follow this exact structure:
+### `FunctionName(params)`
+* **Description:** one-line summary
+* **Parameters:**
+  - `name` (type) -- description
+* **Returns:** description
+* **Error states:** description  (only if applicable)
+
+CHECK BOTH:
+1. Content accuracy (params match Lua source, descriptions correct)
+2. Format compliance (structure matches FORMAT CONTRACT above)
+
+Flag format violations as issues just like content errors.
+"""
+
+_FORMAT_RULES = """
+## FORMAT RULES — NEVER VIOLATE
+- NEVER rename or reformat ### headings (lines starting with "### `")
+- NEVER change "* **Description:**", "* **Parameters:**",
+  "* **Returns:**", "* **Error states:**" bullet labels
+- NEVER convert bullet lists to numbered lists or tables
+- NEVER add or remove ### function entries
+- ONLY modify the TEXT CONTENT within the existing structure
+- old_text in each patch must be a MINIMAL substring (a single line or short phrase) --
+  never use an entire function block as old_text
+"""
+
 
 def build_reviewer_prompt(
     md_content: str,
@@ -109,7 +138,7 @@ def build_section_reviewer_prompt(section_text: str, lua_context: str) -> str:
     return f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API documentation.
 
 {lua_instruction}
-
+{_FORMAT_CONTRACT}
 ## Lua Context (functions referenced in this section)
 {lua_block}
 
@@ -149,7 +178,7 @@ def build_section_writer_prompt(
     return f"""You are a documentation writer for Don't Starve Together (DST) Lua API documentation.
 
 Fix the following documentation section based on reviewer feedback.
-
+{_FORMAT_RULES}
 ## Lua Context (ground truth for this section)
 {lua_block}
 
