@@ -7,6 +7,7 @@ import re
 import os
 import hashlib
 import json
+import time
 from pathlib import Path
 
 from llm.client import ollama_chat, COMPRESSION_MODEL
@@ -427,24 +428,31 @@ Rules: Never invent. Output only the summary, no preamble.
 SOURCE:
 {lua_code}"""
 
-    try:
-        response = ollama_chat(
-            model=COMPRESSION_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = response["message"]["content"]
-        raw = clean_model_output(raw)
-    except Exception as e:
-        print(f"  [STUB] LLM call failed for {ref_path}: {e}")
-        return None
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            response = ollama_chat(
+                model=COMPRESSION_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response["message"]["content"]
+            raw = clean_model_output(raw)
+        except Exception as e:
+            print(f"  [STUB] LLM call failed for {ref_path}: {e}")
+            return None
 
-    if "-- MODULE:" not in raw:
-        print(f"  [STUB] Output missing -- MODULE: marker, skipping {ref_path}")
-        return None
+        if "-- MODULE:" in raw:
+            result = f"-- [REQUIRE MODULE: {ref_path}] ---\n{raw}"
+            _save_compression_cache(cache_key, result)
+            return result
 
-    result = f"-- [REQUIRE MODULE: {ref_path}] ---\n{raw}"
-    _save_compression_cache(cache_key, result)
-    return result
+        if attempt < max_retries:
+            print(f"  [STUB] Output missing -- MODULE: marker, retrying {ref_path} ({attempt}/{max_retries})")
+            time.sleep(2)
+        else:
+            print(f"  [STUB] Output missing -- MODULE: marker after {max_retries} attempts, skipping {ref_path}")
+
+    return None
 
 
 def extract_require_stubs(
