@@ -173,14 +173,14 @@ LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  80
 
 | File | Thay đổi |
 |---|---|
-| `llm/src/llm/client.py` | `OLLAMA_NUM_CTX = 256_000` → `from llm.settings import OLLAMA_NUM_CTX`; `COMPRESSION_MODEL = "qwen3.5:cloud"` → `from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL` |
+| `llm/src/llm/client.py` | `OLLAMA_NUM_CTX = 256_000` → `from llm.settings import OLLAMA_NUM_CTX`; `COMPRESSION_MODEL = "qwen3.5:cloud"` → `from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL` (giữ tên `COMPRESSION_MODEL` ở module level để `rag/content.py` tiếp tục import `from llm.client import COMPRESSION_MODEL` mà không cần thay đổi) |
 | `llm/src/llm/tokens.py` | `STUB_FULL_THRESHOLD = 400` → `from llm.settings import STUB_FULL_THRESHOLD` |
 | `core/src/core/pipeline/chunking.py` | Xóa 3 constants, import từ `llm.settings` |
 | `core/src/core/main.py` | Xóa `MODEL_NAME = config.MODEL_NAME` (dòng 54); thay bằng `from llm.settings import MODEL_MAIN as MODEL_NAME` ở top-level imports |
 | `core/src/core/update/docs.py` | `from llm.settings import MODEL_UPDATE as MODEL_NAME` |
 | `rag/src/rag/indexer.py` | `from llm.settings import MODEL_EMBED as EMBED_MODEL_NAME` |
-| `validator/src/validator/pipeline.py` | Xóa module-level `CHUNKED_TOKEN_THRESHOLD = 16_000`; thêm `from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS`; dùng `VALIDATOR_MAX_ITERATIONS` làm default cho `PipelineConfig.content_max_iterations` |
-| `validator/src/validator/content/loop.py` | Dùng `VALIDATOR_LOOP_MAX_ITERATIONS` làm default `ContentLoopConfig` |
+| `validator/src/validator/pipeline.py` | Xóa module-level `CHUNKED_TOKEN_THRESHOLD = 16_000`; thêm `from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN`; dùng `VALIDATOR_MAX_ITERATIONS` làm default cho `PipelineConfig.content_max_iterations`; dùng `MODEL_MAIN` làm default cho `PipelineConfig.writer_model` và `PipelineConfig.reviewer_model` |
+| `validator/src/validator/content/loop.py` | Thêm `from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN`; dùng làm default cho `ContentLoopConfig.max_iterations`, `ContentLoopConfig.writer_model`, `ContentLoopConfig.reviewer_model` |
 | `validator/src/validator/content/sections.py` | `8_000` → `from llm.settings import LUA_CONTEXT_TOKENS` |
 | `validator/src/validator/format/autofix.py` | `from llm.settings import MDX_NODE_TIMEOUT` |
 | `validator/src/validator/format/mdx.py` | `from llm.settings import MDX_NODE_TIMEOUT` |
@@ -193,7 +193,7 @@ LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  80
 | `rag/tests/test_require_stubs.py` | Import `STUB_FULL_THRESHOLD` từ `llm.settings` |
 | `llm/tests/test_client.py` | Import `OLLAMA_NUM_CTX` từ `llm.settings` |
 | `core/tests/test_per_chunk.py` | Import `CONTEXT_RESERVE` từ `llm.settings` |
-| `validator/tests/test_pipeline.py` | Đổi `from validator.pipeline import ..., CHUNKED_TOKEN_THRESHOLD` → thêm `from llm.settings import CHUNKED_TOKEN_THRESHOLD` (import riêng, không còn re-exported từ `validator.pipeline`) |
+| `validator/tests/test_pipeline.py` | Đổi `from validator.pipeline import ..., CHUNKED_TOKEN_THRESHOLD` → thêm `from llm.settings import CHUNKED_TOKEN_THRESHOLD` (import riêng, không còn re-exported từ `validator.pipeline`); cập nhật assertions `config.writer_model == "qwen3.5:cloud"` → `config.writer_model == MODEL_MAIN` |
 
 ---
 
