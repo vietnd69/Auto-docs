@@ -94,6 +94,56 @@ def sub_chunk_section(fn_blocks: list[str], limit: int) -> list[list[str]]:
     return batches
 
 
+def extract_fn_headings(fn_blocks: list[str]) -> set[str]:
+    """Return the first-line heading of each non-empty block.
+
+    Example: '### `GetOwner(inst)`' for a block starting with that line.
+    Used to snapshot which function entries exist before a patch loop.
+    """
+    return {block.split("\n", 1)[0].strip() for block in fn_blocks if block.strip()}
+
+
+def restore_lost_blocks(
+    fn_blocks: list[str],
+    snapshot: set[str],
+    backup_fn_blocks: list[str],
+) -> int:
+    """Reinsert fn_blocks whose heading was in snapshot but is now missing.
+
+    Preserves original order: each restored block is inserted immediately before
+    the first subsequent backup entry that still exists in fn_blocks.
+    If no such anchor exists, the block is appended at the end.
+
+    Returns the number of blocks restored.
+    """
+    current = extract_fn_headings(fn_blocks)
+    lost_headings = snapshot - current
+    if not lost_headings:
+        return 0
+
+    current_headings_list = [b.split("\n", 1)[0].strip() for b in fn_blocks]
+    restored = 0
+
+    for orig_idx, block in enumerate(backup_fn_blocks):
+        heading = block.split("\n", 1)[0].strip()
+        if heading not in lost_headings:
+            continue
+
+        # Find insertion point: before the first later backup heading still present
+        insert_pos = len(fn_blocks)
+        for later_idx in range(orig_idx + 1, len(backup_fn_blocks)):
+            later_heading = backup_fn_blocks[later_idx].split("\n", 1)[0].strip()
+            if later_heading in current_headings_list:
+                insert_pos = current_headings_list.index(later_heading)
+                break
+
+        fn_blocks.insert(insert_pos, block)
+        current_headings_list.insert(insert_pos, heading)
+        restored += 1
+
+    return restored
+
+
 _FN_PATTERNS: list[tuple[str, int]] = [
     (r'^###\s+`?(\w+)`?', re.MULTILINE),  # ### FunctionName heading
     (r'`(\w+)\s*\(',      0),             # `FuncName(

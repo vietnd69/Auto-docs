@@ -324,3 +324,67 @@ def test_sub_chunk_section_preserves_all_blocks():
 def test_sub_chunk_section_empty_input():
     """Empty fn_blocks → empty batches list."""
     assert sub_chunk_section([], limit=3000) == []
+
+
+from validator.content.sections import extract_fn_headings, restore_lost_blocks
+
+
+def test_extract_fn_headings_basic():
+    """Returns set of first-line headings from each block."""
+    blocks = [
+        "### `Foo(x)`\n* **Description:** foo\n",
+        "### `Bar(y, z)`\n* **Description:** bar\n",
+    ]
+    assert extract_fn_headings(blocks) == {"### `Foo(x)`", "### `Bar(y, z)`"}
+
+
+def test_extract_fn_headings_empty():
+    assert extract_fn_headings([]) == set()
+
+
+def test_extract_fn_headings_ignores_whitespace_only():
+    """Blocks that are whitespace-only are skipped."""
+    blocks = ["### `Foo()`\ncontent\n", "   \n", "### `Bar()`\ncontent\n"]
+    assert extract_fn_headings(blocks) == {"### `Foo()`", "### `Bar()`"}
+
+
+def test_restore_lost_blocks_noop_when_complete():
+    """No blocks missing → returns 0, fn_blocks unchanged."""
+    blocks = ["### `Foo()`\ncontent\n", "### `Bar()`\ncontent\n"]
+    snapshot = extract_fn_headings(blocks)
+    backup = list(blocks)
+    assert restore_lost_blocks(blocks, snapshot, backup) == 0
+    assert blocks == backup
+
+
+def test_restore_lost_blocks_restores_and_preserves_order():
+    """Deleted middle block is reinserted between its neighbours."""
+    backup = [
+        "### `Foo()`\ncontent_a\n",
+        "### `Bar()`\ncontent_b\n",
+        "### `Baz()`\ncontent_c\n",
+    ]
+    # Bar was deleted during patching
+    fn_blocks = [backup[0], backup[2]]
+    snapshot = extract_fn_headings(backup)
+    restored = restore_lost_blocks(fn_blocks, snapshot, backup)
+    assert restored == 1
+    assert len(fn_blocks) == 3
+    # Bar must sit between Foo and Baz
+    headings = [b.split("\n", 1)[0].strip() for b in fn_blocks]
+    assert headings.index("### `Bar()`") < headings.index("### `Baz()`")
+    assert headings.index("### `Foo()`") < headings.index("### `Bar()`")
+
+
+def test_restore_lost_blocks_restores_to_end_when_no_anchor():
+    """Block with no surviving later neighbour is appended at end."""
+    backup = [
+        "### `Foo()`\ncontent_a\n",
+        "### `Bar()`\ncontent_b\n",
+    ]
+    # Bar was deleted, Foo still present
+    fn_blocks = [backup[0]]
+    snapshot = extract_fn_headings(backup)
+    restore_lost_blocks(fn_blocks, snapshot, backup)
+    assert len(fn_blocks) == 2
+    assert fn_blocks[-1].startswith("### `Bar()`")
