@@ -1,6 +1,6 @@
 # Chunked Validator — Format Protection & Section Sub-chunking Implementation Plan
 
-> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents available) or superpowers:executing-plans to implement this plan. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Fix two bugs in `run_chunked_content_loop`: (1) reviewer/writer loop destroys format structure because prompts have no format constraints; (2) `## Main functions` with 109 functions creates a 16K-token section causing timeouts.
 
@@ -20,7 +20,7 @@
 - Modify: `config.toml` (under `[validator]`)
 - Modify: `llm/src/llm/settings.py` (after `LUA_CONTEXT_TOKENS` line)
 
-- [ ] **Step 1.1: Add to `config.toml`**
+- [x] **Step 1.1: Add to `config.toml`**
 
 Open `config.toml`, find the `[validator]` block, append after the last entry:
 
@@ -29,7 +29,7 @@ section_token_threshold = 4000
 batch_token_limit       = 3000
 ```
 
-- [ ] **Step 1.2: Add to `settings.py`**
+- [x] **Step 1.2: Add to `settings.py`**
 
 In `llm/src/llm/settings.py`, after the `LUA_CONTEXT_TOKENS` line (~line 56), append:
 
@@ -38,7 +38,7 @@ SECTION_TOKEN_THRESHOLD: int = _get("validator", "section_token_threshold", 4000
 BATCH_TOKEN_LIMIT: int       = _get("validator", "batch_token_limit",       3000)
 ```
 
-- [ ] **Step 1.3: Verify importable**
+- [x] **Step 1.3: Verify importable**
 
 ```bash
 uv run python -c "from llm.settings import SECTION_TOKEN_THRESHOLD, BATCH_TOKEN_LIMIT; print(SECTION_TOKEN_THRESHOLD, BATCH_TOKEN_LIMIT)"
@@ -46,7 +46,7 @@ uv run python -c "from llm.settings import SECTION_TOKEN_THRESHOLD, BATCH_TOKEN_
 
 Expected: `4000 3000`
 
-- [ ] **Step 1.4: Commit**
+- [x] **Step 1.4: Commit**
 
 ```bash
 git add config.toml llm/src/llm/settings.py
@@ -61,7 +61,7 @@ git commit -m "feat(settings): add SECTION_TOKEN_THRESHOLD and BATCH_TOKEN_LIMIT
 - Modify: `validator/src/validator/content/sections.py`
 - Test: `validator/tests/test_sections.py`
 
-- [ ] **Step 2.1: Write failing tests**
+- [x] **Step 2.1: Write failing tests**
 
 Add to `validator/tests/test_sections.py`:
 
@@ -103,7 +103,7 @@ def test_split_section_blocks_triple_hash_in_code_fence_not_matched():
     assert preamble + "".join(blocks) == text
 ```
 
-- [ ] **Step 2.2: Run to verify failure**
+- [x] **Step 2.2: Run to verify failure**
 
 ```bash
 uv run pytest validator/tests/test_sections.py::test_split_section_blocks_basic -v
@@ -111,7 +111,7 @@ uv run pytest validator/tests/test_sections.py::test_split_section_blocks_basic 
 
 Expected: `ImportError` or `AttributeError` — `split_section_blocks` not defined yet.
 
-- [ ] **Step 2.3: Implement `split_section_blocks`**
+- [x] **Step 2.3: Implement `split_section_blocks`**
 
 In `validator/src/validator/content/sections.py`, add after the `join_md_sections` function:
 
@@ -134,7 +134,7 @@ def split_section_blocks(section_text: str) -> tuple[str, list[str]]:
     return preamble, fn_blocks
 ```
 
-- [ ] **Step 2.4: Run tests**
+- [x] **Step 2.4: Run tests**
 
 ```bash
 uv run pytest validator/tests/test_sections.py -k "split_section_blocks" -v
@@ -142,7 +142,7 @@ uv run pytest validator/tests/test_sections.py -k "split_section_blocks" -v
 
 Expected: all 4 tests PASS.
 
-- [ ] **Step 2.5: Commit**
+- [x] **Step 2.5: Commit**
 
 ```bash
 git add validator/src/validator/content/sections.py validator/tests/test_sections.py
@@ -157,7 +157,7 @@ git commit -m "feat(sections): add split_section_blocks"
 - Modify: `validator/src/validator/content/sections.py`
 - Test: `validator/tests/test_sections.py`
 
-- [ ] **Step 3.1: Write failing tests**
+- [x] **Step 3.1: Write failing tests**
 
 Add to `validator/tests/test_sections.py`:
 
@@ -200,7 +200,7 @@ def test_sub_chunk_section_empty_input():
     assert sub_chunk_section([], limit=3000) == []
 ```
 
-- [ ] **Step 3.2: Run to verify failure**
+- [x] **Step 3.2: Run to verify failure**
 
 ```bash
 uv run pytest validator/tests/test_sections.py -k "sub_chunk_section" -v
@@ -208,7 +208,7 @@ uv run pytest validator/tests/test_sections.py -k "sub_chunk_section" -v
 
 Expected: `ImportError` — `sub_chunk_section` not defined.
 
-- [ ] **Step 3.3: Implement `sub_chunk_section`**
+- [x] **Step 3.3: Implement `sub_chunk_section`**
 
 Add after `split_section_blocks` in `sections.py`:
 
@@ -237,7 +237,7 @@ def sub_chunk_section(fn_blocks: list[str], limit: int) -> list[list[str]]:
 
 Note: `count_tokens` is already imported at the top of `sections.py`.
 
-- [ ] **Step 3.4: Run tests**
+- [x] **Step 3.4: Run tests**
 
 ```bash
 uv run pytest validator/tests/test_sections.py -k "sub_chunk_section" -v
@@ -245,7 +245,7 @@ uv run pytest validator/tests/test_sections.py -k "sub_chunk_section" -v
 
 Expected: all 4 PASS.
 
-- [ ] **Step 3.5: Run full sections test suite**
+- [x] **Step 3.5: Run full sections test suite**
 
 ```bash
 uv run pytest validator/tests/test_sections.py -v
@@ -253,7 +253,7 @@ uv run pytest validator/tests/test_sections.py -v
 
 Expected: all PASS.
 
-- [ ] **Step 3.6: Commit**
+- [x] **Step 3.6: Commit**
 
 ```bash
 git add validator/src/validator/content/sections.py validator/tests/test_sections.py
@@ -268,7 +268,7 @@ git commit -m "feat(sections): add sub_chunk_section"
 - Modify: `validator/src/validator/content/sections.py`
 - Test: `validator/tests/test_sections.py`
 
-- [ ] **Step 4.1: Write failing tests**
+- [x] **Step 4.1: Write failing tests**
 
 Add to `validator/tests/test_sections.py`:
 
@@ -337,7 +337,7 @@ def test_restore_lost_blocks_restores_to_end_when_no_anchor():
     assert fn_blocks[-1].startswith("### `Bar()`")
 ```
 
-- [ ] **Step 4.2: Run to verify failure**
+- [x] **Step 4.2: Run to verify failure**
 
 ```bash
 uv run pytest validator/tests/test_sections.py -k "extract_fn_headings or restore_lost" -v
@@ -345,7 +345,7 @@ uv run pytest validator/tests/test_sections.py -k "extract_fn_headings or restor
 
 Expected: `ImportError`.
 
-- [ ] **Step 4.3: Implement `extract_fn_headings`**
+- [x] **Step 4.3: Implement `extract_fn_headings`**
 
 Add after `sub_chunk_section` in `sections.py`:
 
@@ -359,7 +359,7 @@ def extract_fn_headings(fn_blocks: list[str]) -> set[str]:
     return {block.split("\n", 1)[0].strip() for block in fn_blocks if block.strip()}
 ```
 
-- [ ] **Step 4.4: Implement `restore_lost_blocks`**
+- [x] **Step 4.4: Implement `restore_lost_blocks`**
 
 Add after `extract_fn_headings` in `sections.py`:
 
@@ -405,7 +405,7 @@ def restore_lost_blocks(
     return restored
 ```
 
-- [ ] **Step 4.5: Run tests**
+- [x] **Step 4.5: Run tests**
 
 ```bash
 uv run pytest validator/tests/test_sections.py -k "extract_fn_headings or restore_lost" -v
@@ -413,7 +413,7 @@ uv run pytest validator/tests/test_sections.py -k "extract_fn_headings or restor
 
 Expected: all PASS.
 
-- [ ] **Step 4.6: Run full sections suite**
+- [x] **Step 4.6: Run full sections suite**
 
 ```bash
 uv run pytest validator/tests/test_sections.py -v
@@ -421,7 +421,7 @@ uv run pytest validator/tests/test_sections.py -v
 
 Expected: all PASS.
 
-- [ ] **Step 4.7: Commit**
+- [x] **Step 4.7: Commit**
 
 ```bash
 git add validator/src/validator/content/sections.py validator/tests/test_sections.py
@@ -439,7 +439,7 @@ git commit -m "feat(sections): add extract_fn_headings and restore_lost_blocks"
 The goal: both section-level prompts gain format constraints so the LLM reviewer checks
 format compliance and the writer preserves structure.
 
-- [ ] **Step 5.1: Write failing tests**
+- [x] **Step 5.1: Write failing tests**
 
 Add to `validator/tests/test_content_chunked.py` (or create a small test in `test_sections.py`):
 
@@ -466,7 +466,7 @@ def test_section_writer_prompt_contains_format_rules():
     assert "minimal substring" in prompt.lower() or "MINIMAL" in prompt
 ```
 
-- [ ] **Step 5.2: Run to verify failure**
+- [x] **Step 5.2: Run to verify failure**
 
 ```bash
 uv run pytest validator/tests/test_content_chunked.py -k "format_contract or format_rules" -v
@@ -474,7 +474,7 @@ uv run pytest validator/tests/test_content_chunked.py -k "format_contract or for
 
 Expected: FAIL — `AssertionError: FORMAT CONTRACT not in prompt`.
 
-- [ ] **Step 5.3: Add format string constants to `prompts.py`**
+- [x] **Step 5.3: Add format string constants to `prompts.py`**
 
 At the top of `validator/src/validator/content/prompts.py`, after the module docstring,
 add two private constants (exact content required — tests assert specific phrases):
@@ -510,7 +510,7 @@ _FORMAT_RULES = """
 """
 ```
 
-- [ ] **Step 5.4: Inject `_FORMAT_CONTRACT` into `build_section_reviewer_prompt`**
+- [x] **Step 5.4: Inject `_FORMAT_CONTRACT` into `build_section_reviewer_prompt`**
 
 The current f-string (lines 109–130 of `prompts.py`) ends with `## Section to Review`
 then `## Response Format`. Insert `{_FORMAT_CONTRACT}` between them:
@@ -545,7 +545,7 @@ With:
 ## Response Format
 ```
 
-- [ ] **Step 5.5: Inject `_FORMAT_RULES` into `build_section_writer_prompt`**
+- [x] **Step 5.5: Inject `_FORMAT_RULES` into `build_section_writer_prompt`**
 
 The current f-string (lines 149–178) opens with the description then `## Lua Context`.
 Insert `{_FORMAT_RULES}` after the opening line and before `## Lua Context`:
@@ -568,7 +568,7 @@ Fix the following documentation section based on reviewer feedback.
 ## Lua Context (ground truth for this section)
 ```
 
-- [ ] **Step 5.6: Run tests**
+- [x] **Step 5.6: Run tests**
 
 ```bash
 uv run pytest validator/tests/test_content_chunked.py -k "format_contract or format_rules" -v
@@ -576,7 +576,7 @@ uv run pytest validator/tests/test_content_chunked.py -k "format_contract or for
 
 Expected: both PASS.
 
-- [ ] **Step 5.7: Run full validator test suite to check no regressions**
+- [x] **Step 5.7: Run full validator test suite to check no regressions**
 
 ```bash
 uv run pytest validator/tests/ -v
@@ -584,7 +584,7 @@ uv run pytest validator/tests/ -v
 
 Expected: all PASS.
 
-- [ ] **Step 5.8: Commit**
+- [x] **Step 5.8: Commit**
 
 ```bash
 git add validator/src/validator/content/prompts.py validator/tests/test_content_chunked.py
@@ -606,7 +606,7 @@ path. This task adds a second path for large sections (>`SECTION_TOKEN_THRESHOLD
 containing a line-anchored `### ` sub-heading), which processes those sections in
 token-limited batches with snapshot+restore.
 
-- [ ] **Step 6.1: Write failing tests for the new batch path**
+- [x] **Step 6.1: Write failing tests for the new batch path**
 
 Add to `validator/tests/test_content_chunked.py`:
 
@@ -720,7 +720,7 @@ def test_small_section_uses_existing_path(tmp_path):
     assert result.approved is True
 ```
 
-- [ ] **Step 6.2: Run to verify failure**
+- [x] **Step 6.2: Run to verify failure**
 
 ```bash
 uv run pytest validator/tests/test_content_chunked.py -k "large_section or small_section_uses" -v
@@ -728,7 +728,7 @@ uv run pytest validator/tests/test_content_chunked.py -k "large_section or small
 
 Expected: FAIL — the large-section path does not exist yet. `test_small_section_uses_existing_path` should PASS (existing behavior).
 
-- [ ] **Step 6.3: Update imports in `chunked.py`**
+- [x] **Step 6.3: Update imports in `chunked.py`**
 
 At the top of `validator/src/validator/content/chunked.py`, replace the existing
 `from validator.content.sections import (...)` block with:
@@ -755,7 +755,7 @@ And add to the existing `llm` imports:
 from llm.settings import BATCH_TOKEN_LIMIT, SECTION_TOKEN_THRESHOLD
 ```
 
-- [ ] **Step 6.4: Add the large-section path to `run_chunked_content_loop`**
+- [x] **Step 6.4: Add the large-section path to `run_chunked_content_loop`**
 
 In `run_chunked_content_loop`, the current section loop body (lines 79–146) handles all
 sections identically. Replace the body of the `for idx, section in enumerate(sections, 1):` loop with the 2-path dispatch below. The small-section `else` branch is the **existing code, verbatim** — do not change it.
@@ -949,7 +949,7 @@ sections identically. Replace the body of the `for idx, section in enumerate(sec
                 all_failed_issues.extend(last_review.issues)
 ```
 
-- [ ] **Step 6.5: Run new tests**
+- [x] **Step 6.5: Run new tests**
 
 ```bash
 uv run pytest validator/tests/test_content_chunked.py -k "large_section or small_section_uses" -v
@@ -957,7 +957,7 @@ uv run pytest validator/tests/test_content_chunked.py -k "large_section or small
 
 Expected: all 4 new tests PASS.
 
-- [ ] **Step 6.6: Run full validator suite**
+- [x] **Step 6.6: Run full validator suite**
 
 ```bash
 uv run pytest validator/tests/ -v
@@ -965,7 +965,7 @@ uv run pytest validator/tests/ -v
 
 Expected: all PASS. (Existing tests cover the small-section path unchanged.)
 
-- [ ] **Step 6.7: Smoke test on `componentutil.lua`**
+- [x] **Step 6.7: Smoke test on `componentutil.lua`**
 
 ```bash
 uv run python -m validator dst-api-webdocs/docs/componentutil.md --content-only 2>&1 | head -60
@@ -976,7 +976,7 @@ Expected output shows:
 - Batch-level `reviewing...` lines with token counts well below 16K
 - No `[TIMEOUT]` lines
 
-- [ ] **Step 6.8: Commit**
+- [x] **Step 6.8: Commit**
 
 ```bash
 git add validator/src/validator/content/chunked.py validator/tests/test_content_chunked.py
@@ -987,7 +987,7 @@ git commit -m "feat(chunked): 2-path dispatch — sub-chunk large sections by ##
 
 ## Final verification
 
-- [ ] **Run full test suite one last time**
+- [x] **Run full test suite one last time**
 
 ```bash
 uv run pytest validator/tests/ -v
@@ -995,7 +995,7 @@ uv run pytest validator/tests/ -v
 
 Expected: all PASS.
 
-- [ ] **Re-run `componentutil.lua` end-to-end**
+- [x] **Re-run `componentutil.lua` end-to-end**
 
 ```bash
 uv run mod-document dst-scripts/componentutil.lua

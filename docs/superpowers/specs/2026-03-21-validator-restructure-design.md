@@ -294,7 +294,7 @@ Unchanged. Moved to `format/` directory.
 ```python
 @dataclass
 class PipelineConfig:
-    content_max_iterations: int = 3
+    content_max_iterations: int = 10
     writer_model: str = "qwen3.5:cloud"
     reviewer_model: str = "qwen3.5:cloud"
     skip_content: bool = False

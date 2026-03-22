@@ -1810,7 +1810,7 @@ from validator.utils import resolve_lua_path
 @dataclass
 class PipelineConfig:
     """Configuration for the full validation pipeline."""
-    content_max_iterations: int = 3
+    content_max_iterations: int = 10
     writer_model: str = "qwen3.5:cloud"
     reviewer_model: str = "qwen3.5:cloud"
     skip_content: bool = False
