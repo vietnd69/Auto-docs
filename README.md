@@ -6,6 +6,7 @@ Hệ thống tự động sinh API documentation cho Lua mods của game Don't S
 
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/) (package manager)
+- Node.js (cho validator MDX check)
 - Ollama Cloud API keys (cấu hình trong `.env`)
 
 ## Cài đặt
@@ -16,7 +17,19 @@ cd mod-document
 uv sync
 ```
 
-Tạo file `.env` ở root:
+Tạo file `.env` từ template:
+
+```bash
+cp .env.template .env
+# Điền API keys vào .env
+```
+
+Tạo file `config.toml` từ template (tuỳ chọn — dùng để override model/token defaults):
+
+```bash
+cp config.toml.template config.toml
+# Chỉnh sửa nếu cần override model hoặc các ngưỡng token
+```
 
 ```env
 TOTAL_ACCOUNT=2
@@ -37,6 +50,35 @@ uv run mod-document dst-scripts/components/combat.lua
 
 # Sinh toàn bộ + ghi đè file đã có docs
 uv run mod-document -f
+```
+
+### Validate docs
+
+```bash
+# Toàn bộ docs (format + content)
+uv run python -m validator
+
+# 1 file cụ thể
+uv run python -m validator dst-api-webdocs/docs/components/combat.md
+
+# Chỉ format check
+uv run python -m validator --format-only
+
+# Chỉ content check (LLM review)
+uv run python -m validator --content-only
+```
+
+### Auto-update từ diff report
+
+```bash
+# Cập nhật docs dựa trên diff report (added/modified/deleted/moved)
+uv run python -m core.update.docs
+
+# Xem prompt, không gọi LLM
+uv run python -m core.update.docs --dry-run
+
+# Chỉ xử lý file mới
+uv run python -m core.update.docs --filter added
 ```
 
 ### Diff watcher
@@ -72,10 +114,12 @@ mod-document/
 ├── llm/         — Ollama Cloud API client, token counting, multi-account failover
 ├── rag/         — Trích xuất references, content analysis từ Lua source
 ├── prompts/     — Template generation cho LLM prompts
-├── validator/   — Kiểm tra chất lượng output Markdown
+├── validator/   — Kiểm tra chất lượng output Markdown (format + content via LLM)
 ├── watcher/     — Phát hiện thay đổi giữa các version dst-scripts
-├── dst-scripts/ — Lua source code (input)
-└── docs/        — Generated Markdown documentation (output)
+├── skills/      — Markdown skill files → inject vào prompts
+├── data/        — Runtime tracking (diff_tracker.json, diff_report.json)
+├── dst-scripts/ — Lua source code (input, git-excluded)
+└── dst-api-webdocs/docs/ — Generated Markdown documentation (output)
 ```
 
 ### Dependency graph
@@ -88,15 +132,24 @@ core ──→ llm
 watcher ──→ rag
 ```
 
-### Pipeline xử lý
+### Doc generation pipeline
 
 1. **File Discovery** — Quét `dst-scripts/` tìm file `.lua`
 2. **Reference Analysis** — Trích xuất cross-file dependencies (require, components)
 3. **Token Counting** — Xác định strategy dựa trên kích thước prompt
 4. **Processing**:
-   - **Standard** (< 32K tokens): Gọi LLM trực tiếp
-   - **Chunked** (>= 32K tokens): Chia nhỏ → phân tích từng chunk → merge hierarchically
-5. **Output** — Ghi file `.md` vào `docs/`
+   - **Standard** (< 16K tokens): Gọi LLM trực tiếp
+   - **Chunked** (≥ 16K tokens): Chia nhỏ → phân tích từng chunk → merge hierarchically
+5. **Output** — Ghi file `.md` vào `dst-api-webdocs/docs/`
+
+### Validation pipeline
+
+Chạy sau khi sinh docs (hoặc độc lập):
+
+1. **Format check** — YAML frontmatter, MDX syntax, emoji rules
+2. **Content check** — LLM review → auto-fix → approve loop:
+   - **Standard** (< 32K tokens Lua source): review toàn bộ doc
+   - **Chunked** (≥ 16K tokens): per-section review với Lua context extraction
 
 ### Tính năng
 
@@ -105,3 +158,4 @@ watcher ──→ rag
 - Checkpoint system cho chunked processing (resume khi bị gián đoạn)
 - Graceful shutdown với Ctrl+C
 - Diff tracking giữa các version game update
+- Per-section content validation cho file Lua lớn

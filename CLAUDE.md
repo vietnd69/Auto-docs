@@ -45,9 +45,10 @@ mod-document/
 ├── validator/         # Kiểm tra chất lượng output (format + content via LLM)
 ├── watcher/           # Phát hiện thay đổi giữa các version dst-scripts
 ├── skills/            # Markdown skill files (conventions, few-shot examples) → inject vào prompts
-├── data/              # Runtime tracking (diff_tracker.json, version_log.txt, diff_report.json)
+├── data/              # Runtime tracking (diff_tracker.json, version_log.txt, diff_report.json) — git-excluded
 ├── dst-scripts/       # Input: Lua source code (git-excluded, copy thủ công)
 ├── dst-api-webdocs/docs/  # Output: Generated Markdown documentation
+├── file_tracker.json  # Tracks which Lua files have been processed (root-level)
 └── .cache/            # compression_cache/ + chunked_checkpoints/
 ```
 
@@ -70,9 +71,10 @@ mod-document/
 ### Key Components
 
 **Configuration & Paths:**
+- `llm/src/llm/settings.py`: **Central config** — all typed constants, loaded from `config.toml` + `MOD_DOC_*` env override
 - `llm/src/llm/paths.py`: Base paths — `BASE_LUA_DIR` (dst-scripts/), `BASE_DOCS_DIR` (dst-api-webdocs/docs/)
 - `llm/src/llm/client.py`: Multi-account Ollama Cloud API management with automatic failover and round-robin load balancing
-- `core/src/core/config.py`: Model settings, version, timing constants
+- `core/src/core/config.py`: `CHECKPOINT_DIR`, `VERSION`, `TODAY_DATE`, `get_shared_file_tree()` only — constants moved to `llm.settings`
 
 **Content Analysis:**
 - `rag/src/rag/content.py`: Extracts function signatures and connected code
@@ -87,10 +89,17 @@ mod-document/
 - `core/src/core/update/docs.py`: Auto-update docs based on diff report (added/modified/deleted/moved)
 
 **Validation (validator/):**
+- `validator/src/validator/pipeline.py`: Full pipeline orchestration (format + content), routes chunked files (≥32K tokens) to per-section loop
 - `validator/src/validator/format/checks.py`: YAML frontmatter, MDX syntax, emoji checks
+- `validator/src/validator/format/autofix.py`: Auto-fix common format issues
 - `validator/src/validator/format/validate_mdx.mjs`: Node.js MDX compilation validation (requires Node.js)
-- `validator/src/validator/content/loop.py`: Iterative LLM review → fix → approve loop
-- `validator/src/validator/pipeline.py`: Full pipeline orchestration (format + content)
+- `validator/src/validator/content/loop.py`: Iterative LLM review → fix → approve loop (standard files)
+- `validator/src/validator/content/chunked.py`: Per-section content validation for large files (≥32K tokens)
+- `validator/src/validator/content/sections.py`: `DocSection`, `split_md_sections`, `extract_function_names`, `extract_lua_context`
+- `validator/src/validator/content/reviewer.py`: `ReviewResult`, `parse_review_response`
+- `validator/src/validator/content/writer.py`: `Patch`, `apply_patches`, `parse_writer_response`
+- `validator/src/validator/content/prompts.py`: `build_section_reviewer_prompt`, `build_section_writer_prompt`
+- `validator/src/validator/update/validate_update.py`: Validate docs after auto-update from diff report
 
 ## Common Development Commands
 
@@ -134,11 +143,15 @@ uv run pytest watcher/tests/
 
 ### Key Token Thresholds
 
-- `PROMPT_TOKEN_LIMIT = 16,000` — Triggers chunked pipeline
+All constants now in `llm/src/llm/settings.py` (loaded from `config.toml`, override with `MOD_DOC_*` env vars):
+- `PROMPT_TOKEN_LIMIT = 16,000` — Triggers chunked doc generation pipeline
 - `MERGE_TOKEN_LIMIT = 20,000` — Triggers hierarchical merge (vs rolling)
 - `CONTEXT_RESERVE = 7,000` — Reserved for connected content stubs
 - `STUB_FULL_THRESHOLD = 400` — Files ≤400 tokens included in full, larger get compressed stubs
+- `CHUNKED_TOKEN_THRESHOLD = 16,000` — Triggers per-section content validation (validator)
+- `VALIDATOR_MAX_ITERATIONS = 10`, `VALIDATOR_LOOP_MAX_ITERATIONS = 5`, `MDX_NODE_TIMEOUT = 20`, `LUA_CONTEXT_TOKENS = 8,000`
 - `OLLAMA_NUM_CTX = 256,000` — Model context window
+- `MODEL_MAIN = "qwen3.5:cloud"`, `MODEL_UPDATE`, `MODEL_EMBED`, `MODEL_COMPRESS`
 
 ### Connected Content System
 
