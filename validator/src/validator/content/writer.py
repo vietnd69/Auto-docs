@@ -70,4 +70,9 @@ def rewrite_document(
         messages=[{"role": "user", "content": prompt}],
     )
     raw = response["message"]["content"]
-    return parse_writer_response(raw)
+    patches = parse_writer_response(raw)
+    if not patches:
+        print(f"  [content/writer] No patches parsed — raw response truncated: {raw[:120]!r}")
+    else:
+        print(f"  [content/writer] {len(patches)} patch(es) generated")
+    return patches

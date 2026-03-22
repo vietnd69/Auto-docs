@@ -1,6 +1,7 @@
 """Full pipeline: content loop -> format fix, per file."""
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from llm.tokens import count_tokens
@@ -11,6 +12,10 @@ from validator.format.checks import validate_all, ValidationError
 from validator.utils import resolve_lua_path
 
 
+def _never_stop() -> bool:
+    return False
+
+
 @dataclass
 class PipelineConfig:
     """Configuration for the full validation pipeline."""
@@ -19,6 +24,7 @@ class PipelineConfig:
     reviewer_model: str = "qwen3.5:cloud"
     skip_content: bool = False
     skip_format: bool = False
+    stop_check: Callable[[], bool] = field(default=_never_stop, repr=False)
 
 
 @dataclass
@@ -61,6 +67,7 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
                 max_iterations=config.content_max_iterations,
                 writer_model=config.writer_model,
                 reviewer_model=config.reviewer_model,
+                stop_check=config.stop_check,
             )
             content_result = run_content_loop(md_filepath, lua_filepath, content_config)
 

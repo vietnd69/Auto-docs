@@ -52,4 +52,7 @@ def review_document(
         messages=[{"role": "user", "content": prompt}],
     )
     raw = response["message"]["content"]
-    return parse_review_response(raw)
+    result = parse_review_response(raw)
+    if result.issues and result.issues[0].startswith("Failed to parse"):
+        print(f"  [content/reviewer] Parse error — raw response truncated: {raw[:120]!r}")
+    return result

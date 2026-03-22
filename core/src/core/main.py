@@ -211,7 +211,7 @@ def main():
         # Resolve actual generated file path from result (basename) + md_filepath's directory.
         generated_path = os.path.join(os.path.dirname(md_filepath), result)
 
-        if args.no_validate:
+        if args.no_validate or shutdown.stop_requested:
             stats["processed"] += 1
             continue
 
@@ -220,6 +220,7 @@ def main():
             file_result = process_file(generated_path, PipelineConfig(
                 writer_model=MODEL_NAME,
                 reviewer_model=MODEL_NAME,
+                stop_check=lambda: shutdown.stop_requested,
             ))
         except KeyboardInterrupt:
             # Do NOT re-raise — outer loop exits via shutdown.stop_requested.
