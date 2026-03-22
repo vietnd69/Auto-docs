@@ -3,7 +3,7 @@ import importlib
 
 
 def test_stub_full_threshold_exists():
-    from llm.tokens import STUB_FULL_THRESHOLD
+    from llm.settings import STUB_FULL_THRESHOLD
     assert isinstance(STUB_FULL_THRESHOLD, int)
     assert STUB_FULL_THRESHOLD == 400
 

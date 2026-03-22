@@ -1,8 +1,9 @@
 from llm.client import (
-    OLLAMA_HOST, OLLAMA_NUM_CTX,
+    OLLAMA_HOST,
     OLLAMA_API_KEYS, get_ollama_client,
     _is_rate_limit_error,
 )
+from llm.settings import OLLAMA_NUM_CTX
 import ollama
 
 def test_ollama_host_is_string():

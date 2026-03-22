@@ -10,7 +10,7 @@ load_dotenv(Path(__file__).parents[3] / ".env")
 
 # === OLLAMA CLOUD API ===
 OLLAMA_HOST = "https://ollama.com"
-OLLAMA_NUM_CTX = 256_000
+from llm.settings import OLLAMA_NUM_CTX
 
 OLLAMA_TIMEOUT = float(os.getenv("OLLAMA_TIMEOUT", "300"))      # seconds per attempt
 OLLAMA_TIMEOUT_RETRIES = int(os.getenv("OLLAMA_TIMEOUT_RETRIES", "2"))  # retries on timeout
@@ -119,4 +119,5 @@ def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
 
 
 # === COMPRESSION CONFIG ===
-COMPRESSION_MODEL = "qwen3.5:cloud"   # model dùng cho compression (có thể override)
+# Re-exported so rag/content.py can continue: from llm.client import COMPRESSION_MODEL
+from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL
