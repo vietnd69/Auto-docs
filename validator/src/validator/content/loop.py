@@ -83,6 +83,9 @@ def run_content_loop(
                 approved=False, iterations=i + 1, final_issues=review.issues,
             )
 
+        print(f"  [content] Sleeping {NORMAL_SLEEP}s before writing patches...")
+        time.sleep(NORMAL_SLEEP)
+
         print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches...")
         # LLM1 fix
         patches = rewrite_document(

@@ -144,6 +144,8 @@ uv run pytest watcher/tests/
 ### Key Token Thresholds
 
 All constants now in `llm/src/llm/settings.py` (loaded from `config.toml`, override with `MOD_DOC_*` env vars):
+- `DEBUG_PROMPTS = 0` — Set `MOD_DOC_DEBUG_PROMPTS=1` to dump full prompts/responses to `.cache/debug_prompts/`
+- **`_get()` gotcha**: NEVER use `bool` as default — `bool("false") == True`. Use `int` (0/1) instead.
 - `PROMPT_TOKEN_LIMIT = 16,000` — Triggers chunked doc generation pipeline
 - `MERGE_TOKEN_LIMIT = 20,000` — Triggers hierarchical merge (vs rolling)
 - `CONTEXT_RESERVE = 7,000` — Reserved for connected content stubs

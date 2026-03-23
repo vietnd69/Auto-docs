@@ -49,4 +49,4 @@ def test_import_update():
 def test_import_settings():
     from llm.settings import MDX_NODE_TIMEOUT, VALIDATOR_MAX_ITERATIONS
     assert MDX_NODE_TIMEOUT == 20
-    assert VALIDATOR_MAX_ITERATIONS == 10
+    assert VALIDATOR_MAX_ITERATIONS == 12

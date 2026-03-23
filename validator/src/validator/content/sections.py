@@ -222,12 +222,12 @@ def _extract_block(lines: list[str], def_idx: int) -> str:
     return "\n".join(block)
 
 
-def _truncate_blocks_to_lua_limit(blocks: list[str]) -> str:
-    """Return the longest prefix of blocks whose token count stays ≤ LUA_CONTEXT_TOKENS."""
+def _truncate_blocks_to_lua_limit(blocks: list[str], limit: int = LUA_CONTEXT_TOKENS) -> str:
+    """Return the longest prefix of blocks whose token count stays ≤ limit."""
     kept: list[str] = []
     for block in blocks:
         candidate = "\n".join(kept + [block])
-        if count_tokens(candidate) > LUA_CONTEXT_TOKENS:
+        if count_tokens(candidate) > limit:
             break
         kept.append(block)
     result = "\n".join(kept)
@@ -236,15 +236,20 @@ def _truncate_blocks_to_lua_limit(blocks: list[str]) -> str:
     return result
 
 
-def extract_lua_context(lua_source: str, fn_names: list[str]) -> str:
+def extract_lua_context(
+    lua_source: str,
+    fn_names: list[str],
+    max_tokens: int | None = None,
+) -> str:
     """Extract Lua function bodies for the given names from lua_source.
 
     Returns a single string (blocks joined by "\\n"), or "" if no names / no matches.
-    Truncates to 8K tokens if count_tokens is available (returns -1 → skip guard).
+    Truncates to max_tokens (default: LUA_CONTEXT_TOKENS from settings).
     """
     if not fn_names:
         return ""
 
+    limit = max_tokens if max_tokens is not None else LUA_CONTEXT_TOKENS
     lines = lua_source.splitlines(keepends=True)
     blocks: list[str] = []
 
@@ -266,7 +271,7 @@ def extract_lua_context(lua_source: str, fn_names: list[str]) -> str:
 
     # Token guard
     token_count = count_tokens(result)
-    if token_count != -1 and token_count > LUA_CONTEXT_TOKENS:
-        result = _truncate_blocks_to_lua_limit(blocks)
+    if token_count != -1 and token_count > limit:
+        result = _truncate_blocks_to_lua_limit(blocks, limit)
 
     return result

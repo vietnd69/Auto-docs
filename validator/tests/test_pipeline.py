@@ -8,7 +8,8 @@ from llm.settings import CHUNKED_TOKEN_THRESHOLD, MODEL_MAIN
 
 def test_pipeline_config_defaults():
     config = PipelineConfig()
-    assert config.content_max_iterations == 10
+    from llm.settings import VALIDATOR_MAX_ITERATIONS
+    assert config.content_max_iterations == VALIDATOR_MAX_ITERATIONS
     assert config.writer_model == MODEL_MAIN
     assert config.reviewer_model == MODEL_MAIN
     assert config.skip_content is False

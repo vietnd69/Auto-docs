@@ -2,12 +2,26 @@
 
 import json
 import re
+import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from llm.client import ollama_chat
+from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
 from validator.content.prompts import build_writer_prompt
 from validator.content.reviewer import ReviewResult
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_prompt(label: str, prompt: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time())
+    path = _DEBUG_DIR / f"{label}_{ts}.txt"
+    path.write_text(prompt, encoding="utf-8")
+    print(f"  [debug] Prompt dumped → {path}")
 
 
 @dataclass
@@ -67,11 +81,20 @@ def rewrite_document(
         review_feedback.issues, review_feedback.suggestions,
     )
     print(f"  [content/writer] Prompt: {count_tokens(prompt):,} tokens")
-    response = ollama_chat(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    raw = response["message"]["content"]
+    if DEBUG_PROMPTS:
+        _dump_prompt("writer", prompt)
+    raw = ""
+    for attempt in range(BAD_RESPONSE_RETRIES + 1):
+        response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
+        raw = response["message"]["content"]
+        if raw.strip():
+            break
+        remaining = BAD_RESPONSE_RETRIES - attempt
+        if remaining > 0:
+            print(f"  [content/writer] Empty response → retrying ({remaining} left)")
+        else:
+            print(f"  [content/writer] Empty response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
+
     patches = parse_writer_response(raw)
     if not patches:
         print(f"  [content/writer] No patches parsed — raw response truncated: {raw[:120]!r}")

@@ -20,12 +20,21 @@ chunked_validate = 16000   # Lua tokens ≥ threshold → per-section validation
 ollama_ctx       = 256000  # Ollama context window size
 
 [timing]
-chunk_sleep  = 10   # Giây chờ giữa các chunk LLM call
-merge_sleep  = 40   # Giây chờ sau merge
-normal_sleep = 20   # Giây chờ trong standard pipeline
+chunk_sleep      = 10    # Giây chờ giữa các chunk LLM call
+merge_sleep      = 40    # Giây chờ sau merge
+normal_sleep     = 20    # Giây chờ trong standard pipeline
+ollama_timeout   = 300.0 # Timeout (giây) cho một Ollama request
+timeout_retries  = 2     # Số lần retry khi timeout
 
 [validator]
-max_iterations      = 10    # PipelineConfig default (CLI entry point)
-loop_max_iterations = 5     # ContentLoopConfig default (standalone)
-mdx_timeout         = 20    # Timeout (giây) cho Node.js MDX validation
-lua_context_tokens  = 8000  # Token guard cho Lua context extract per section
+max_iterations           = 10    # PipelineConfig default (CLI entry point)
+loop_max_iterations      = 5     # ContentLoopConfig default (standalone)
+mdx_timeout              = 20    # Timeout (giây) cho Node.js MDX validation
+lua_context_tokens       = 8000  # Token guard cho Lua context extract per section
+section_token_threshold  = 4000  # Section tokens > threshold → sub-chunk by ### boundaries
+batch_token_limit        = 2000  # Max tokens per ### batch trong sub-chunked validation
+section_lua_context_tokens = 3500  # Token guard cho Lua context trong section/batch reviewer
+call_sleep               = 10     # Giây chờ giữa các LLM call trong chunked validation
+
+[debug]
+prompts = 0   # Set 1 để dump full prompts/responses vào .cache/debug_prompts/

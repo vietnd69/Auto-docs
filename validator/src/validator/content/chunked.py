@@ -1,9 +1,19 @@
 """Section-by-section content validation for large Lua files (≥32K tokens)."""
 
 import re
+import time
 from pathlib import Path
+from typing import Callable
 
 _DATA_CONFIG_DIRS = {"map", "languages", "util"}
+
+
+def _sleep(stop_check: Callable[[], bool], seconds: int) -> None:
+    """Sleep in 1-second increments, stopping early if stop is requested."""
+    for _ in range(seconds):
+        if stop_check():
+            break
+        time.sleep(1)
 
 
 def _detect_file_type(lua_filepath: str) -> str:
@@ -19,8 +29,19 @@ def _detect_file_type(lua_filepath: str) -> str:
     return "component"
 
 from llm.client import ollama_chat
-from llm.settings import BATCH_TOKEN_LIMIT, SECTION_TOKEN_THRESHOLD
+from llm.paths import PROJECT_ROOT
+from llm.settings import BAD_RESPONSE_RETRIES, BATCH_TOKEN_LIMIT, DEBUG_PROMPTS, SECTION_LUA_CONTEXT_TOKENS, SECTION_TOKEN_THRESHOLD, VALIDATOR_CALL_SLEEP
 from llm.tokens import count_tokens
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_prompt(label: str, text: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    ts = int(time.time())
+    path = _DEBUG_DIR / f"{label}_{ts}.txt"
+    path.write_text(text, encoding="utf-8")
+    print(f"  [debug] Prompt dumped → {path}")
 from rag.docs import safe_read_lua
 from validator.content.loop import ContentLoopConfig, ContentLoopResult
 from validator.content.prompts import (
@@ -42,6 +63,13 @@ from validator.content.sections import (
 from validator.content.writer import Patch, apply_patches, parse_writer_response
 
 
+def _is_bad_review(raw: str, result: ReviewResult) -> bool:
+    """True if reviewer returned empty or unparseable response."""
+    if not raw.strip():
+        return True
+    return bool(result.issues and result.issues[0].startswith("Failed to parse"))
+
+
 def review_section(
     section_text: str,
     lua_context: str,
@@ -49,16 +77,29 @@ def review_section(
     section_heading: str = "",
     file_type: str = "component",
 ) -> ReviewResult:
-    """Send one markdown section to the reviewer LLM."""
+    """Send one markdown section to the reviewer LLM. Retries on bad/empty response."""
     prompt = build_section_reviewer_prompt(
         section_text, lua_context, section_heading, file_type
     )
     print(f"  [content/chunked] Reviewer prompt: {count_tokens(prompt):,} tokens")
-    print(f"  [DEBUG] ── Reviewer prompt ──\n{prompt}\n  [DEBUG] ── end ──")
-    response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
-    raw = response["message"]["content"]
-    print(f"  [DEBUG] ── Reviewer response ──\n{raw}\n  [DEBUG] ── end ──")
-    return parse_review_response(raw)
+    if DEBUG_PROMPTS:
+        _dump_prompt("chunked_reviewer", prompt)
+
+    result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
+    for attempt in range(BAD_RESPONSE_RETRIES + 1):
+        response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
+        raw = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_prompt("chunked_reviewer_response", raw)
+        result = parse_review_response(raw)
+        if not _is_bad_review(raw, result):
+            return result
+        remaining = BAD_RESPONSE_RETRIES - attempt
+        if remaining > 0:
+            print(f"  [content/chunked] Bad reviewer response → retrying ({remaining} left)")
+        else:
+            print(f"  [content/chunked] Bad reviewer response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
+    return result
 
 
 def write_section_patches(
@@ -69,16 +110,29 @@ def write_section_patches(
     section_heading: str = "",
     file_type: str = "component",
 ) -> list[Patch]:
-    """Ask the writer LLM to patch one section based on review feedback."""
+    """Ask the writer LLM to patch one section based on review feedback. Retries on empty response."""
     prompt = build_section_writer_prompt(
         section_text, lua_context, review.issues, review.suggestions,
         section_heading, file_type
     )
     print(f"  [content/chunked] Writer prompt: {count_tokens(prompt):,} tokens")
-    print(f"  [DEBUG] ── Writer prompt ──\n{prompt}\n  [DEBUG] ── end ──")
-    response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
-    raw = response["message"]["content"]
-    print(f"  [DEBUG] ── Writer response ──\n{raw}\n  [DEBUG] ── end ──")
+    if DEBUG_PROMPTS:
+        _dump_prompt("chunked_writer", prompt)
+
+    raw = ""
+    for attempt in range(BAD_RESPONSE_RETRIES + 1):
+        response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
+        raw = response["message"]["content"]
+        if raw.strip():
+            break
+        remaining = BAD_RESPONSE_RETRIES - attempt
+        if remaining > 0:
+            print(f"  [content/chunked] Empty writer response → retrying ({remaining} left)")
+        else:
+            print(f"  [content/chunked] Empty writer response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
+
+    if DEBUG_PROMPTS:
+        _dump_prompt("chunked_writer_response", raw)
     patches = parse_writer_response(raw)
     if not patches:
         print("  [content/chunked] Writer returned no patches")
@@ -144,7 +198,8 @@ def run_chunked_content_loop(
                 batch_size = len(batch)
                 batch_text = "".join(batch)
                 lua_ctx = extract_lua_context(
-                    lua_source, extract_function_names(batch_text)
+                    lua_source, extract_function_names(batch_text),
+                    max_tokens=SECTION_LUA_CONTEXT_TOKENS,
                 )
 
                 print(
@@ -172,6 +227,7 @@ def run_chunked_content_loop(
                         batch_text, lua_ctx, config.reviewer_model,
                         section.heading, file_type
                     )
+                    _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                     if batch_last_review.approved:
                         batch_approved = True
                         print(
@@ -184,6 +240,7 @@ def run_chunked_content_loop(
                         batch_text, lua_ctx, batch_last_review, config.writer_model,
                         section.heading, file_type
                     )
+                    _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                     if not patches:
                         print(
                             f"  [content/chunked] Section {idx} batch {batch_idx} — "
@@ -203,6 +260,7 @@ def run_chunked_content_loop(
                         batch_text, lua_ctx, config.reviewer_model,
                         section.heading, file_type
                     )
+                    _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                     batch_approved = batch_last_review.approved
 
                 if not batch_approved and batch_last_review is not None:
@@ -241,7 +299,9 @@ def run_chunked_content_loop(
                     "cannot sub-chunk, proceeding as single unit"
                 )
             fn_names = extract_function_names(section.text)
-            lua_ctx = extract_lua_context(lua_source, fn_names)
+            lua_ctx = extract_lua_context(
+                lua_source, fn_names, max_tokens=SECTION_LUA_CONTEXT_TOKENS
+            )
             fn_desc = f"{len(fn_names)} fn(s)" if fn_names else "0 fn(s) — structure only"
             print(
                 f"  [content/chunked] Section {idx}/{len(sections)} "
@@ -275,6 +335,7 @@ def run_chunked_content_loop(
                     section.text, lua_ctx, config.reviewer_model,
                     section.heading, file_type
                 )
+                _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
 
                 if last_review.approved:
                     section_approved = True
@@ -288,6 +349,7 @@ def run_chunked_content_loop(
                     section.text, lua_ctx, last_review, config.writer_model,
                     section.heading, file_type
                 )
+                _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                 if not patches:
                     print(
                         f"  [content/chunked] Section {idx}/{len(sections)} — "
@@ -314,6 +376,7 @@ def run_chunked_content_loop(
                     section.text, lua_ctx, config.reviewer_model,
                     section.heading, file_type
                 )
+                _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                 section_approved = last_review.approved
 
             if not section_approved and last_review is not None:

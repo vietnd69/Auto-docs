@@ -116,10 +116,10 @@ def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
                     break  # exit inner loop → outer loop retries
                 elif _is_retryable_error(e):
                     status = e.status_code  # type: ignore[attr-defined]
-                    remaining = OLLAMA_TIMEOUT_RETRIES - timeout_attempt
-                    print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → retry ({remaining} còn lại)")
+                    remaining = n - attempt - 1
+                    print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → switch account ({remaining} còn lại)")
                     errors.append(f"Account {idx + 1}: {status}")
-                    break  # exit inner loop → outer loop retries
+                    continue  # thử account tiếp theo ngay, không retry cùng account
                 else:
                     raise
         else:

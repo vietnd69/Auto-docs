@@ -20,3 +20,11 @@ inject_into: [single_prompt]
 ## few_shot_data
 file: few_shot_data.md
 inject_into: [single_prompt, merge_prompt]
+
+## validator_reviewer
+file: validator_reviewer.md
+inject_into: [section_reviewer]
+
+## validator_writer
+file: validator_writer.md
+inject_into: [section_writer]

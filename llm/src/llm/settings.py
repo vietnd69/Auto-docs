@@ -55,5 +55,12 @@ VALIDATOR_MAX_ITERATIONS: int      = _get("validator", "max_iterations",      10
 VALIDATOR_LOOP_MAX_ITERATIONS: int = _get("validator", "loop_max_iterations", 5)
 MDX_NODE_TIMEOUT: int              = _get("validator", "mdx_timeout",         20)
 LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  8000)
-SECTION_TOKEN_THRESHOLD: int = _get("validator", "section_token_threshold", 4000)
-BATCH_TOKEN_LIMIT: int       = _get("validator", "batch_token_limit",       3000)
+SECTION_TOKEN_THRESHOLD: int      = _get("validator", "section_token_threshold",    4000)
+BATCH_TOKEN_LIMIT: int            = _get("validator", "batch_token_limit",           2000)
+SECTION_LUA_CONTEXT_TOKENS: int   = _get("validator", "section_lua_context_tokens",  3500)
+VALIDATOR_CALL_SLEEP: int         = _get("validator", "call_sleep",                    3)
+BAD_RESPONSE_RETRIES: int         = _get("validator", "bad_response_retries",           3)
+
+# === Debug ===
+# Set MOD_DOC_DEBUG_PROMPTS=1 (or debug.prompts=1 in config.toml) to dump full prompts to .cache/debug_prompts/
+DEBUG_PROMPTS: int = _get("debug", "prompts", 0)
