@@ -72,21 +72,43 @@ def _is_retryable_error(error: Exception) -> bool:
     return False
 
 
-def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
+def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
+                temperature: float | None = None,
+                format: dict | str | None = None,
+                **kwargs) -> dict:
     """
     Wrapper gọi ollama chat với tự động failover khi bị rate limit,
     và retry khi timeout.
+
+    Args:
+        model: Tên model Ollama.
+        messages: Danh sách message theo định dạng chat.
+        think: Bật/tắt extended thinking (mặc định True).
+        temperature: Nhiệt độ sampling; None = dùng default của model.
+        format: JSON schema hoặc "json" để ép Ollama trả về JSON.
+        **kwargs: Tham số thêm truyền thẳng vào client.chat().
     """
     global _account_counter
     if not OLLAMA_API_KEYS:
         client = ollama.Client()
-        return client.chat(model=model, messages=messages, think=True, stream=False, **kwargs)
+        chat_kwargs: dict = dict(model=model, messages=messages, think=think, stream=False)
+        if format is not None:
+            chat_kwargs["format"] = format
+        if temperature is not None:
+            chat_kwargs["options"] = {"temperature": temperature}
+        return client.chat(**chat_kwargs, **kwargs)
 
     opts = kwargs.pop("options", {}) or {}
     opts["num_ctx"] = OLLAMA_NUM_CTX
+    if temperature is not None:
+        opts["temperature"] = temperature
     # opts["mirostat"] = 2
     # opts["mirostat_tau"] = 5.0
     # opts["mirostat_eta"] = 0.1
+
+    chat_extra: dict = {}
+    if format is not None:
+        chat_extra["format"] = format
 
     n = len(OLLAMA_API_KEYS)
     errors: list[str] = []
@@ -101,7 +123,7 @@ def ollama_chat(model: str, messages: list[dict], **kwargs) -> dict:
                 continue
             try:
                 client = _make_client(idx)
-                response = client.chat(model=model, messages=messages, options=opts, think=True, stream=False, **kwargs)
+                response = client.chat(model=model, messages=messages, options=opts, think=think, stream=False, **chat_extra, **kwargs)
                 _account_counter = idx + 1
                 return response
             except Exception as e:
