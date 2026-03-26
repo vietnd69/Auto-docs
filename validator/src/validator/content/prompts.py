@@ -138,18 +138,11 @@ def build_section_reviewer_prompt(
     lua_context: str,
     section_heading: str = "",
     file_type: str = "component",
-) -> str:
-    """Prompt for reviewing one markdown section against its focused Lua context."""
-    if lua_context:
-        lua_block = f"```lua\n{lua_context}\n```"
-        lua_instruction = "Review the section against the Lua functions below."
-    else:
-        lua_block = "(none — no Lua functions referenced in this section)"
-        lua_instruction = (
-            "No Lua context available — review structural accuracy "
-            "and internal consistency only."
-        )
+) -> tuple[str, str]:
+    """Prompt for reviewing one markdown section against its focused Lua context.
 
+    Returns (system_prompt, user_content) for multi-turn conversation.
+    """
     section_ctx = _section_context(section_heading)
     is_main_fns = section_heading == "## Main functions"
     fn_format_block = (
@@ -162,8 +155,7 @@ def build_section_reviewer_prompt(
         else "data config — returns a plain table/array, no Class() constructor"
     )
 
-    return f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API docs.
-{lua_instruction}
+    system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API docs.
 
 === TARGET ===
 File type: {file_type} ({file_desc})
@@ -175,26 +167,29 @@ Section:   {section_heading or "(preamble)"}
 === QUALITY RULES ===
 {_QUALITY_RULES}
 {fn_format_block}
-=== CONTEXT ===
+=== RESPONSE FORMAT ===
+Respond in JSON only with keys "approved" (boolean) and "findings" (array of objects with "issue" and "suggestion").
+approved=true with empty findings if accurate. approved=false with paired issue+suggestion for each problem."""
 
-1. LUA CONTEXT (ground truth)
+    if lua_context:
+        lua_block = f"```lua\n{lua_context}\n```"
+        lua_instruction = "Review the section against the Lua functions below."
+    else:
+        lua_block = "(none — no Lua functions referenced in this section)"
+        lua_instruction = (
+            "No Lua context available — review structural accuracy "
+            "and internal consistency only."
+        )
+
+    user_content = f"""{lua_instruction}
+
+=== LUA CONTEXT (ground truth) ===
 {lua_block}
 
-2. SECTION TO REVIEW
-{section_text}
+=== SECTION TO REVIEW ===
+{section_text}"""
 
-=== RESPONSE FORMAT ===
-Respond in JSON only:
-```json
-{{
-    "approved": true/false,
-    "findings": [
-        {{"issue": "specific problem found", "suggestion": "specific fix suggestion"}}
-    ]
-}}
-```
-
-approved=true with empty findings if accurate. approved=false with paired issue+suggestion for each problem."""
+    return system_prompt, user_content
 
 
 def build_section_writer_prompt(

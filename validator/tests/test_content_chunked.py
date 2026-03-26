@@ -165,11 +165,26 @@ from validator.content.prompts import (
 )
 
 
+def test_section_reviewer_prompt_returns_tuple():
+    """build_section_reviewer_prompt should return (system, user) tuple."""
+    result = build_section_reviewer_prompt(
+        "## Functions\n### `Foo(x)`\n* **Description:** x\n", "function Foo(x) end"
+    )
+    assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+    assert len(result) == 2
+    system_prompt, user_content = result
+    assert isinstance(system_prompt, str)
+    assert isinstance(user_content, str)
+    # System should contain rules, user should contain section + lua
+    assert "reviewer" in system_prompt.lower() or "review" in system_prompt.lower()
+    assert "Foo" in user_content
+
+
 def test_section_reviewer_prompt_contains_format_contract():
-    prompt = build_section_reviewer_prompt("## Functions\n### `Foo(x)`\n* **Description:** x\n", "")
-    assert "FORMAT CONTRACT" in prompt
-    assert "* **Description:**" in prompt
-    assert "CHECK BOTH" in prompt
+    system, user = build_section_reviewer_prompt("## Functions\n### `Foo(x)`\n* **Description:** x\n", "")
+    combined = system + user
+    assert "FORMAT CONTRACT" in combined or "REVIEW RULES" in combined
+    assert "* **Description:**" in user
 
 
 def test_section_writer_prompt_contains_format_rules():

@@ -78,16 +78,22 @@ def review_section(
     file_type: str = "component",
 ) -> ReviewResult:
     """Send one markdown section to the reviewer LLM. Retries on bad/empty response."""
-    prompt = build_section_reviewer_prompt(
+    system_prompt, user_content = build_section_reviewer_prompt(
         section_text, lua_context, section_heading, file_type
     )
-    print(f"  [content/chunked] Reviewer prompt: {count_tokens(prompt):,} tokens")
+    prompt_text = system_prompt + "\n" + user_content  # for token counting/debug
+    print(f"  [content/chunked] Reviewer prompt: {count_tokens(prompt_text):,} tokens")
     if DEBUG_PROMPTS:
-        _dump_prompt("chunked_reviewer", prompt)
+        _dump_prompt("chunked_reviewer", prompt_text)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
 
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
+        response = ollama_chat(model=model, messages=messages)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("chunked_reviewer_response", raw)
