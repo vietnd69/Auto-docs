@@ -66,3 +66,39 @@ def test_graceful_fallback_without_config_toml(tmp_path, monkeypatch):
     assert s.PROMPT_TOKEN_LIMIT == 16000
     assert s.MODEL_MAIN == "qwen3.5:cloud"
     importlib.reload(s)  # restore module state to match restored _CONFIG_PATH
+
+
+def test_validator_reviewer_temperature():
+    from llm.settings import REVIEWER_TEMPERATURE
+    assert isinstance(REVIEWER_TEMPERATURE, float)
+    assert 0.0 <= REVIEWER_TEMPERATURE <= 2.0
+
+
+def test_validator_writer_temperature():
+    from llm.settings import WRITER_TEMPERATURE
+    assert isinstance(WRITER_TEMPERATURE, float)
+    assert 0.0 <= WRITER_TEMPERATURE <= 2.0
+
+
+def test_validator_writer_think():
+    from llm.settings import WRITER_THINK
+    assert isinstance(WRITER_THINK, int)
+    assert WRITER_THINK in (0, 1)
+
+
+def test_validator_max_conversation_turns():
+    from llm.settings import MAX_CONVERSATION_TURNS
+    assert isinstance(MAX_CONVERSATION_TURNS, int)
+    assert MAX_CONVERSATION_TURNS >= 2
+
+
+def test_validator_conversation_token_budget():
+    from llm.settings import CONVERSATION_TOKEN_BUDGET
+    assert isinstance(CONVERSATION_TOKEN_BUDGET, int)
+    assert CONVERSATION_TOKEN_BUDGET >= 500
+
+
+def test_validator_oscillation_threshold():
+    from llm.settings import OSCILLATION_THRESHOLD
+    assert isinstance(OSCILLATION_THRESHOLD, int)
+    assert 0 <= OSCILLATION_THRESHOLD <= 100
