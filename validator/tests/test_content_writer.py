@@ -91,3 +91,30 @@ def test_parse_writer_response_empty_old_text_skipped():
     patches = parse_writer_response(raw)
     assert len(patches) == 1
     assert patches[0].old_text == "valid"
+
+
+def test_parse_writer_json_valid():
+    from validator.content.writer import parse_writer_json
+    data = [
+        {"old_text": "foo", "new_text": "bar", "reason": "fix"},
+    ]
+    patches = parse_writer_json(data)
+    assert len(patches) == 1
+    assert patches[0].old_text == "foo"
+
+
+def test_parse_writer_json_empty():
+    from validator.content.writer import parse_writer_json
+    patches = parse_writer_json([])
+    assert patches == []
+
+
+def test_parse_writer_json_skips_empty_old_text():
+    from validator.content.writer import parse_writer_json
+    data = [
+        {"old_text": "", "new_text": "bar", "reason": "empty"},
+        {"old_text": "valid", "new_text": "ok", "reason": "good"},
+    ]
+    patches = parse_writer_json(data)
+    assert len(patches) == 1
+    assert patches[0].old_text == "valid"

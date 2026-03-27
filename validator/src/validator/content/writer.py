@@ -68,6 +68,21 @@ def parse_writer_response(raw: str) -> list[Patch]:
         return []
 
 
+def parse_writer_json(data: list) -> list[Patch]:
+    """Parse pre-validated JSON list (from Ollama format parameter) into Patch list."""
+    if not isinstance(data, list):
+        return []
+    return [
+        Patch(
+            old_text=str(item.get("old_text", "")),
+            new_text=str(item.get("new_text", "")),
+            reason=str(item.get("reason", "")),
+        )
+        for item in data
+        if isinstance(item, dict) and item.get("old_text")
+    ]
+
+
 def rewrite_document(
     md_content: str,
     lua_source: str,

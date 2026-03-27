@@ -60,6 +60,15 @@ def parse_review_response(raw: str) -> ReviewResult:
         )
 
 
+def parse_review_json(data: dict) -> ReviewResult:
+    """Parse pre-validated JSON dict (from Ollama format parameter) into ReviewResult."""
+    approved = bool(data.get("approved", False))
+    findings = data.get("findings") or []
+    issues = [str(f.get("issue", "")) for f in findings if isinstance(f, dict)]
+    suggestions = [str(f.get("suggestion", "")) for f in findings if isinstance(f, dict)]
+    return ReviewResult(approved=approved, issues=issues, suggestions=suggestions)
+
+
 def review_document(
     md_content: str,
     lua_source: str,

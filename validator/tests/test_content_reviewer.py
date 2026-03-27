@@ -55,3 +55,35 @@ def test_parse_review_response_invalid_json():
     result = parse_review_response(raw)
     assert result.approved is False
     assert len(result.issues) >= 1  # Should contain parse error info
+
+
+def test_parse_review_json_approved():
+    from validator.content.reviewer import parse_review_json
+    data = {"approved": True, "findings": []}
+    result = parse_review_json(data)
+    assert result.approved is True
+    assert result.issues == []
+
+
+def test_parse_review_json_with_findings():
+    from validator.content.reviewer import parse_review_json
+    data = {
+        "approved": False,
+        "findings": [
+            {"issue": "Wrong param", "suggestion": "Fix it"},
+            {"issue": "Missing return", "suggestion": "Add return docs"},
+        ],
+    }
+    result = parse_review_json(data)
+    assert result.approved is False
+    assert len(result.issues) == 2
+    assert result.issues[0] == "Wrong param"
+    assert result.suggestions[1] == "Add return docs"
+
+
+def test_parse_review_json_empty_findings():
+    from validator.content.reviewer import parse_review_json
+    data = {"approved": False, "findings": []}
+    result = parse_review_json(data)
+    assert result.approved is False
+    assert result.issues == []
