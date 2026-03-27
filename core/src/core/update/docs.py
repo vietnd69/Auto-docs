@@ -149,6 +149,16 @@ def main():
     if args.filter:
         changes = [c for c in changes if c["action"] == args.filter]
 
+    # Lọc chỉ giữ file .lua
+    def _is_lua(c):
+        p = c.get("path") or c.get("new_path") or c.get("old_path") or ""
+        return p.endswith(".lua")
+
+    non_lua = [c for c in changes if not _is_lua(c)]
+    if non_lua:
+        print(f"[update_docs] Bỏ qua {len(non_lua)} file không phải .lua")
+    changes = [c for c in changes if _is_lua(c)]
+
     # Ưu tiên: MOVED(false) -> MOVED(true) -> ADDED -> MODIFIED -> DELETED
     def sort_key(c):
         priority = {"moved": 1 if not c.get("content_changed", False) else 2, "added": 3, "modified": 4, "deleted": 5}

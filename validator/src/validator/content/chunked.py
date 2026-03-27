@@ -50,16 +50,23 @@ def _compact_messages(messages: list[dict], max_turns: int, token_budget: int) -
     return system_msgs + non_system[-2:]
 
 
-def _detect_file_type(lua_filepath: str) -> str:
-    """Returns 'component' or 'data_config' based on path relative to dst-scripts/."""
+def _detect_file_type(lua_filepath: str, lua_source: str = "") -> str:
+    """Returns 'component', 'data_config', or 'utility' based on path and source content.
+
+    Utility modules are files that define standalone functions (no Class() constructor),
+    accessed via require() rather than inst.components.X.
+    """
     parts = Path(lua_filepath).parts
     try:
         dst_idx = next(i for i, p in enumerate(parts) if p == "dst-scripts")
         rel = parts[dst_idx + 1:]
     except StopIteration:
         rel = parts
-    if len(rel) <= 1 or rel[0].lower() in _DATA_CONFIG_DIRS:
+    if rel and rel[0].lower() in _DATA_CONFIG_DIRS:
         return "data_config"
+    # Utility module: no Class() constructor in source
+    if lua_source and not re.search(r'\bClass\s*\(', lua_source):
+        return "utility"
     return "component"
 
 from llm.client import ollama_chat
@@ -180,6 +187,7 @@ def write_section_patches(
     file_type: str = "component",
     *,
     messages: list[dict] | None = None,
+    ambiguous_patches: list[Patch] | None = None,
 ) -> tuple[list[Patch], list[dict]]:
     """Ask the writer LLM to patch one section based on review feedback.
 
@@ -203,7 +211,18 @@ def write_section_patches(
             if suggestion:
                 feedback_lines.append(f"   Suggestion: {suggestion}")
         feedback = "\n".join(feedback_lines)
-        follow_up = f"Updated section:\n{section_text}\n\nNew feedback:\n{feedback}"
+        ambiguous_note = ""
+        if ambiguous_patches:
+            lines = "\n".join(
+                f"  - old_text={p.old_text!r}" for p in ambiguous_patches
+            )
+            ambiguous_note = (
+                f"\n\nNOTE — Patches that FAILED (old_text matched multiple times, skipped):\n"
+                f"{lines}\n"
+                "Re-generate these with old_text expanded to include the "
+                "### function heading above the repeated line."
+            )
+        follow_up = f"Updated section:\n{section_text}\n\nNew feedback:\n{feedback}{ambiguous_note}"
         messages.append({"role": "user", "content": follow_up})
         messages = _compact_messages(messages, MAX_CONVERSATION_TURNS, CONVERSATION_TOKEN_BUDGET)
 
@@ -258,7 +277,7 @@ def run_chunked_content_loop(
     """
     md_content = Path(md_filepath).read_text(encoding="utf-8")
     lua_source = safe_read_lua(lua_filepath)
-    file_type = _detect_file_type(lua_filepath)
+    file_type = _detect_file_type(lua_filepath, lua_source)
     if lua_source is None:
         return ContentLoopResult(
             approved=False,
@@ -317,6 +336,7 @@ def run_chunked_content_loop(
                 reviewer_msgs: list[dict] | None = None
                 writer_msgs: list[dict] | None = None
                 prev_fingerprint: set[str] = set()
+                last_ambiguous: list[Patch] | None = None
 
                 for i in range(config.max_iterations):
                     if config.stop_check():
@@ -361,7 +381,9 @@ def run_chunked_content_loop(
                         batch_text, lua_ctx, batch_last_review, config.writer_model,
                         section.heading, file_type,
                         messages=writer_msgs,
+                        ambiguous_patches=last_ambiguous,
                     )
+                    last_ambiguous = None
                     _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                     if not patches:
                         print(
@@ -369,7 +391,8 @@ def run_chunked_content_loop(
                             "writer gave up, batch stays failed"
                         )
                         break
-                    batch_text, failed = apply_patches(batch_text, patches)
+                    batch_text, failed, ambiguous = apply_patches(batch_text, patches)
+                    last_ambiguous = ambiguous if ambiguous else None
                     applied = len(patches) - failed
                     print(
                         f"  [content/chunked] Section {idx} batch {batch_idx} — "
@@ -443,6 +466,7 @@ def run_chunked_content_loop(
             reviewer_msgs: list[dict] | None = None
             writer_msgs: list[dict] | None = None
             prev_fingerprint: set[str] = set()
+            last_ambiguous: list[Patch] | None = None
 
             for i in range(config.max_iterations):
                 if config.stop_check():
@@ -488,7 +512,9 @@ def run_chunked_content_loop(
                     section.text, lua_ctx, last_review, config.writer_model,
                     section.heading, file_type,
                     messages=writer_msgs,
+                    ambiguous_patches=last_ambiguous,
                 )
+                last_ambiguous = None
                 _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                 if not patches:
                     print(
@@ -497,7 +523,8 @@ def run_chunked_content_loop(
                     )
                     break
 
-                section.text, failed = apply_patches(section.text, patches)
+                section.text, failed, ambiguous = apply_patches(section.text, patches)
+                last_ambiguous = ambiguous if ambiguous else None
                 applied = len(patches) - failed
                 print(
                     f"  [content/chunked] Section {idx}/{len(sections)} — "

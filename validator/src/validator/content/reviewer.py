@@ -83,9 +83,14 @@ def review_document(
     lua_source: str,
     connected_content: str,
     model: str,
+    previous_review: "ReviewResult | None" = None,
 ) -> ReviewResult:
     """Send document to LLM2 for review. Returns structured ReviewResult."""
-    prompt = build_reviewer_prompt(md_content, lua_source, connected_content)
+    prompt = build_reviewer_prompt(
+        md_content, lua_source, connected_content,
+        previous_issues=previous_review.issues if previous_review else None,
+        previous_suggestions=previous_review.suggestions if previous_review else None,
+    )
     print(f"  [content/reviewer] Prompt: {count_tokens(prompt):,} tokens")
     if DEBUG_PROMPTS:
         _dump_prompt("reviewer", prompt)

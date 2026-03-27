@@ -32,15 +32,21 @@ class Patch:
     reason: str
 
 
-def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int]:
-    """Apply patches to content via str.replace(). Returns (new_content, failed_count)."""
+def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["Patch"]]:
+    """Apply patches to content via str.replace(). Returns (new_content, failed_count, ambiguous_patches)."""
     failed = 0
+    ambiguous: list[Patch] = []
     for patch in patches:
-        if patch.old_text in content:
-            content = content.replace(patch.old_text, patch.new_text, 1)
-        else:
+        count = content.count(patch.old_text)
+        if count == 0:
             failed += 1
-    return content, failed
+        elif count > 1:
+            print(f"  [content/writer] Ambiguous patch skipped (old_text appears {count}x): {patch.old_text[:80]!r}")
+            failed += 1
+            ambiguous.append(patch)
+        else:
+            content = content.replace(patch.old_text, patch.new_text, 1)
+    return content, failed, ambiguous
 
 
 def parse_writer_response(raw: str) -> list[Patch]:

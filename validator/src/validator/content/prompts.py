@@ -37,9 +37,24 @@ def build_reviewer_prompt(
     md_content: str,
     lua_source: str,
     connected_content: str,
+    previous_issues: list[str] | None = None,
+    previous_suggestions: list[str] | None = None,
 ) -> str:
     """Build prompt for LLM2 (reviewer) to review documentation accuracy."""
     connected_block = connected_content if connected_content else "(none)"
+
+    if previous_issues:
+        prev_lines = []
+        for i, issue in enumerate(previous_issues, 1):
+            suggestion = previous_suggestions[i - 1] if previous_suggestions and i - 1 < len(previous_suggestions) else ""
+            prev_lines.append(f"{i}. Issue: {issue}")
+            if suggestion:
+                prev_lines.append(f"   Was fixed with: {suggestion}")
+        prev_block = "\n".join(prev_lines)
+        previous_section = f"\n=== PREVIOUS ITERATION ISSUES (now patched — verify if resolved) ===\n{prev_block}\n"
+    else:
+        previous_section = ""
+
     return f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API documentation.
 Your task: verify the documentation is accurate and complete against the Lua source.
 
@@ -52,7 +67,7 @@ Your task: verify the documentation is accurate and complete against the Lua sou
 
 2. CONNECTED CONTENT (referenced files)
 {connected_block}
-
+{previous_section}
 3. DOCUMENTATION TO REVIEW
 {md_content}
 
@@ -149,27 +164,15 @@ def build_section_reviewer_prompt(
         f"\n=== FUNCTION FORMAT REFERENCE ===\n{_FN_FORMAT}\n"
     ) if is_main_fns else ""
 
-    file_desc = (
-        "component with Class() constructor and self.inst"
-        if file_type == "component"
-        else "data config — returns a plain table/array, no Class() constructor"
-    )
-
-    system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API docs.
-
-=== TARGET ===
-File type: {file_type} ({file_desc})
-Section:   {section_heading or "(preamble)"}
-
-=== REVIEW RULES ===
-{section_ctx}{_REVIEWER_SKILL}
-
-=== QUALITY RULES ===
-{_QUALITY_RULES}
-{fn_format_block}
-=== RESPONSE FORMAT ===
-Respond in JSON only with keys "approved" (boolean) and "findings" (array of objects with "issue" and "suggestion").
-approved=true with empty findings if accurate. approved=false with paired issue+suggestion for each problem."""
+    _FILE_DESC = {
+        "component": "component with Class() constructor and self.inst",
+        "data_config": "data config — returns a plain table/array, no Class() constructor",
+        "utility": (
+            "utility module — standalone functions accessed via require('modulename'), "
+            "NOT via inst.components.X"
+        ),
+    }
+    file_desc = _FILE_DESC.get(file_type, _FILE_DESC["component"])
 
     if lua_context:
         lua_block = f"```lua\n{lua_context}\n```"
@@ -181,12 +184,36 @@ approved=true with empty findings if accurate. approved=false with paired issue+
             "and internal consistency only."
         )
 
-    user_content = f"""{lua_instruction}
+    batch_scope_note = (
+        "\n=== SCOPE NOTE ===\n"
+        f"You are reviewing a BATCH of ### function entries from within '{section_heading}' — "
+        "NOT the full document. Do NOT flag missing sections (## Overview, ## Usage example, "
+        "## Dependencies & tags, ## Properties, etc.) — they exist elsewhere in the document "
+        "and are out of scope for this review.\n"
+        if is_main_fns else ""
+    )
+
+    system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API docs.
+
+=== TARGET ===
+File type: {file_type} ({file_desc})
+Section:   {section_heading or "(preamble)"}
 
 === LUA CONTEXT (ground truth) ===
+{lua_instruction}
 {lua_block}
+{batch_scope_note}
+=== REVIEW RULES ===
+{section_ctx}{_REVIEWER_SKILL}
 
-=== SECTION TO REVIEW ===
+=== QUALITY RULES ===
+{_QUALITY_RULES}
+{fn_format_block}
+=== RESPONSE FORMAT ===
+Respond in JSON only with keys "approved" (boolean) and "findings" (array of objects with "issue" and "suggestion").
+approved=true with empty findings if accurate. approved=false with paired issue+suggestion for each problem."""
+
+    user_content = f"""=== SECTION TO REVIEW ===
 {section_text}"""
 
     return system_prompt, user_content

@@ -103,6 +103,16 @@ def extract_fn_headings(fn_blocks: list[str]) -> set[str]:
     return {block.split("\n", 1)[0].strip() for block in fn_blocks if block.strip()}
 
 
+def _normalize_fn_heading(heading: str) -> str:
+    """Strip marker suffixes like *(Internal)*, *(Deprecated)* and backticks.
+
+    Used to detect when a lost heading is just a marked variant of an entry
+    that still exists (e.g. writer intentionally removed a duplicate).
+    """
+    h = re.sub(r'\s*\*\([^)]*\)\*', '', heading)
+    return h.replace('`', '').strip()
+
+
 def restore_lost_blocks(
     fn_blocks: list[str],
     snapshot: set[str],
@@ -114,6 +124,9 @@ def restore_lost_blocks(
     the first subsequent backup entry that still exists in fn_blocks.
     If no such anchor exists, the block is appended at the end.
 
+    Skips restoration when a normalized-equivalent heading already exists
+    (e.g. writer intentionally removed ``*(Internal)*`` duplicate).
+
     Returns the number of blocks restored.
     """
     current = extract_fn_headings(fn_blocks)
@@ -121,12 +134,21 @@ def restore_lost_blocks(
     if not lost_headings:
         return 0
 
+    # Normalized current headings — detect intentional duplicate removal
+    current_normalized = {_normalize_fn_heading(h) for h in current}
+
     current_headings_list = [b.split("\n", 1)[0].strip() for b in fn_blocks]
     restored = 0
+    skipped = 0
 
     for orig_idx, block in enumerate(backup_fn_blocks):
         heading = block.split("\n", 1)[0].strip()
         if heading not in lost_headings:
+            continue
+
+        # Skip if a normalized-equivalent heading still exists
+        if _normalize_fn_heading(heading) in current_normalized:
+            skipped += 1
             continue
 
         # Find insertion point: before the first later backup heading still present
@@ -139,7 +161,11 @@ def restore_lost_blocks(
 
         fn_blocks.insert(insert_pos, block)
         current_headings_list.insert(insert_pos, heading)
+        current_normalized.add(_normalize_fn_heading(heading))
         restored += 1
+
+    if skipped:
+        print(f"  [content/chunked] Skipped {skipped} duplicate-equivalent entries")
 
     return restored
 

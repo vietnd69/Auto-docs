@@ -16,9 +16,10 @@ def test_apply_patches_success():
         Patch(old_text="Hello", new_text="Hi", reason="greeting"),
         Patch(old_text="Goodbye", new_text="Bye", reason="farewell"),
     ]
-    result, failed = apply_patches(content, patches)
+    result, failed, ambiguous = apply_patches(content, patches)
     assert result == "Hi world. Bye world."
     assert failed == 0
+    assert ambiguous == []
 
 
 def test_apply_patches_partial_failure():
@@ -27,24 +28,28 @@ def test_apply_patches_partial_failure():
         Patch(old_text="Hello", new_text="Hi", reason="ok"),
         Patch(old_text="NONEXISTENT", new_text="X", reason="fail"),
     ]
-    result, failed = apply_patches(content, patches)
+    result, failed, ambiguous = apply_patches(content, patches)
     assert result == "Hi world."
     assert failed == 1
+    assert ambiguous == []
 
 
 def test_apply_patches_empty():
     content = "Hello"
-    result, failed = apply_patches(content, [])
+    result, failed, ambiguous = apply_patches(content, [])
     assert result == "Hello"
     assert failed == 0
+    assert ambiguous == []
 
 
-def test_apply_patches_first_occurrence_only():
+def test_apply_patches_ambiguous_skipped():
+    # When old_text appears multiple times, patch is skipped and returned as ambiguous
     content = "foo foo foo"
-    patches = [Patch(old_text="foo", new_text="bar", reason="test")]
-    result, failed = apply_patches(content, patches)
-    assert result == "bar foo foo"
-    assert failed == 0
+    p = Patch(old_text="foo", new_text="bar", reason="test")
+    result, failed, ambiguous = apply_patches(content, [p])
+    assert result == "foo foo foo"  # unchanged
+    assert failed == 1
+    assert ambiguous == [p]
 
 
 def test_parse_writer_response_valid():

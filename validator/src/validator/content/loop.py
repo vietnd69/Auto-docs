@@ -57,6 +57,7 @@ def run_content_loop(
     _, connected_content = resolve_connected_content(lua_filepath)
     print(f"  [content] Starting loop (max {config.max_iterations} iterations)")
 
+    previous_review = None
     for i in range(config.max_iterations):
         if config.stop_check():
             print(f"  [content] Stopped by Ctrl+C before iteration {i + 1}")
@@ -68,6 +69,7 @@ def run_content_loop(
         # LLM2 review
         review = review_document(
             md_content, lua_source, connected_content, config.reviewer_model,
+            previous_review=previous_review,
         )
 
         if review.approved:
@@ -99,7 +101,7 @@ def run_content_loop(
                 approved=False, iterations=i + 1, final_issues=review.issues,
             )
 
-        md_content, failed = apply_patches(md_content, patches)
+        md_content, failed, _ = apply_patches(md_content, patches)
         applied = len(patches) - failed
         print(f"  [content] Applied {applied}/{len(patches)} patches" +
               (f" ({failed} failed)" if failed else ""))
@@ -108,6 +110,7 @@ def run_content_loop(
         if patches and failed > len(patches) / 2:
             print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
 
+        previous_review = review
         # Write updated content to disk
         Path(md_filepath).write_text(md_content, encoding="utf-8")
 
@@ -118,6 +121,7 @@ def run_content_loop(
     print(f"  [content] Max iterations reached, running final review...")
     final_review = review_document(
         md_content, lua_source, connected_content, config.reviewer_model,
+        previous_review=previous_review,
     )
     status = "approved" if final_review.approved else f"rejected ({len(final_review.issues)} issue(s))"
     print(f"  [content] Final review: {status}")
