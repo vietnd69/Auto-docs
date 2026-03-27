@@ -16,6 +16,11 @@ def _sleep(stop_check: Callable[[], bool], seconds: int) -> None:
         time.sleep(1)
 
 
+def _fingerprint_issues(issues: list[str]) -> set[str]:
+    """Normalize and deduplicate issues for convergence comparison."""
+    return {issue.strip().lower() for issue in issues if issue.strip()}
+
+
 def _detect_file_type(lua_filepath: str) -> str:
     """Returns 'component' or 'data_config' based on path relative to dst-scripts/."""
     parts = Path(lua_filepath).parts

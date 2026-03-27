@@ -317,3 +317,82 @@ def test_small_section_uses_existing_path(tmp_path):
     with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
         result = run_chunked_content_loop(md, lua, _config())
     assert result.approved is True
+
+
+# ── Task 7: _fingerprint_issues ───────────────────────────────────────────────
+
+def test_fingerprint_issues_normalizes():
+    from validator.content.chunked import _fingerprint_issues
+    issues = ["  Wrong Param  ", "wrong param", "Missing return"]
+    fp = _fingerprint_issues(issues)
+    assert len(fp) == 2
+    assert "wrong param" in fp
+    assert "missing return" in fp
+
+
+def test_fingerprint_issues_empty():
+    from validator.content.chunked import _fingerprint_issues
+    fp = _fingerprint_issues([])
+    assert fp == set()
+
+
+def test_oscillation_detected():
+    """When overlap exceeds threshold, oscillation should be detected."""
+    from validator.content.chunked import _fingerprint_issues
+    prev = _fingerprint_issues(["issue a", "issue b", "issue c"])
+    curr = _fingerprint_issues(["issue a", "issue b", "issue d"])
+    overlap = len(curr & prev) / max(len(curr), 1)
+    assert overlap > 0.5
+
+
+# ── Task 8: _compact_messages ─────────────────────────────────────────────────
+
+def test_compact_messages_under_budget():
+    """Messages under token budget and turn limit should not be compacted."""
+    from validator.content.chunked import _compact_messages
+    msgs = [
+        {"role": "system", "content": "rules"},
+        {"role": "user", "content": "section1"},
+        {"role": "assistant", "content": "review1"},
+        {"role": "user", "content": "section2"},
+    ]
+    result = _compact_messages(msgs, max_turns=6, token_budget=3000)
+    assert len(result) == 4
+
+
+def test_compact_messages_over_token_budget():
+    """Messages exceeding token budget should compact to system + last 2 non-system."""
+    from validator.content.chunked import _compact_messages
+    msgs = [
+        {"role": "system", "content": "rules"},
+        {"role": "user", "content": "word " * 600},
+        {"role": "assistant", "content": "word " * 600},
+        {"role": "user", "content": "word " * 600},
+        {"role": "assistant", "content": "word " * 600},
+        {"role": "user", "content": "latest"},
+        {"role": "assistant", "content": "latest_resp"},
+    ]
+    result = _compact_messages(msgs, max_turns=10, token_budget=500)
+    assert result[0]["role"] == "system"
+    assert len(result) == 3
+    assert result[-1]["content"] == "latest_resp"
+    assert result[-2]["content"] == "latest"
+
+
+def test_compact_messages_over_turn_limit():
+    """When over turn limit, compact to system + last 2."""
+    from validator.content.chunked import _compact_messages
+    msgs = [
+        {"role": "system", "content": "rules"},
+        {"role": "user", "content": "old1"},
+        {"role": "assistant", "content": "resp1"},
+        {"role": "user", "content": "old2"},
+        {"role": "assistant", "content": "resp2"},
+        {"role": "user", "content": "latest1"},
+        {"role": "assistant", "content": "latest_resp"},
+        {"role": "user", "content": "latest2"},
+    ]
+    result = _compact_messages(msgs, max_turns=4, token_budget=3000)
+    assert result[0]["role"] == "system"
+    assert result[0]["content"] == "rules"
+    assert result[-1]["content"] == "latest2"
