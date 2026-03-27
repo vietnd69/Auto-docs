@@ -117,17 +117,23 @@ def write_section_patches(
     file_type: str = "component",
 ) -> list[Patch]:
     """Ask the writer LLM to patch one section based on review feedback. Retries on empty response."""
-    prompt = build_section_writer_prompt(
+    system_prompt, user_content = build_section_writer_prompt(
         section_text, lua_context, review.issues, review.suggestions,
         section_heading, file_type
     )
-    print(f"  [content/chunked] Writer prompt: {count_tokens(prompt):,} tokens")
+    prompt_text = system_prompt + "\n" + user_content
+    print(f"  [content/chunked] Writer prompt: {count_tokens(prompt_text):,} tokens")
     if DEBUG_PROMPTS:
-        _dump_prompt("chunked_writer", prompt)
+        _dump_prompt("chunked_writer", prompt_text)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
 
     raw = ""
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
+        response = ollama_chat(model=model, messages=messages)
         raw = response["message"]["content"]
         if raw.strip():
             break

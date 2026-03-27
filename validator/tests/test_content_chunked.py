@@ -187,13 +187,28 @@ def test_section_reviewer_prompt_contains_format_contract():
     assert "* **Description:**" in user
 
 
+def test_section_writer_prompt_returns_tuple():
+    """build_section_writer_prompt should return (system, user) tuple."""
+    result = build_section_writer_prompt(
+        "## Functions\n### `Foo(x)`\n* **Description:** x\n",
+        "function Foo(x) end",
+        ["Wrong description"],
+        ["Fix the description"],
+    )
+    assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
+    assert len(result) == 2
+    system_prompt, user_content = result
+    assert "writer" in system_prompt.lower() or "patch" in system_prompt.lower()
+    assert "Wrong description" in user_content
+
+
 def test_section_writer_prompt_contains_format_rules():
-    prompt = build_section_writer_prompt(
+    system, user = build_section_writer_prompt(
         "## Functions\n### `Foo(x)`\n* **Description:** x\n", "", [], []
     )
-    assert "FORMAT RULES" in prompt
-    assert "NEVER" in prompt
-    assert "minimal substring" in prompt.lower() or "MINIMAL" in prompt
+    combined = system + user
+    assert "FORMAT RULES" in combined
+    assert "NEVER" in combined or "Do NOT" in combined
 
 
 import re as _re

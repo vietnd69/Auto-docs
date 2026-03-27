@@ -199,8 +199,25 @@ def build_section_writer_prompt(
     suggestions: list[str],
     section_heading: str = "",
     file_type: str = "component",
-) -> str:
-    """Prompt for patching one markdown section based on review feedback."""
+) -> tuple[str, str]:
+    """Prompt for patching one markdown section based on review feedback.
+
+    Returns (system_prompt, user_content) for multi-turn conversation.
+    """
+    system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API docs.
+Your task: fix the section using Lua source as ground truth. Return targeted patches only.
+Do NOT undo previous patches. Only fix the new issues listed in the feedback.
+
+=== TARGET ===
+Section: {section_heading or "(preamble)"}
+
+=== FORMAT RULES ===
+{_WRITER_SKILL}
+
+=== RESPONSE FORMAT ===
+Return a JSON array of patches. Each patch has "old_text", "new_text", "reason".
+old_text must be an EXACT substring of the section. Keep patches minimal."""
+
     feedback_lines = []
     for i, issue in enumerate(issues, 1):
         suggestion = suggestions[i - 1] if i - 1 < len(suggestions) else ""
@@ -211,38 +228,13 @@ def build_section_writer_prompt(
 
     lua_block = f"```lua\n{lua_context}\n```" if lua_context else "(none)"
 
-    return f"""You are a documentation writer for Don't Starve Together (DST) Lua API docs.
-Your task: fix the section below using Lua source as ground truth. Return targeted patches only.
-
-=== TARGET ===
-Section: {section_heading or "(preamble)"}
-
-=== FORMAT RULES ===
-{_WRITER_SKILL}
-
-=== CONTEXT ===
-
-1. LUA CONTEXT (ground truth)
+    user_content = f"""=== LUA CONTEXT (ground truth) ===
 {lua_block}
 
-2. CURRENT SECTION
+=== CURRENT SECTION ===
 {section_text}
 
 === REVIEWER FEEDBACK ===
-{feedback}
+{feedback}"""
 
-=== PATCH FORMAT ===
-Return a JSON array of patches:
-```json
-[
-    {{
-        "old_text": "exact text to find in this section only",
-        "new_text": "replacement text",
-        "reason": "why this change is needed"
-    }}
-]
-```
-
-- old_text must be an EXACT substring of the section shown above
-- Do not use overlapping old_text values
-- Keep patches minimal — only fix what the reviewer flagged"""
+    return system_prompt, user_content
