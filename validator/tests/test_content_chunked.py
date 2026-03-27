@@ -379,6 +379,26 @@ def test_compact_messages_over_token_budget():
     assert result[-2]["content"] == "latest"
 
 
+def test_oscillation_breaks_loop(tmp_path):
+    """When reviewer returns same issues repeatedly, the loop should stop early."""
+    md_content = "---\ntitle: T\n---\n## Functions\n`Alpha()` docs.\n"
+    lua_content = "function Alpha() return 1 end\n"
+    md, lua = _write_fixtures(tmp_path, md_content, lua_content)
+
+    call_count = 0
+    def _oscillating(model, messages, **kw):
+        nonlocal call_count
+        call_count += 1
+        if call_count % 2 == 1:
+            return _rejected(["Same issue every time"])
+        return _patches("`Alpha()` docs.", "`Alpha()` fixed docs.")
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=_oscillating):
+        result = run_chunked_content_loop(md, lua, _config(max_iterations=10))
+
+    assert result.iterations < 10
+
+
 def test_compact_messages_over_turn_limit():
     """When over turn limit, compact to system + last 2."""
     from validator.content.chunked import _compact_messages

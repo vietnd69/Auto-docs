@@ -61,11 +61,20 @@ def parse_review_response(raw: str) -> ReviewResult:
 
 
 def parse_review_json(data: dict) -> ReviewResult:
-    """Parse pre-validated JSON dict (from Ollama format parameter) into ReviewResult."""
+    """Parse pre-validated JSON dict (from Ollama format parameter) into ReviewResult.
+
+    Supports both the structured 'findings' format (from REVIEW_SCHEMA) and the
+    legacy 'issues'/'suggestions' flat-array format.
+    """
     approved = bool(data.get("approved", False))
-    findings = data.get("findings") or []
-    issues = [str(f.get("issue", "")) for f in findings if isinstance(f, dict)]
-    suggestions = [str(f.get("suggestion", "")) for f in findings if isinstance(f, dict)]
+    if "findings" in data:
+        findings = data["findings"] or []
+        issues = [str(f.get("issue", "")) for f in findings if isinstance(f, dict)]
+        suggestions = [str(f.get("suggestion", "")) for f in findings if isinstance(f, dict)]
+    else:
+        # Legacy format: separate issues/suggestions arrays
+        issues = list(data.get("issues", []))
+        suggestions = list(data.get("suggestions", []))
     return ReviewResult(approved=approved, issues=issues, suggestions=suggestions)
 
 

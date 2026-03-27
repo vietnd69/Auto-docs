@@ -1,5 +1,6 @@
 """Section-by-section content validation for large Lua files (≥32K tokens)."""
 
+import json
 import re
 import time
 from pathlib import Path
@@ -63,7 +64,13 @@ def _detect_file_type(lua_filepath: str) -> str:
 
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
-from llm.settings import BAD_RESPONSE_RETRIES, BATCH_TOKEN_LIMIT, DEBUG_PROMPTS, SECTION_LUA_CONTEXT_TOKENS, SECTION_TOKEN_THRESHOLD, VALIDATOR_CALL_SLEEP
+from llm.settings import (
+    BAD_RESPONSE_RETRIES, BATCH_TOKEN_LIMIT, DEBUG_PROMPTS,
+    SECTION_LUA_CONTEXT_TOKENS, SECTION_TOKEN_THRESHOLD,
+    VALIDATOR_CALL_SLEEP,
+    REVIEWER_TEMPERATURE, WRITER_TEMPERATURE, WRITER_THINK,
+    MAX_CONVERSATION_TURNS, CONVERSATION_TOKEN_BUDGET, OSCILLATION_THRESHOLD,
+)
 from llm.tokens import count_tokens
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
@@ -81,7 +88,8 @@ from validator.content.prompts import (
     build_section_reviewer_prompt,
     build_section_writer_prompt,
 )
-from validator.content.reviewer import ReviewResult, parse_review_response
+from validator.content.reviewer import ReviewResult, parse_review_response, parse_review_json
+from validator.content.schemas import REVIEW_SCHEMA, PATCHES_SCHEMA
 from validator.content.sections import (
     DocSection,
     extract_fn_headings,
@@ -93,7 +101,7 @@ from validator.content.sections import (
     split_section_blocks,
     sub_chunk_section,
 )
-from validator.content.writer import Patch, apply_patches, parse_writer_response
+from validator.content.writer import Patch, apply_patches, parse_writer_response, parse_writer_json
 
 
 def _is_bad_review(raw: str, result: ReviewResult) -> bool:
@@ -109,36 +117,58 @@ def review_section(
     model: str,
     section_heading: str = "",
     file_type: str = "component",
-) -> ReviewResult:
-    """Send one markdown section to the reviewer LLM. Retries on bad/empty response."""
+    *,
+    messages: list[dict] | None = None,
+) -> tuple[ReviewResult, list[dict]]:
+    """Send one markdown section to the reviewer LLM.
+
+    If `messages` is provided, appends a new user turn with updated section text
+    (multi-turn continuation). Otherwise builds a fresh conversation.
+
+    Returns (ReviewResult, updated_messages) so caller can accumulate turns.
+    """
     system_prompt, user_content = build_section_reviewer_prompt(
         section_text, lua_context, section_heading, file_type
     )
-    prompt_text = system_prompt + "\n" + user_content  # for token counting/debug
+
+    if messages is None:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+    else:
+        messages.append({"role": "user", "content": f"Section after fixes:\n{section_text}"})
+        messages = _compact_messages(messages, MAX_CONVERSATION_TURNS, CONVERSATION_TOKEN_BUDGET)
+
+    prompt_text = "\n".join(m["content"] for m in messages)
     print(f"  [content/chunked] Reviewer prompt: {count_tokens(prompt_text):,} tokens")
     if DEBUG_PROMPTS:
         _dump_prompt("chunked_reviewer", prompt_text)
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
-
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages)
+        response = ollama_chat(
+            model=model, messages=messages,
+            temperature=REVIEWER_TEMPERATURE,
+            format=REVIEW_SCHEMA,
+        )
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("chunked_reviewer_response", raw)
-        result = parse_review_response(raw)
+        try:
+            data = json.loads(raw)
+            result = parse_review_json(data)
+        except (json.JSONDecodeError, TypeError):
+            result = parse_review_response(raw)  # fallback
         if not _is_bad_review(raw, result):
-            return result
+            messages.append({"role": "assistant", "content": raw})
+            return result, messages
         remaining = BAD_RESPONSE_RETRIES - attempt
         if remaining > 0:
             print(f"  [content/chunked] Bad reviewer response → retrying ({remaining} left)")
         else:
             print(f"  [content/chunked] Bad reviewer response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
-    return result
+    return result, messages
 
 
 def write_section_patches(
@@ -148,25 +178,50 @@ def write_section_patches(
     model: str,
     section_heading: str = "",
     file_type: str = "component",
-) -> list[Patch]:
-    """Ask the writer LLM to patch one section based on review feedback. Retries on empty response."""
+    *,
+    messages: list[dict] | None = None,
+) -> tuple[list[Patch], list[dict]]:
+    """Ask the writer LLM to patch one section based on review feedback.
+
+    Returns (patches, updated_messages) so caller can accumulate turns.
+    """
     system_prompt, user_content = build_section_writer_prompt(
         section_text, lua_context, review.issues, review.suggestions,
         section_heading, file_type
     )
-    prompt_text = system_prompt + "\n" + user_content
+
+    if messages is None:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+    else:
+        feedback_lines = []
+        for i, issue in enumerate(review.issues, 1):
+            suggestion = review.suggestions[i - 1] if i - 1 < len(review.suggestions) else ""
+            feedback_lines.append(f"{i}. Issue: {issue}")
+            if suggestion:
+                feedback_lines.append(f"   Suggestion: {suggestion}")
+        feedback = "\n".join(feedback_lines)
+        follow_up = f"Updated section:\n{section_text}\n\nNew feedback:\n{feedback}"
+        messages.append({"role": "user", "content": follow_up})
+        messages = _compact_messages(messages, MAX_CONVERSATION_TURNS, CONVERSATION_TOKEN_BUDGET)
+
+    prompt_text = "\n".join(m["content"] for m in messages)
     print(f"  [content/chunked] Writer prompt: {count_tokens(prompt_text):,} tokens")
     if DEBUG_PROMPTS:
         _dump_prompt("chunked_writer", prompt_text)
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    writer_think = bool(WRITER_THINK)
 
     raw = ""
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages)
+        response = ollama_chat(
+            model=model, messages=messages,
+            think=writer_think,
+            temperature=WRITER_TEMPERATURE,
+            format=PATCHES_SCHEMA,
+        )
         raw = response["message"]["content"]
         if raw.strip():
             break
@@ -178,12 +233,17 @@ def write_section_patches(
 
     if DEBUG_PROMPTS:
         _dump_prompt("chunked_writer_response", raw)
-    patches = parse_writer_response(raw)
+    try:
+        data = json.loads(raw)
+        patches = parse_writer_json(data)
+    except (json.JSONDecodeError, TypeError):
+        patches = parse_writer_response(raw)  # fallback
     if not patches:
         print("  [content/chunked] Writer returned no patches")
     else:
         print(f"  [content/chunked] {len(patches)} patch(es) generated")
-    return patches
+        messages.append({"role": "assistant", "content": raw})
+    return patches, messages
 
 
 def run_chunked_content_loop(
@@ -254,6 +314,9 @@ def run_chunked_content_loop(
 
                 batch_approved = False
                 batch_last_review: ReviewResult | None = None
+                reviewer_msgs: list[dict] | None = None
+                writer_msgs: list[dict] | None = None
+                prev_fingerprint: set[str] = set()
 
                 for i in range(config.max_iterations):
                     if config.stop_check():
@@ -268,9 +331,10 @@ def run_chunked_content_loop(
                         f"  [content/chunked] Section {idx} batch {batch_idx} — "
                         f"reviewing... (iter {i + 1}/{config.max_iterations})"
                     )
-                    batch_last_review = review_section(
+                    batch_last_review, reviewer_msgs = review_section(
                         batch_text, lua_ctx, config.reviewer_model,
-                        section.heading, file_type
+                        section.heading, file_type,
+                        messages=reviewer_msgs,
                     )
                     _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                     if batch_last_review.approved:
@@ -281,9 +345,22 @@ def run_chunked_content_loop(
                         )
                         break
 
-                    patches = write_section_patches(
+                    # Convergence guard
+                    current_fp = _fingerprint_issues(batch_last_review.issues)
+                    if prev_fingerprint and current_fp:
+                        overlap = len(current_fp & prev_fingerprint) / max(len(current_fp), 1)
+                        if overlap >= OSCILLATION_THRESHOLD / 100:
+                            print(
+                                f"  [content/chunked] Section {idx} batch {batch_idx} — "
+                                f"oscillation detected ({overlap:.0%} overlap), stopping"
+                            )
+                            break
+                    prev_fingerprint = current_fp
+
+                    patches, writer_msgs = write_section_patches(
                         batch_text, lua_ctx, batch_last_review, config.writer_model,
-                        section.heading, file_type
+                        section.heading, file_type,
+                        messages=writer_msgs,
                     )
                     _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                     if not patches:
@@ -301,9 +378,10 @@ def run_chunked_content_loop(
                 else:
                     # max_iterations exhausted — final review on post-patch text
                     total_iterations += 1
-                    batch_last_review = review_section(
+                    batch_last_review, _ = review_section(
                         batch_text, lua_ctx, config.reviewer_model,
-                        section.heading, file_type
+                        section.heading, file_type,
+                        messages=reviewer_msgs,
                     )
                     _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                     batch_approved = batch_last_review.approved
@@ -362,6 +440,9 @@ def run_chunked_content_loop(
 
             section_approved = False
             last_review: ReviewResult | None = None
+            reviewer_msgs: list[dict] | None = None
+            writer_msgs: list[dict] | None = None
+            prev_fingerprint: set[str] = set()
 
             for i in range(config.max_iterations):
                 if config.stop_check():
@@ -376,9 +457,10 @@ def run_chunked_content_loop(
                     f"  [content/chunked] Section {idx}/{len(sections)} — "
                     f"reviewing... (iter {i + 1}/{config.max_iterations})"
                 )
-                last_review = review_section(
+                last_review, reviewer_msgs = review_section(
                     section.text, lua_ctx, config.reviewer_model,
-                    section.heading, file_type
+                    section.heading, file_type,
+                    messages=reviewer_msgs,
                 )
                 _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
 
@@ -390,9 +472,22 @@ def run_chunked_content_loop(
                     )
                     break
 
-                patches = write_section_patches(
+                # Convergence guard
+                current_fp = _fingerprint_issues(last_review.issues)
+                if prev_fingerprint and current_fp:
+                    overlap = len(current_fp & prev_fingerprint) / max(len(current_fp), 1)
+                    if overlap >= OSCILLATION_THRESHOLD / 100:
+                        print(
+                            f"  [content/chunked] Section {idx}/{len(sections)} — "
+                            f"oscillation detected ({overlap:.0%} overlap), stopping"
+                        )
+                        break
+                prev_fingerprint = current_fp
+
+                patches, writer_msgs = write_section_patches(
                     section.text, lua_ctx, last_review, config.writer_model,
-                    section.heading, file_type
+                    section.heading, file_type,
+                    messages=writer_msgs,
                 )
                 _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                 if not patches:
@@ -417,9 +512,10 @@ def run_chunked_content_loop(
                     "max iterations reached, running final review"
                 )
                 total_iterations += 1
-                last_review = review_section(
+                last_review, _ = review_section(
                     section.text, lua_ctx, config.reviewer_model,
-                    section.heading, file_type
+                    section.heading, file_type,
+                    messages=reviewer_msgs,
                 )
                 _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
                 section_approved = last_review.approved
