@@ -31,10 +31,10 @@ def test_validator_constants_are_positive_ints():
         VALIDATOR_MAX_ITERATIONS, VALIDATOR_LOOP_MAX_ITERATIONS,
         MDX_NODE_TIMEOUT, LUA_CONTEXT_TOKENS,
     )
-    assert VALIDATOR_MAX_ITERATIONS == 10
-    assert VALIDATOR_LOOP_MAX_ITERATIONS == 5
+    assert VALIDATOR_MAX_ITERATIONS == 12
+    assert VALIDATOR_LOOP_MAX_ITERATIONS == 12
     assert MDX_NODE_TIMEOUT == 20
-    assert LUA_CONTEXT_TOKENS == 8000
+    assert LUA_CONTEXT_TOKENS == 7000
 
 
 def test_env_override_for_int(monkeypatch):
