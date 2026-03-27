@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Callable
 
 _DATA_CONFIG_DIRS = {"map", "languages", "util"}
+_CAMEL_RE = re.compile(r'\b([A-Z][a-z]+(?:[A-Z][a-z]*)+)\b')
+_FP_WINDOW = 4          # sliding-window size for oscillation history
+_MAX_FAIL_STREAK = 2    # stop after N consecutive >50%-failure iterations
 
 
 def _sleep(stop_check: Callable[[], bool], seconds: int) -> None:
@@ -18,8 +21,42 @@ def _sleep(stop_check: Callable[[], bool], seconds: int) -> None:
 
 
 def _fingerprint_issues(issues: list[str]) -> set[str]:
-    """Normalize and deduplicate issues for convergence comparison."""
-    return {issue.strip().lower() for issue in issues if issue.strip()}
+    """Extract semantic fingerprints from issues for convergence detection.
+
+    Uses CamelCase function names as keys because the LLM reviewer rephrases
+    the same conceptual issue differently each iteration but consistently
+    references the same function names.  Falls back to a normalised text
+    prefix for issues that mention no function names.
+    """
+    fps: set[str] = set()
+    for issue in issues:
+        if not issue.strip():
+            continue
+        fns = _CAMEL_RE.findall(issue)
+        if fns:
+            for fn in fns:
+                fps.add(fn.lower())
+        else:
+            norm = re.sub(r'\s+', ' ', issue.strip().lower())[:40]
+            fps.add(norm)
+    return fps
+
+
+def _check_oscillation(
+    current_fp: set[str],
+    fp_history: list[set[str]],
+    threshold: float,
+) -> float:
+    """Return the maximum overlap ratio between *current_fp* and any entry
+    in *fp_history*.  Returns 0.0 when history is empty or fingerprint is
+    empty.
+    """
+    if not current_fp or not fp_history:
+        return 0.0
+    return max(
+        len(current_fp & h) / max(len(current_fp), 1)
+        for h in fp_history
+    )
 
 
 from llm.tokens import count_tokens as _count_tokens_early  # noqa: E402 — needed before main imports
@@ -150,7 +187,9 @@ def review_section(
     prompt_text = "\n".join(m["content"] for m in messages)
     print(f"  [content/chunked] Reviewer prompt: {count_tokens(prompt_text):,} tokens")
     if DEBUG_PROMPTS:
-        _dump_prompt("chunked_reviewer", prompt_text)
+        sep = "\n\n" + "=" * 60 + "\n"
+        dump_text = sep.join(f"=== {m['role'].upper()} ===\n{m['content']}" for m in messages)
+        _dump_prompt("chunked_reviewer", dump_text)
 
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
@@ -229,7 +268,9 @@ def write_section_patches(
     prompt_text = "\n".join(m["content"] for m in messages)
     print(f"  [content/chunked] Writer prompt: {count_tokens(prompt_text):,} tokens")
     if DEBUG_PROMPTS:
-        _dump_prompt("chunked_writer", prompt_text)
+        sep = "\n\n" + "=" * 60 + "\n"
+        dump_text = sep.join(f"=== {m['role'].upper()} ===\n{m['content']}" for m in messages)
+        _dump_prompt("chunked_writer", dump_text)
 
     writer_think = bool(WRITER_THINK)
 
@@ -335,7 +376,8 @@ def run_chunked_content_loop(
                 batch_last_review: ReviewResult | None = None
                 reviewer_msgs: list[dict] | None = None
                 writer_msgs: list[dict] | None = None
-                prev_fingerprint: set[str] = set()
+                fp_history: list[set[str]] = []
+                consecutive_fail = 0
                 last_ambiguous: list[Patch] | None = None
 
                 for i in range(config.max_iterations):
@@ -365,17 +407,20 @@ def run_chunked_content_loop(
                         )
                         break
 
-                    # Convergence guard
+                    # Convergence guard — sliding window over last N fingerprints
                     current_fp = _fingerprint_issues(batch_last_review.issues)
-                    if prev_fingerprint and current_fp:
-                        overlap = len(current_fp & prev_fingerprint) / max(len(current_fp), 1)
-                        if overlap >= OSCILLATION_THRESHOLD / 100:
-                            print(
-                                f"  [content/chunked] Section {idx} batch {batch_idx} — "
-                                f"oscillation detected ({overlap:.0%} overlap), stopping"
-                            )
-                            break
-                    prev_fingerprint = current_fp
+                    max_overlap = _check_oscillation(
+                        current_fp, fp_history, OSCILLATION_THRESHOLD / 100,
+                    )
+                    if max_overlap >= OSCILLATION_THRESHOLD / 100:
+                        print(
+                            f"  [content/chunked] Section {idx} batch {batch_idx} — "
+                            f"oscillation detected ({max_overlap:.0%} overlap), stopping"
+                        )
+                        break
+                    fp_history.append(current_fp)
+                    if len(fp_history) > _FP_WINDOW:
+                        fp_history.pop(0)
 
                     patches, writer_msgs = write_section_patches(
                         batch_text, lua_ctx, batch_last_review, config.writer_model,
@@ -398,6 +443,17 @@ def run_chunked_content_loop(
                         f"  [content/chunked] Section {idx} batch {batch_idx} — "
                         f"patches: {applied} applied, {failed} failed"
                     )
+                    # Track persistent patch failures
+                    if patches and failed / len(patches) > 0.5:
+                        consecutive_fail += 1
+                    else:
+                        consecutive_fail = 0
+                    if consecutive_fail >= _MAX_FAIL_STREAK:
+                        print(
+                            f"  [content/chunked] Section {idx} batch {batch_idx} — "
+                            f"patches failing consistently ({consecutive_fail} iters), stopping"
+                        )
+                        break
                 else:
                     # max_iterations exhausted — final review on post-patch text
                     total_iterations += 1
@@ -465,7 +521,8 @@ def run_chunked_content_loop(
             last_review: ReviewResult | None = None
             reviewer_msgs: list[dict] | None = None
             writer_msgs: list[dict] | None = None
-            prev_fingerprint: set[str] = set()
+            fp_history: list[set[str]] = []
+            consecutive_fail = 0
             last_ambiguous: list[Patch] | None = None
 
             for i in range(config.max_iterations):
@@ -496,17 +553,20 @@ def run_chunked_content_loop(
                     )
                     break
 
-                # Convergence guard
+                # Convergence guard — sliding window over last N fingerprints
                 current_fp = _fingerprint_issues(last_review.issues)
-                if prev_fingerprint and current_fp:
-                    overlap = len(current_fp & prev_fingerprint) / max(len(current_fp), 1)
-                    if overlap >= OSCILLATION_THRESHOLD / 100:
-                        print(
-                            f"  [content/chunked] Section {idx}/{len(sections)} — "
-                            f"oscillation detected ({overlap:.0%} overlap), stopping"
-                        )
-                        break
-                prev_fingerprint = current_fp
+                max_overlap = _check_oscillation(
+                    current_fp, fp_history, OSCILLATION_THRESHOLD / 100,
+                )
+                if max_overlap >= OSCILLATION_THRESHOLD / 100:
+                    print(
+                        f"  [content/chunked] Section {idx}/{len(sections)} — "
+                        f"oscillation detected ({max_overlap:.0%} overlap), stopping"
+                    )
+                    break
+                fp_history.append(current_fp)
+                if len(fp_history) > _FP_WINDOW:
+                    fp_history.pop(0)
 
                 patches, writer_msgs = write_section_patches(
                     section.text, lua_ctx, last_review, config.writer_model,
@@ -530,6 +590,17 @@ def run_chunked_content_loop(
                     f"  [content/chunked] Section {idx}/{len(sections)} — "
                     f"patches: {applied} applied, {failed} failed"
                 )
+                # Track persistent patch failures
+                if patches and failed / len(patches) > 0.5:
+                    consecutive_fail += 1
+                else:
+                    consecutive_fail = 0
+                if consecutive_fail >= _MAX_FAIL_STREAK:
+                    print(
+                        f"  [content/chunked] Section {idx}/{len(sections)} — "
+                        f"patches failing consistently ({consecutive_fail} iters), stopping"
+                    )
+                    break
                 Path(md_filepath).write_text(
                     join_md_sections(frontmatter, sections), encoding="utf-8"
                 )
