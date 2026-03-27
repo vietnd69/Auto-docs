@@ -21,6 +21,34 @@ def _fingerprint_issues(issues: list[str]) -> set[str]:
     return {issue.strip().lower() for issue in issues if issue.strip()}
 
 
+from llm.tokens import count_tokens as _count_tokens_early  # noqa: E402 — needed before main imports
+
+
+def _compact_messages(messages: list[dict], max_turns: int, token_budget: int) -> list[dict]:
+    """Compact conversation history when it exceeds token budget or turn limit.
+
+    Primary trigger: token count of non-system messages > token_budget.
+    Fallback trigger: turn count > max_turns (used when tiktoken unavailable).
+    When compacting, keeps system message + last 2 non-system messages.
+    """
+    if not messages:
+        return messages
+    system_msgs = [m for m in messages if m["role"] == "system"]
+    non_system = [m for m in messages if m["role"] != "system"]
+    if len(non_system) <= 2:
+        return messages
+    # Primary: token-based compaction
+    total = _count_tokens_early("\n".join(m["content"] for m in non_system))
+    if total != -1:
+        if total <= token_budget and len(non_system) <= max_turns:
+            return messages  # under both limits
+    else:
+        # tiktoken unavailable — fall back to turn count only
+        if len(non_system) <= max_turns:
+            return messages
+    return system_msgs + non_system[-2:]
+
+
 def _detect_file_type(lua_filepath: str) -> str:
     """Returns 'component' or 'data_config' based on path relative to dst-scripts/."""
     parts = Path(lua_filepath).parts
