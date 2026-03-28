@@ -137,6 +137,7 @@ from validator.content.schemas import REVIEW_SCHEMA, PATCHES_SCHEMA
 from validator.content.sections import (
     DocSection,
     extract_fn_headings,
+    extract_fn_headings_from_text,
     extract_function_names,
     extract_lua_context,
     join_md_sections,
@@ -235,6 +236,68 @@ def _validate_patch_scope(patches: list[Patch], section_heading: str = "") -> li
 
         valid.append(patch)
     return valid
+
+
+def _apply_guarded_patches(
+    batch_text: str,
+    patches: list[Patch],
+    review_issues: list[str],
+    section_heading: str,
+    backup_blocks: list[str],
+) -> tuple[str, int, list[Patch] | None]:
+    """Apply patches with all 3 guards. Returns (text, failed, ambiguous).
+
+    Guard 3 (pre-filter) → apply_patches → Guard 1 (heading integrity) → Guard 2 (enforce removals).
+    """
+    # Guard 3: pre-filter patches
+    patches = _validate_patch_scope(patches, section_heading)
+    if not patches:
+        return batch_text, 0, None
+
+    batch_text_before = batch_text
+    batch_text, failed, ambiguous = apply_patches(batch_text, patches)
+
+    # Guard 1: restore accidentally lost headings
+    removal_targets = _extract_removal_targets(review_issues, batch_text_before)
+    before_headings = extract_fn_headings_from_text(batch_text_before)
+    after_headings = extract_fn_headings_from_text(batch_text)
+    accidental_loss = (before_headings - after_headings) - removal_targets
+
+    if accidental_loss:
+        current_heading_list = [
+            b.split("\n", 1)[0].strip()
+            for b in re.split(r'(?m)^(?=### )', batch_text) if b.strip()
+        ]
+        restored = 0
+        for orig_idx, block in enumerate(backup_blocks):
+            heading_match = re.match(r'^### `?([^`(\n]+)', block)
+            if not heading_match:
+                continue
+            block_fn = heading_match.group(1).strip()
+            if block_fn not in accidental_loss:
+                continue
+            insert_pos = len(current_heading_list)
+            for later_idx in range(orig_idx + 1, len(backup_blocks)):
+                later_match = re.match(r'^### `?([^`(\n]+)', backup_blocks[later_idx])
+                if later_match:
+                    later_fn = later_match.group(1).strip()
+                    if later_fn in after_headings:
+                        later_heading_line = backup_blocks[later_idx].split("\n", 1)[0].strip()
+                        if later_heading_line in current_heading_list:
+                            insert_pos = current_heading_list.index(later_heading_line)
+                        break
+            parts = [b for b in re.split(r'(?m)^(?=### )', batch_text) if b]
+            parts.insert(insert_pos, block)
+            batch_text = "".join(parts)
+            current_heading_list.insert(insert_pos, block.split("\n", 1)[0].strip())
+            restored += 1
+        if restored:
+            print(f"  [content/chunked] Restored {restored} accidentally lost headings")
+
+    # Guard 2: enforce removal of hallucinated functions
+    batch_text = _enforce_removals(batch_text, review_issues)
+
+    return batch_text, failed, ambiguous if ambiguous else None
 
 
 def _is_bad_review(raw: str, result: ReviewResult) -> bool:
@@ -525,8 +588,11 @@ def run_chunked_content_loop(
                             "writer gave up, batch stays failed"
                         )
                         break
-                    batch_text, failed, ambiguous = apply_patches(batch_text, patches)
-                    last_ambiguous = ambiguous if ambiguous else None
+                    batch_text, failed, ambiguous = _apply_guarded_patches(
+                        batch_text, patches, batch_last_review.issues,
+                        section.heading, backup,
+                    )
+                    last_ambiguous = ambiguous
                     applied = len(patches) - failed
                     print(
                         f"  [content/chunked] Section {idx} batch {batch_idx} — "
