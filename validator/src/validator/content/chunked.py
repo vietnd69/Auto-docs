@@ -679,6 +679,7 @@ def run_chunked_content_loop(
             fp_history: list[set[str]] = []
             consecutive_fail = 0
             last_ambiguous: list[Patch] | None = None
+            _, small_backup = split_section_blocks(section.text)
 
             for i in range(config.max_iterations):
                 if config.stop_check():
@@ -738,8 +739,11 @@ def run_chunked_content_loop(
                     )
                     break
 
-                section.text, failed, ambiguous = apply_patches(section.text, patches)
-                last_ambiguous = ambiguous if ambiguous else None
+                section.text, failed, ambiguous = _apply_guarded_patches(
+                    section.text, patches, last_review.issues,
+                    section.heading, small_backup,
+                )
+                last_ambiguous = ambiguous
                 applied = len(patches) - failed
                 print(
                     f"  [content/chunked] Section {idx}/{len(sections)} — "
