@@ -210,6 +210,33 @@ def _enforce_removals(batch_text: str, issues: list[str]) -> str:
     return batch_text
 
 
+def _validate_patch_scope(patches: list[Patch], section_heading: str = "") -> list[Patch]:
+    """Filter out patches that would violate structural constraints."""
+    is_main_fns = section_heading == "## Main functions"
+    valid = []
+    for patch in patches:
+        # Reject patches that delete ### headings (unless reason says remove/hallucinate)
+        if re.search(r'^### ', patch.old_text, re.MULTILINE) and \
+           not re.search(r'^### ', patch.new_text, re.MULTILINE):
+            is_removal = any(kw in patch.reason.lower()
+                           for kw in ("remove", "hallucin", "not exist", "delete"))
+            if not is_removal:
+                print(f"  [content/chunked] Patch rejected: would delete heading without removal reason")
+                continue
+
+        # Reject patches that introduce non-standard fields (Main functions only)
+        if is_main_fns:
+            new_fields = re.findall(r'^\* \*\*(\w[\w ]*?):\*\*', patch.new_text, re.MULTILINE)
+            allowed = {"Description", "Parameters", "Returns", "Error states"}
+            invalid_fields = [f for f in new_fields if f not in allowed]
+            if invalid_fields:
+                print(f"  [content/chunked] Patch rejected: introduces non-standard field(s): {invalid_fields}")
+                continue
+
+        valid.append(patch)
+    return valid
+
+
 def _is_bad_review(raw: str, result: ReviewResult) -> bool:
     """True if reviewer returned empty or unparseable response."""
     if not raw.strip():

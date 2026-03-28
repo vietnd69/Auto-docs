@@ -509,3 +509,87 @@ def test_enforce_removals_already_removed():
     issues = ["`Bar` does not exist in the Lua source"]
     result = _enforce_removals(batch_text, issues)
     assert result == batch_text
+
+
+# ── Task 5: _validate_patch_scope ─────────────────────────────────────────────
+
+from validator.content.chunked import _validate_patch_scope
+from validator.content.writer import Patch
+
+
+def test_validate_patch_scope_rejects_heading_deletion():
+    """Patch that deletes a ### heading without removal reason is rejected."""
+    patches = [
+        Patch(
+            old_text="### `Foo(x)`\n* **Description:** foo\n",
+            new_text="* **Description:** foo\n",
+            reason="reformat entry",
+        )
+    ]
+    result = _validate_patch_scope(patches, "## Main functions")
+    assert len(result) == 0
+
+
+def test_validate_patch_scope_allows_heading_deletion_with_removal_reason():
+    """Patch that deletes heading with 'remove' reason is allowed."""
+    patches = [
+        Patch(
+            old_text="### `Foo(x)`\n* **Description:** foo\n",
+            new_text="",
+            reason="remove hallucinated function",
+        )
+    ]
+    result = _validate_patch_scope(patches, "## Main functions")
+    assert len(result) == 1
+
+
+def test_validate_patch_scope_rejects_nonstandard_fields():
+    """Patch introducing non-standard field in Main functions is rejected."""
+    patches = [
+        Patch(
+            old_text="* **Description:** old\n",
+            new_text="* **Description:** new\n* **Note:** extra info\n",
+            reason="add note",
+        )
+    ]
+    result = _validate_patch_scope(patches, "## Main functions")
+    assert len(result) == 0
+
+
+def test_validate_patch_scope_allows_standard_fields():
+    """Patch using standard fields (Description, Parameters, Returns, Error states) is allowed."""
+    patches = [
+        Patch(
+            old_text="* **Description:** old\n",
+            new_text="* **Description:** new\n* **Returns:** value\n",
+            reason="fix return",
+        )
+    ]
+    result = _validate_patch_scope(patches, "## Main functions")
+    assert len(result) == 1
+
+
+def test_validate_patch_scope_skips_field_check_for_non_main():
+    """Non-Main-functions sections do not check for standard fields."""
+    patches = [
+        Patch(
+            old_text="**External dependencies:** none\n",
+            new_text="**External dependencies:** math\n* **Components used:** none\n",
+            reason="add deps",
+        )
+    ]
+    result = _validate_patch_scope(patches, "## Dependencies & tags")
+    assert len(result) == 1
+
+
+def test_validate_patch_scope_allows_normal_patches():
+    """Normal patches that don't touch headings or add fields pass through."""
+    patches = [
+        Patch(
+            old_text="* **Description:** wrong desc\n",
+            new_text="* **Description:** correct desc\n",
+            reason="fix description",
+        )
+    ]
+    result = _validate_patch_scope(patches, "## Main functions")
+    assert len(result) == 1
