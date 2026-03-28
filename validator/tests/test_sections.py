@@ -388,3 +388,37 @@ def test_restore_lost_blocks_restores_to_end_when_no_anchor():
     restore_lost_blocks(fn_blocks, snapshot, backup)
     assert len(fn_blocks) == 2
     assert fn_blocks[-1].startswith("### `Bar()`")
+
+
+from validator.content.sections import extract_fn_headings_from_text
+
+
+def test_extract_fn_headings_from_text_backtick():
+    """Extracts function names from ### `FuncName(params)` headings."""
+    text = "## Main functions\n\n### `GetOwner(inst)`\n* **Description:** gets owner\n\n### `SetOwner(inst, owner)`\n* **Description:** sets owner\n"
+    result = extract_fn_headings_from_text(text)
+    assert result == {"GetOwner", "SetOwner"}
+
+
+def test_extract_fn_headings_from_text_no_backtick():
+    """Extracts function names from ### FuncName headings (no backticks)."""
+    text = "### GetOwner\nsome content\n### SetOwner\nmore content\n"
+    result = extract_fn_headings_from_text(text)
+    assert result == {"GetOwner", "SetOwner"}
+
+
+def test_extract_fn_headings_from_text_dotted():
+    """Extracts dotted names like CLOSEINSPECTORUTIL.IsValidTarget."""
+    text = "### `CLOSEINSPECTORUTIL.IsValidTarget(inst)`\ncontent\n### `CLOSEINSPECTORUTIL.IsValidPos(pos)`\ncontent\n"
+    result = extract_fn_headings_from_text(text)
+    assert result == {"CLOSEINSPECTORUTIL.IsValidTarget", "CLOSEINSPECTORUTIL.IsValidPos"}
+
+
+def test_extract_fn_headings_from_text_empty():
+    """Empty text returns empty set."""
+    assert extract_fn_headings_from_text("") == set()
+
+
+def test_extract_fn_headings_from_text_no_headings():
+    """Text with no ### headings returns empty set."""
+    assert extract_fn_headings_from_text("## Overview\nSome text\n") == set()

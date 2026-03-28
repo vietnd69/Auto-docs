@@ -103,6 +103,17 @@ def extract_fn_headings(fn_blocks: list[str]) -> set[str]:
     return {block.split("\n", 1)[0].strip() for block in fn_blocks if block.strip()}
 
 
+def extract_fn_headings_from_text(text: str) -> set[str]:
+    """Extract normalized function names from ### headings in raw text.
+
+    Parses headings like: ### `CLOSEINSPECTORUTIL.IsValidTarget(inst)`
+    Returns: {"CLOSEINSPECTORUTIL.IsValidTarget", "FuncName", ...}
+    Strips backticks, parameters, and trailing whitespace.
+    """
+    headings = re.findall(r'^### `?([^`(\n]+)', text, re.MULTILINE)
+    return {h.strip() for h in headings}
+
+
 def _normalize_fn_heading(heading: str) -> str:
     """Strip marker suffixes like *(Internal)*, *(Deprecated)* and backticks.
 
