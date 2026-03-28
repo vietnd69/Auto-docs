@@ -167,8 +167,6 @@ def _extract_removal_targets(issues: list[str], batch_text: str = "") -> set[str
     If batch_text is provided, cross-references against actual headings to prevent
     false positives from CamelCase type/class names.
     """
-    from validator.content.sections import extract_fn_headings_from_text
-
     candidates: set[str] = set()
     for issue in issues:
         lower = issue.lower()
@@ -198,7 +196,7 @@ def _extract_removal_targets(issues: list[str], batch_text: str = "") -> set[str
 def _enforce_removals(batch_text: str, issues: list[str]) -> str:
     """Auto-remove function blocks that reviewer flagged as hallucinated
     but writer failed to delete."""
-    from validator.content.sections import extract_fn_headings_from_text, delete_fn_block
+    from validator.content.sections import delete_fn_block
 
     targets = _extract_removal_targets(issues, batch_text)
     if not targets:
