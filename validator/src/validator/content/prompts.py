@@ -5,7 +5,6 @@ from prompts.skills_loader import load_skill
 
 # Doc-writing skills reused by validator
 _QUALITY_RULES = load_skill("quality_rules")
-_FN_FORMAT = load_skill("function_format")
 
 # Validator-specific skills (separate from doc generation)
 _REVIEWER_SKILL = load_skill("validator_reviewer")
@@ -160,9 +159,6 @@ def build_section_reviewer_prompt(
     """
     section_ctx = _section_context(section_heading)
     is_main_fns = section_heading == "## Main functions"
-    fn_format_block = (
-        f"\n=== FUNCTION FORMAT REFERENCE ===\n{_FN_FORMAT}\n"
-    ) if is_main_fns else ""
 
     _FILE_DESC = {
         "component": "component with Class() constructor and self.inst",
@@ -194,6 +190,7 @@ def build_section_reviewer_prompt(
     )
 
     system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API docs.
+You are reviewing CONTENT ACCURACY ONLY. Do not flag formatting, bullet style, or structural notation issues.
 
 === TARGET ===
 File type: {file_type} ({file_desc})
@@ -207,8 +204,9 @@ Section:   {section_heading or "(preamble)"}
 {section_ctx}{_REVIEWER_SKILL}
 
 === QUALITY RULES ===
+From the quality rules below, apply ONLY content accuracy rules (CONTENT RULES, COMPLETENESS, FILE TYPE CLASSIFICATION, CONSTRUCTOR RULE). IGNORE format rules (OUTPUT FORMAT, YAML FRONTMATTER, HEADING RULES, PROPERTIES TABLE column structure, MDX COMPATIBILITY).
 {_QUALITY_RULES}
-{fn_format_block}
+
 === RESPONSE FORMAT ===
 Respond in JSON only with keys "approved" (boolean) and "findings" (array of objects with "issue" and "suggestion").
 approved=true with empty findings if accurate. approved=false with paired issue+suggestion for each problem."""

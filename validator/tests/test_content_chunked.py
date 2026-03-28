@@ -180,10 +180,14 @@ def test_section_reviewer_prompt_returns_tuple():
     assert "Foo" in user_content
 
 
-def test_section_reviewer_prompt_contains_format_contract():
+def test_section_reviewer_prompt_content_only():
+    """Reviewer prompt focuses on content accuracy, not format."""
     system, user = build_section_reviewer_prompt("## Functions\n### `Foo(x)`\n* **Description:** x\n", "")
-    combined = system + user
-    assert "FORMAT CONTRACT" in combined or "REVIEW RULES" in combined
+    assert "CONTENT ACCURACY ONLY" in system
+    assert "FORMAT CONTRACT" not in system
+    assert "FUNCTION FORMAT REFERENCE" not in system
+    assert "QUALITY RULES" in system
+    assert "IGNORE format rules" in system
     assert "* **Description:**" in user
 
 
