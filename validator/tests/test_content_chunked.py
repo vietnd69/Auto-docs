@@ -474,3 +474,38 @@ def test_extract_removal_targets_camelcase_fallback():
     batch_text = "### `GetOwner(inst)`\ncontent\n"
     result = _extract_removal_targets(issues, batch_text)
     assert "GetOwner" in result
+
+
+# ── Task 4: _enforce_removals ─────────────────────────────────────────────────
+
+from validator.content.chunked import _enforce_removals
+
+
+def test_enforce_removals_deletes_hallucinated():
+    """Removes function blocks flagged as hallucinated."""
+    batch_text = (
+        "### `RealFunc(x)`\n* **Description:** real\n\n"
+        "### `FakeFunc(y)`\n* **Description:** fake\n\n"
+        "### `AnotherReal(z)`\n* **Description:** another\n"
+    )
+    issues = ["`FakeFunc` does not exist in the Lua source"]
+    result = _enforce_removals(batch_text, issues)
+    assert "### `RealFunc(x)`" in result
+    assert "### `FakeFunc(y)`" not in result
+    assert "### `AnotherReal(z)`" in result
+
+
+def test_enforce_removals_no_targets():
+    """No hallucination issues → text unchanged."""
+    batch_text = "### `Foo(x)`\ncontent\n"
+    issues = ["Wrong parameter type"]
+    result = _enforce_removals(batch_text, issues)
+    assert result == batch_text
+
+
+def test_enforce_removals_already_removed():
+    """Function already absent → text unchanged."""
+    batch_text = "### `Foo(x)`\ncontent\n"
+    issues = ["`Bar` does not exist in the Lua source"]
+    result = _enforce_removals(batch_text, issues)
+    assert result == batch_text

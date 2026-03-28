@@ -194,6 +194,22 @@ def _extract_removal_targets(issues: list[str], batch_text: str = "") -> set[str
     return candidates
 
 
+def _enforce_removals(batch_text: str, issues: list[str]) -> str:
+    """Auto-remove function blocks that reviewer flagged as hallucinated
+    but writer failed to delete."""
+    from validator.content.sections import extract_fn_headings_from_text, delete_fn_block
+
+    targets = _extract_removal_targets(issues, batch_text)
+    if not targets:
+        return batch_text
+    current_headings = extract_fn_headings_from_text(batch_text)
+    for fn_name in targets:
+        if fn_name in current_headings:
+            batch_text = delete_fn_block(batch_text, fn_name)
+            print(f"  [content/chunked] Auto-removed hallucinated: {fn_name}")
+    return batch_text
+
+
 def _is_bad_review(raw: str, result: ReviewResult) -> bool:
     """True if reviewer returned empty or unparseable response."""
     if not raw.strip():
