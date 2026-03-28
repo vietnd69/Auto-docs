@@ -422,3 +422,61 @@ def test_extract_fn_headings_from_text_empty():
 def test_extract_fn_headings_from_text_no_headings():
     """Text with no ### headings returns empty set."""
     assert extract_fn_headings_from_text("## Overview\nSome text\n") == set()
+
+
+from validator.content.sections import delete_fn_block
+
+
+def test_delete_fn_block_middle():
+    """Deletes a middle function block, preserving neighbors."""
+    text = (
+        "### `Foo(x)`\n* **Description:** foo\n\n"
+        "### `Bar(y)`\n* **Description:** bar\n\n"
+        "### `Baz(z)`\n* **Description:** baz\n"
+    )
+    result = delete_fn_block(text, "Bar")
+    assert "### `Foo(x)`" in result
+    assert "### `Bar(y)`" not in result
+    assert "### `Baz(z)`" in result
+
+
+def test_delete_fn_block_last():
+    """Deletes the last function block."""
+    text = "### `Foo(x)`\ncontent foo\n\n### `Bar(y)`\ncontent bar\n"
+    result = delete_fn_block(text, "Bar")
+    assert "### `Foo(x)`" in result
+    assert "### `Bar(y)`" not in result
+
+
+def test_delete_fn_block_dotted_name():
+    """Deletes block with dotted name like CLOSEINSPECTORUTIL.IsValidTarget."""
+    text = (
+        "### `CLOSEINSPECTORUTIL.IsValidTarget(inst)`\n* **Description:** check target\n\n"
+        "### `CLOSEINSPECTORUTIL.GetRange(inst)`\n* **Description:** get range\n"
+    )
+    result = delete_fn_block(text, "CLOSEINSPECTORUTIL.IsValidTarget")
+    assert "IsValidTarget" not in result
+    assert "GetRange" in result
+
+
+def test_delete_fn_block_not_found():
+    """Returns text unchanged if fn_name not found."""
+    text = "### `Foo(x)`\ncontent\n"
+    assert delete_fn_block(text, "NonExistent") == text
+
+
+def test_delete_fn_block_first():
+    """Deletes the first function block, preserving subsequent blocks."""
+    text = "### `Foo(x)`\ncontent foo\n\n### `Bar(y)`\ncontent bar\n"
+    result = delete_fn_block(text, "Foo")
+    assert "### `Foo(x)`" not in result
+    assert "### `Bar(y)`" in result
+    assert result.lstrip("\n").startswith("### `Bar(y)`")
+
+
+def test_delete_fn_block_collapses_blank_lines():
+    """Trailing blank lines after deletion are collapsed to one newline."""
+    text = "### `Foo(x)`\ncontent foo\n\n\n### `Bar(y)`\ncontent bar\n"
+    result = delete_fn_block(text, "Foo")
+    assert not result.startswith("\n\n")
+    assert "### `Bar(y)`" in result

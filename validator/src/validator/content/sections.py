@@ -114,6 +114,34 @@ def extract_fn_headings_from_text(text: str) -> set[str]:
     return {h.strip() for h in headings}
 
 
+def delete_fn_block(text: str, fn_name: str) -> str:
+    """Delete the ### function block for fn_name from text.
+
+    Block boundary: from the `### ` heading line containing fn_name
+    to the next `### ` heading (exclusive) or end-of-string.
+
+    Name matching: fn_name is matched against the heading text with
+    optional backticks, dots, and parameters stripped. For example,
+    fn_name="CLOSEINSPECTORUTIL.IsValidTarget" matches heading
+    `### \\`CLOSEINSPECTORUTIL.IsValidTarget(inst)\\``.
+
+    Trailing blank lines after deletion are collapsed to one newline.
+    Returns text unchanged if fn_name not found in any heading.
+    """
+    escaped = re.escape(fn_name)
+    pattern = re.compile(
+        rf'^### `?{escaped}\b[^\n]*\n'   # heading line
+        rf'(?:(?!^##(?:#)? ).*\n?)*',    # body lines until next ## or ### or EOF
+        re.MULTILINE,
+    )
+    result = pattern.sub('', text)
+    if result == text:
+        return text
+    # Collapse multiple blank lines to at most one
+    result = re.sub(r'\n{3,}', '\n\n', result)
+    return result
+
+
 def _normalize_fn_heading(heading: str) -> str:
     """Strip marker suffixes like *(Internal)*, *(Deprecated)* and backticks.
 
