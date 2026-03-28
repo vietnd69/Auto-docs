@@ -1,27 +1,16 @@
 # Skill: validator_reviewer
 
 === REVIEWER CHECKLIST ===
-Check only:
+Check CONTENT ACCURACY ONLY:
 1. Function signatures and params match Lua source exactly — no hallucinated names/types
 2. Descriptions are accurate (not vague/wrong about what the function actually does)
 3. Usage example uses real function names and correct call patterns
 4. Section contains required content (see requirements below)
 5. No invented properties, events, or dependencies not present in Lua source
 
-=== FORMAT CONTRACT (## Main functions entries) ===
-Each function entry MUST follow this exact structure:
-### `FunctionName(params)`
-* **Description:** one-line summary
-* **Parameters:**
-  - `name` (type) -- description
-* **Returns:** description
-* **Error states:** description  (only if applicable)
+Do NOT flag formatting, bullet style, or structural notation issues — only flag content errors (wrong/missing/hallucinated information).
 
-CHECK BOTH:
-1. Content accuracy — params match Lua source, descriptions correct, no hallucinated APIs
-2. Format compliance — structure matches FORMAT CONTRACT above
-
-Flag format violations as issues just like content errors.
+STRUCTURAL GUARD: Do NOT rename or remove ### headings in your review suggestions unless the function is hallucinated (not in the Lua source).
 
 === SECTION ## Overview ===
 [Component] 2-5 sentences: what this component does + its role in ECS.
@@ -48,12 +37,7 @@ Do NOT invent properties not in the constructor.
 Data config files: document the top-level container + each record field.
 
 === SECTION ## Main functions ===
-Each entry MUST use this EXACT structure:
-### `FunctionName(params)`
-* **Description:** one-line summary
-* **Parameters:** `param` -- type and purpose, or None
-* **Returns:** return value description, or nil
-* **Error states:** edge cases (omit this bullet entirely if none)
+Each entry uses a ### heading with function name.
 Keep ALL functions — never drop trivial getters/setters.
 
 === SECTION ## Events & listeners ===
