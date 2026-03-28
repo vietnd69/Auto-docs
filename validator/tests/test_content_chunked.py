@@ -416,3 +416,61 @@ def test_compact_messages_over_turn_limit():
     assert result[0]["role"] == "system"
     assert result[0]["content"] == "rules"
     assert result[-1]["content"] == "latest2"
+
+
+# ── Task 3: _extract_removal_targets ──────────────────────────────────────────
+
+from validator.content.chunked import _extract_removal_targets
+
+
+def test_extract_removal_targets_backtick_names():
+    """Extracts backtick-quoted names from hallucination issues."""
+    issues = [
+        "`CLOSEINSPECTORUTIL.IsValidTarget` does not exist in the Lua source",
+        "`CLOSEINSPECTORUTIL.IsValidPos` is hallucinated",
+    ]
+    batch_text = (
+        "### `CLOSEINSPECTORUTIL.IsValidTarget(inst)`\ncontent\n"
+        "### `CLOSEINSPECTORUTIL.IsValidPos(pos)`\ncontent\n"
+        "### `RealFunction(x)`\ncontent\n"
+    )
+    result = _extract_removal_targets(issues, batch_text)
+    assert "CLOSEINSPECTORUTIL.IsValidTarget" in result
+    assert "CLOSEINSPECTORUTIL.IsValidPos" in result
+    assert "RealFunction" not in result
+
+
+def test_extract_removal_targets_no_hallucination_phrases():
+    """Issues without removal-intent phrases are ignored."""
+    issues = ["Wrong parameter type for `GetOwner`"]
+    result = _extract_removal_targets(issues, "### `GetOwner(inst)`\ncontent\n")
+    assert result == set()
+
+
+def test_extract_removal_targets_empty_issues():
+    """Empty issues list returns empty set."""
+    assert _extract_removal_targets([], "") == set()
+
+
+def test_extract_removal_targets_cross_reference_filters():
+    """Names not present as headings in batch_text are excluded."""
+    issues = ["`FakeFunc` does not exist in the Lua source"]
+    batch_text = "### `RealFunc(x)`\ncontent\n"
+    result = _extract_removal_targets(issues, batch_text)
+    assert result == set()  # FakeFunc not in headings
+
+
+def test_extract_removal_targets_dotted_no_backtick():
+    """Dotted CamelCase names extracted even without backticks."""
+    issues = ["CLOSEINSPECTORUTIL.IsValidTarget is not found in the Lua source"]
+    batch_text = "### `CLOSEINSPECTORUTIL.IsValidTarget(inst)`\ncontent\n"
+    result = _extract_removal_targets(issues, batch_text)
+    assert "CLOSEINSPECTORUTIL.IsValidTarget" in result
+
+
+def test_extract_removal_targets_camelcase_fallback():
+    """CamelCase last-resort fallback when no backtick or dotted names."""
+    issues = ["GetOwner is hallucinated"]
+    batch_text = "### `GetOwner(inst)`\ncontent\n"
+    result = _extract_removal_targets(issues, batch_text)
+    assert "GetOwner" in result

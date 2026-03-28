@@ -148,6 +148,52 @@ from validator.content.sections import (
 from validator.content.writer import Patch, apply_patches, parse_writer_response, parse_writer_json
 
 
+_REMOVAL_PHRASES = (
+    "does not exist in the lua source",
+    "hallucinated",
+    "not present in the provided lua",
+    "should be removed",
+    "not found in",
+    "fabricated",
+    "doesn't appear in source",
+    "not defined in the lua",
+)
+
+
+def _extract_removal_targets(issues: list[str], batch_text: str = "") -> set[str]:
+    """Parse reviewer issues for hallucination flags, return function names to remove.
+
+    If batch_text is provided, cross-references against actual headings to prevent
+    false positives from CamelCase type/class names.
+    """
+    from validator.content.sections import extract_fn_headings_from_text
+
+    candidates: set[str] = set()
+    for issue in issues:
+        lower = issue.lower()
+        if not any(phrase in lower for phrase in _REMOVAL_PHRASES):
+            continue
+        # Primary: backtick-quoted names
+        backtick_names = re.findall(r'`([A-Z][\w.]+?)(?:\([^)]*\))?`', issue)
+        # Fallback: dot-qualified CamelCase
+        dotted_names = re.findall(r'\b([A-Z][\w]*(?:\.[A-Z][\w]*)+)\b', issue)
+        found = set(backtick_names) | set(dotted_names)
+        if not found:
+            # Last resort: CamelCase
+            found = set(_CAMEL_RE.findall(issue))
+        candidates |= found
+
+    if not candidates:
+        return set()
+
+    # Cross-reference against actual headings in batch_text
+    if batch_text:
+        actual_headings = extract_fn_headings_from_text(batch_text)
+        return candidates & actual_headings
+
+    return candidates
+
+
 def _is_bad_review(raw: str, result: ReviewResult) -> bool:
     """True if reviewer returned empty or unparseable response."""
     if not raw.strip():
