@@ -156,6 +156,7 @@ def restore_lost_blocks(
     fn_blocks: list[str],
     snapshot: set[str],
     backup_fn_blocks: list[str],
+    excluded_fn_names: set[str] | None = None,
 ) -> int:
     """Reinsert fn_blocks whose heading was in snapshot but is now missing.
 
@@ -165,6 +166,9 @@ def restore_lost_blocks(
 
     Skips restoration when a normalized-equivalent heading already exists
     (e.g. writer intentionally removed ``*(Internal)*`` duplicate).
+
+    excluded_fn_names: function names that were intentionally removed (e.g. by
+    Guard 2 hallucination enforcement) and must not be restored.
 
     Returns the number of blocks restored.
     """
@@ -184,6 +188,13 @@ def restore_lost_blocks(
         heading = block.split("\n", 1)[0].strip()
         if heading not in lost_headings:
             continue
+
+        # Skip blocks that were intentionally removed by hallucination enforcement
+        if excluded_fn_names:
+            fn_match = re.match(r'^### `?([^`(\n]+)', heading)
+            if fn_match and fn_match.group(1).strip() in excluded_fn_names:
+                skipped += 1
+                continue
 
         # Skip if a normalized-equivalent heading still exists
         if _normalize_fn_heading(heading) in current_normalized:

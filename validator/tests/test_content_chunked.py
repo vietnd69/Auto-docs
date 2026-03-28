@@ -597,3 +597,80 @@ def test_validate_patch_scope_allows_normal_patches():
     ]
     result = _validate_patch_scope(patches, "## Main functions")
     assert len(result) == 1
+
+
+# ── Task 10: Integration tests for guards in action ───────────────────────────
+
+@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)
+@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 5000)
+def test_guard2_removes_hallucinated_fn(tmp_path):
+    """Guard 2: hallucinated function flagged by reviewer is auto-removed even if writer fails."""
+    md_content = (
+        "---\ntitle: Test\n---\n## Main functions\n\n"
+        + _make_fn_block("RealFunc")
+        + _make_fn_block("HallucinatedFunc")
+    )
+    lua_content = "function RealFunc(arg) end\n"
+    md_path = tmp_path / "doc.md"
+    lua_path = tmp_path / "doc.lua"
+    md_path.write_text(md_content, encoding="utf-8")
+    lua_path.write_text(lua_content, encoding="utf-8")
+
+    call_count = 0
+    def _mock_chat(model, messages, **kw):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            # Reviewer flags HallucinatedFunc
+            return _rejected(["`HallucinatedFunc` does not exist in the Lua source"])
+        if call_count == 2:
+            # Writer returns empty patches (fails to delete)
+            return _no_patches()
+        return _approved()
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=_mock_chat):
+        run_chunked_content_loop(str(md_path), str(lua_path), _config(max_iterations=3))
+
+    result_md = md_path.read_text(encoding="utf-8")
+    assert "### `RealFunc(arg)`" in result_md
+    assert "HallucinatedFunc" not in result_md
+
+
+@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)
+@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 5000)
+def test_guard3_rejects_heading_deleting_patch(tmp_path):
+    """Guard 3: patch that deletes a heading without removal reason is rejected."""
+    md_content = (
+        "---\ntitle: Test\n---\n## Main functions\n\n"
+        + _make_fn_block("Foo")
+        + _make_fn_block("Bar")
+    )
+    lua_content = "function Foo(arg) end\nfunction Bar(arg) end\n"
+    md_path = tmp_path / "doc.md"
+    lua_path = tmp_path / "doc.lua"
+    md_path.write_text(md_content, encoding="utf-8")
+    lua_path.write_text(lua_content, encoding="utf-8")
+
+    original_block = _make_fn_block("Bar")
+    call_count = 0
+    def _mock_chat(model, messages, **kw):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return _rejected(["Wrong description for Bar"])
+        if call_count == 2:
+            # Writer tries to delete Bar heading (no removal reason)
+            body = json.dumps([{
+                "old_text": original_block,
+                "new_text": "* **Description:** bar fixed\n",
+                "reason": "reformat entry",
+            }])
+            return {"message": {"content": body}}
+        return _approved()
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=_mock_chat):
+        run_chunked_content_loop(str(md_path), str(lua_path), _config(max_iterations=3))
+
+    result_md = md_path.read_text(encoding="utf-8")
+    # Bar heading should still exist (guard rejected the patch)
+    assert "### `Bar(arg)`" in result_md

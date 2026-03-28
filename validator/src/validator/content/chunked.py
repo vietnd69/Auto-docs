@@ -496,6 +496,7 @@ def run_chunked_content_loop(
             snapshot = extract_fn_headings(fn_blocks)
             backup = list(fn_blocks)
             batches = sub_chunk_section(fn_blocks, BATCH_TOKEN_LIMIT)
+            intentionally_removed: set[str] = set()  # tracks Guard 2 removals
 
             fn_desc = f"{len(fn_blocks)} fn(s) in {len(batches)} batch(es)"
             print(
@@ -587,7 +588,14 @@ def run_chunked_content_loop(
                             f"  [content/chunked] Section {idx} batch {batch_idx} — "
                             "writer gave up, batch stays failed"
                         )
+                        # Guard 2: even if writer returned no patches, enforce removals
+                        removal_targets = _extract_removal_targets(batch_last_review.issues, batch_text)
+                        intentionally_removed |= removal_targets
+                        batch_text = _enforce_removals(batch_text, batch_last_review.issues)
                         break
+                    intentionally_removed |= _extract_removal_targets(
+                        batch_last_review.issues, batch_text
+                    )
                     batch_text, failed, ambiguous = _apply_guarded_patches(
                         batch_text, patches, batch_last_review.issues,
                         section.heading, backup,
@@ -634,7 +642,8 @@ def run_chunked_content_loop(
                 offset += len(updated)
 
             # Restore any function entries lost during patching
-            restored = restore_lost_blocks(fn_blocks, snapshot, backup)
+            # (pass intentionally_removed so Guard 2 removals are not re-added)
+            restored = restore_lost_blocks(fn_blocks, snapshot, backup, intentionally_removed)
             if restored:
                 print(
                     f"  [content/chunked] Restored {restored} lost fn entries "
@@ -737,6 +746,8 @@ def run_chunked_content_loop(
                         f"  [content/chunked] Section {idx}/{len(sections)} — "
                         "writer gave up, section stays failed"
                     )
+                    # Guard 2: even if writer returned no patches, enforce removals
+                    section.text = _enforce_removals(section.text, last_review.issues)
                     break
 
                 section.text, failed, ambiguous = _apply_guarded_patches(
