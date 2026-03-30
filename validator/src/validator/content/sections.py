@@ -94,6 +94,51 @@ def sub_chunk_section(fn_blocks: list[str], limit: int) -> list[list[str]]:
     return batches
 
 
+def sub_chunk_section_lua_aware(
+    fn_blocks: list[str],
+    lua_source: str,
+    lua_token_limit: int,
+    doc_token_limit: int,
+) -> list[list[str]]:
+    """Group fn_blocks into batches respecting both Lua context and doc token budgets.
+
+    Primary constraint: cumulative Lua source tokens for the batch ≤ lua_token_limit.
+    Secondary constraint: cumulative doc tokens ≤ doc_token_limit.
+    A block exceeding either limit on its own goes into its own batch (never split).
+
+    Using Lua budget as primary constraint guarantees extract_lua_context never
+    truncates — each batch's source context fits within the allowed token window.
+    Functions not found in the source (hallucinated) have lua_tokens=0 and don't
+    consume Lua budget.
+    """
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_lua_tokens = 0
+    current_doc_tokens = 0
+
+    for block in fn_blocks:
+        fn_names = extract_function_names(block)
+        lua_ctx = extract_lua_context(lua_source, fn_names, max_tokens=lua_token_limit)
+        lua_tokens = count_tokens(lua_ctx) if lua_ctx else 0
+        doc_tokens = count_tokens(block)
+
+        would_exceed_lua = lua_tokens > 0 and current_lua_tokens + lua_tokens > lua_token_limit
+        would_exceed_doc = current_doc_tokens + doc_tokens > doc_token_limit
+        if current and (would_exceed_lua or would_exceed_doc):
+            batches.append(current)
+            current = [block]
+            current_lua_tokens = lua_tokens
+            current_doc_tokens = doc_tokens
+        else:
+            current.append(block)
+            current_lua_tokens += lua_tokens
+            current_doc_tokens += doc_tokens
+
+    if current:
+        batches.append(current)
+    return batches
+
+
 def extract_fn_headings(fn_blocks: list[str]) -> set[str]:
     """Return the first-line heading of each non-empty block.
 
@@ -221,10 +266,10 @@ def restore_lost_blocks(
 
 
 _FN_PATTERNS: list[tuple[str, int]] = [
-    (r'^###\s+`?(\w+)`?', re.MULTILINE),  # ### FunctionName heading
-    (r'`(\w+)\s*\(',      0),             # `FuncName(
-    (r'[\w.]+:(\w+)\s*\(', 0),           # inst:Method(
-    (r'`([A-Z][A-Za-z_]\w*)`', 0),       # `CapitalizedName` (no parens)
+    (r'^###\s+`?([\w.]+)',  re.MULTILINE),  # ### FunctionName or ### TABLE.Method heading
+    (r'`(\w+)\s*\(',        0),             # `FuncName(
+    (r'[\w.]+:(\w+)\s*\(',  0),            # inst:Method(
+    (r'`([A-Z][A-Za-z_]\w*)`', 0),         # `CapitalizedName` (no parens)
 ]
 
 
@@ -266,6 +311,93 @@ def _def_patterns(name: str) -> list[re.Pattern[str]]:
         rf'\w+\.{n}\s*=\s*function\s*\(',  # Tbl.Name = function(
         rf'\b{n}\s*=\s*function\s*\(',     # Name = function(
     ]]
+
+
+# ── Pre-filter: locality classification ──────────────────────────────────────
+
+_LOCAL_FN_RE = re.compile(r'^local\s+function\s+(\w+)')
+_LOCAL_ASSIGN_RE = re.compile(r'^local\s+(\w+)\s*=\s*function')
+_GLOBAL_FN_RE = re.compile(r'^function\s+([\w.:]+)\s*\(')
+
+
+def classify_lua_functions(lua_source: str) -> dict[str, str]:
+    """Return {'name': 'local'|'global'} for each function defined in lua_source.
+
+    Classification is line-prefix based. Last definition wins — correct for Lua
+    scoping where a public wrapper function follows an inner local closure.
+    """
+    result: dict[str, str] = {}
+    for line in lua_source.splitlines():
+        m = _LOCAL_FN_RE.match(line)
+        if m:
+            result[m.group(1)] = "local"
+            continue
+        m = _LOCAL_ASSIGN_RE.match(line)
+        if m:
+            result[m.group(1)] = "local"
+            continue
+        m = _GLOBAL_FN_RE.match(line)
+        if m:
+            result[m.group(1)] = "global"
+    return result
+
+
+_REQUIRED_FIELDS = ("Description", "Parameters", "Returns")
+
+
+def prefilter_fn_blocks(
+    fn_blocks: list[str],
+    lua_source: str,
+) -> tuple[list[str], list[str]]:
+    """Strip local and hallucinated function blocks.
+
+    Returns (kept_blocks, stripped_names) where stripped_names contains the
+    raw function names that were removed. Pass stripped_names to the review
+    loop as intentionally_removed so apply_typed_ops silently skips any
+    delete_function op targeting those names.
+    """
+    classification = classify_lua_functions(lua_source)
+    kept: list[str] = []
+    stripped: list[str] = []
+
+    for block in fn_blocks:
+        heading = block.split("\n", 1)[0]
+        m = re.match(r'^### `?([^`(\n]+)', heading)
+        if not m:
+            kept.append(block)  # unparseable heading — keep as fail-safe
+            continue
+        name = m.group(1).strip()
+
+        # Existence check (hallucination filter)
+        patterns = _def_patterns(name)
+        if not any(p.search(lua_source) for p in patterns):
+            stripped.append(name)
+            continue
+
+        # Locality check
+        if classification.get(name) == "local":
+            stripped.append(name)
+            continue
+
+        kept.append(block)
+
+    return kept, stripped
+
+
+def ensure_required_fields(fn_blocks: list[str]) -> list[str]:
+    """Ensure every fn_block has Description, Parameters, Returns fields.
+
+    If a field is absent, appends a skeleton line so the reviewer always
+    has a target. Pure function — never mutates input blocks.
+    """
+    result: list[str] = []
+    for block in fn_blocks:
+        updated = block
+        for field in _REQUIRED_FIELDS:
+            if f"* **{field}:**" not in block:
+                updated = updated.rstrip("\n") + f"\n* **{field}:** TODO\n"
+        result.append(updated)
+    return result
 
 
 def _extract_block(lines: list[str], def_idx: int) -> str:

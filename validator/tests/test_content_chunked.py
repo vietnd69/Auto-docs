@@ -530,8 +530,10 @@ def test_validate_patch_scope_rejects_heading_deletion():
             reason="reformat entry",
         )
     ]
-    result = _validate_patch_scope(patches, "## Main functions")
-    assert len(result) == 0
+    valid, rejections = _validate_patch_scope(patches, "## Main functions")
+    assert len(valid) == 0
+    assert len(rejections) == 1
+    assert "hallucinated" in rejections[0]
 
 
 def test_validate_patch_scope_allows_heading_deletion_with_removal_reason():
@@ -543,21 +545,60 @@ def test_validate_patch_scope_allows_heading_deletion_with_removal_reason():
             reason="remove hallucinated function",
         )
     ]
-    result = _validate_patch_scope(patches, "## Main functions")
-    assert len(result) == 1
+    valid, rejections = _validate_patch_scope(patches, "## Main functions")
+    assert len(valid) == 1
+    assert len(rejections) == 0
 
 
-def test_validate_patch_scope_rejects_nonstandard_fields():
-    """Patch introducing non-standard field in Main functions is rejected."""
+def test_validate_patch_scope_allows_nonstandard_fields_within_budget():
+    """Patch introducing up to 3 non-standard fields in Main functions is allowed."""
     patches = [
         Patch(
             old_text="* **Description:** old\n",
-            new_text="* **Description:** new\n* **Note:** extra info\n",
-            reason="add note",
+            new_text="* **Description:** new\n* **Notes:** extra info\n",
+            reason="add notes",
         )
     ]
-    result = _validate_patch_scope(patches, "## Main functions")
-    assert len(result) == 0
+    valid, rejections = _validate_patch_scope(patches, "## Main functions")
+    assert len(valid) == 1
+    assert len(rejections) == 0
+
+
+def test_validate_patch_scope_rejects_too_many_nonstandard_fields():
+    """Patch that would push non-standard field count beyond 3 is rejected."""
+    # current_text already has 3 non-standard fields seeded
+    current_text = (
+        "* **Notes:** info\n"
+        "* **Behavior:** detail\n"
+        "* **Remarks:** note\n"
+    )
+    patches = [
+        Patch(
+            old_text="* **Description:** old\n",
+            new_text="* **Description:** new\n* **Extra:** fourth field\n",
+            reason="add extra field",
+        )
+    ]
+    valid, rejections = _validate_patch_scope(patches, "## Main functions", current_text)
+    assert len(valid) == 0
+    assert len(rejections) == 1
+    assert "non-standard" in rejections[0]
+
+
+def test_validate_patch_scope_rejects_core_field_removal():
+    """Patch that removes a core field label (renaming Error states → Notes) is rejected."""
+    patches = [
+        Patch(
+            old_text="* **Error states:** triggers on YOTG\n",
+            new_text="* **Notes:** triggers on YOTG\n",
+            reason="rename error states to notes",
+        )
+    ]
+    valid, rejections = _validate_patch_scope(patches, "## Main functions")
+    assert len(valid) == 0
+    assert len(rejections) == 1
+    assert "Error states" in rejections[0]
+    assert "None" in rejections[0]  # actionable hint present
 
 
 def test_validate_patch_scope_allows_standard_fields():
@@ -569,8 +610,9 @@ def test_validate_patch_scope_allows_standard_fields():
             reason="fix return",
         )
     ]
-    result = _validate_patch_scope(patches, "## Main functions")
-    assert len(result) == 1
+    valid, rejections = _validate_patch_scope(patches, "## Main functions")
+    assert len(valid) == 1
+    assert len(rejections) == 0
 
 
 def test_validate_patch_scope_skips_field_check_for_non_main():
@@ -582,8 +624,9 @@ def test_validate_patch_scope_skips_field_check_for_non_main():
             reason="add deps",
         )
     ]
-    result = _validate_patch_scope(patches, "## Dependencies & tags")
-    assert len(result) == 1
+    valid, rejections = _validate_patch_scope(patches, "## Dependencies & tags")
+    assert len(valid) == 1
+    assert len(rejections) == 0
 
 
 def test_validate_patch_scope_allows_normal_patches():
@@ -595,8 +638,40 @@ def test_validate_patch_scope_allows_normal_patches():
             reason="fix description",
         )
     ]
-    result = _validate_patch_scope(patches, "## Main functions")
-    assert len(result) == 1
+    valid, rejections = _validate_patch_scope(patches, "## Main functions")
+    assert len(valid) == 1
+    assert len(rejections) == 0
+
+
+def test_validate_patch_scope_allows_block_deletion_with_error_states():
+    """Patch that deletes an entire function block (which contains Error states) is allowed.
+
+    Guard 3 must NOT reject patches where 'Error states' disappears because the whole
+    function block is being intentionally removed — only check surviving blocks.
+    """
+    kept_block = (
+        "### `RealFunc(x)`\n"
+        "* **Description:** real.\n"
+        "* **Parameters:**\n  - `x` (number) -- input.\n"
+        "* **Returns:** nil\n\n"
+    )
+    deleted_block = (
+        "### `HallucinatedFunc(y)`\n"
+        "* **Description:** fake.\n"
+        "* **Parameters:**\n  - `y` (number) -- unused.\n"
+        "* **Returns:** nil\n"
+        "* **Error states:** none\n\n"
+    )
+    patches = [
+        Patch(
+            old_text=kept_block + deleted_block,
+            new_text=kept_block,
+            reason="remove hallucinated function",
+        )
+    ]
+    valid, rejections = _validate_patch_scope(patches, "## Main functions")
+    assert len(valid) == 1, "Guard 3 should allow deleting an entire block that contains Error states"
+    assert len(rejections) == 0
 
 
 # ── Task 10: Integration tests for guards in action ───────────────────────────
@@ -674,3 +749,123 @@ def test_guard3_rejects_heading_deleting_patch(tmp_path):
     result_md = md_path.read_text(encoding="utf-8")
     # Bar heading should still exist (guard rejected the patch)
     assert "### `Bar(arg)`" in result_md
+
+
+# ── Task 2: classify_lua_functions ───────────────────────────────────────────
+
+from validator.content.sections import (
+    classify_lua_functions,
+    prefilter_fn_blocks,
+    ensure_required_fields,
+)
+
+
+def test_classify_local_function_keyword():
+    lua = "local function _ispassable(x, y) return true end\n"
+    result = classify_lua_functions(lua)
+    assert result["_ispassable"] == "local"
+
+
+def test_classify_local_assignment():
+    lua = "local MyFn = function(x) return x end\n"
+    result = classify_lua_functions(lua)
+    assert result["MyFn"] == "local"
+
+
+def test_classify_global_function():
+    lua = "function GetOwner(inst) return inst.owner end\n"
+    result = classify_lua_functions(lua)
+    assert result["GetOwner"] == "global"
+
+
+def test_classify_last_definition_wins():
+    """Local closure followed by global wrapper → last definition (global) wins."""
+    lua = (
+        "local function GetOwner(inst) return nil end\n"
+        "function GetOwner(inst) return inst.owner end\n"
+    )
+    result = classify_lua_functions(lua)
+    assert result["GetOwner"] == "global"
+
+
+def test_classify_empty_source():
+    assert classify_lua_functions("") == {}
+
+
+# ── Task 2: prefilter_fn_blocks ──────────────────────────────────────────────
+
+def test_prefilter_removes_local_fn():
+    lua = "local function _helper() end\nfunction RealFn(x) end\n"
+    blocks = [
+        "### `_helper()`\n* **Description:** internal\n",
+        "### `RealFn(x)`\n* **Description:** public\n",
+    ]
+    kept, stripped = prefilter_fn_blocks(blocks, lua)
+    assert len(kept) == 1
+    assert kept[0].startswith("### `RealFn")
+    assert "_helper" in stripped
+
+
+def test_prefilter_removes_hallucinated():
+    lua = "function RealFn(x) end\n"
+    blocks = [
+        "### `FakeFunc(x)`\n* **Description:** fake\n",
+        "### `RealFn(x)`\n* **Description:** real\n",
+    ]
+    kept, stripped = prefilter_fn_blocks(blocks, lua)
+    assert len(kept) == 1
+    assert "FakeFunc" in stripped
+
+
+def test_prefilter_backtick_stripping_snake_case():
+    """Backtick-quoted snake_case name extracted correctly before lookup."""
+    lua = "local function _ispassable(x, y, sim) return true end\n"
+    blocks = ["### `_ispassable(x, y, sim)`\n* **Description:** check\n"]
+    kept, stripped = prefilter_fn_blocks(blocks, lua)
+    assert kept == []
+    assert "_ispassable" in stripped
+
+
+def test_prefilter_all_local_returns_empty_kept():
+    """All functions local → kept_blocks empty, loop should skip review."""
+    lua = "local function Foo() end\nlocal function Bar() end\n"
+    blocks = ["### `Foo()`\n...", "### `Bar()`\n..."]
+    kept, stripped = prefilter_fn_blocks(blocks, lua)
+    assert kept == []
+    assert len(stripped) == 2
+
+
+def test_prefilter_unrecognized_heading_kept():
+    """Block with unparseable ### heading is kept (fail-safe)."""
+    blocks = ["### (no name here)\ncontent\n"]
+    kept, stripped = prefilter_fn_blocks(blocks, "function Foo() end\n")
+    assert len(kept) == 1
+    assert stripped == []
+
+
+# ── Task 2: ensure_required_fields ───────────────────────────────────────────
+
+def test_ensure_required_fields_adds_missing():
+    block = "### `Foo(x)`\n* **Description:** does stuff\n"
+    result = ensure_required_fields([block])
+    assert "* **Parameters:**" in result[0]
+    assert "* **Returns:**" in result[0]
+
+
+def test_ensure_required_fields_no_duplicate():
+    block = (
+        "### `Foo(x)`\n"
+        "* **Description:** x\n"
+        "* **Parameters:** None\n"
+        "* **Returns:** nil\n"
+    )
+    result = ensure_required_fields([block])
+    assert result[0].count("* **Parameters:**") == 1
+
+
+def test_ensure_required_fields_pure_function():
+    """ensure_required_fields must not mutate its input."""
+    block = "### `Foo()`\n* **Description:** x\n"
+    original = block
+    ensure_required_fields([block])
+    assert block == original
