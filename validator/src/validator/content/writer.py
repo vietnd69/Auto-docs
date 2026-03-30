@@ -32,6 +32,17 @@ class Patch:
     reason: str
 
 
+@dataclass
+class TypedOp:
+    """A semantically typed operation targeting a structural element by name."""
+    op: str                # "update_section" | "update_field" | "rewrite_function" | "delete_function"
+    section: str           # target section heading, e.g. "## Main functions"
+    function: str | None = None   # target fn name (None for section-level ops)
+    field: str | None = None      # target field name (None for whole-section/function ops)
+    value: str | None = None      # new inline value (single-line), used by update_field
+    content: str | None = None    # full replacement content, used by update_section/rewrite_function
+
+
 def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["Patch"]]:
     """Apply patches to content via str.replace(). Returns (new_content, failed_count, ambiguous_patches)."""
     failed = 0
@@ -87,6 +98,32 @@ def parse_writer_json(data: list) -> list[Patch]:
         for item in data
         if isinstance(item, dict) and item.get("old_text")
     ]
+
+
+def parse_typed_op_response(raw: str) -> "TypedOp | None":
+    """Parse writer response for a single TypedOp. Returns None on failure."""
+    cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+    cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    try:
+        data = json.loads(cleaned)
+        return parse_typed_op_json(data)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def parse_typed_op_json(data: dict) -> "TypedOp | None":
+    """Parse pre-validated JSON dict into TypedOp. Returns None if op field missing."""
+    if not isinstance(data, dict) or not data.get("op"):
+        return None
+    return TypedOp(
+        op=str(data["op"]),
+        section=str(data.get("section", "")),
+        function=data.get("function") or None,
+        field=data.get("field") or None,
+        value=data.get("value") or None,
+        content=data.get("content") or None,
+    )
 
 
 def rewrite_document(

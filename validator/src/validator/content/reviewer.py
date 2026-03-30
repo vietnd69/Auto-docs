@@ -31,6 +31,16 @@ class ReviewResult:
     suggestions: list[str]
 
 
+@dataclass
+class Finding:
+    """One content accuracy issue targeting a specific (section, function, field)."""
+    section: str           # e.g. "## Overview", "## Main functions"
+    function: str | None   # None for non-function sections
+    field: str | None      # e.g. "Returns", "Description", None = whole section/function
+    rule_id: str           # typed identifier from allowed set for the section
+    issue: str             # human-readable description
+
+
 def parse_review_response(raw: str) -> ReviewResult:
     """Parse LLM2 response into ReviewResult. Handles JSON in markdown fences."""
     # Strip markdown code fence if present
@@ -76,6 +86,36 @@ def parse_review_json(data: dict) -> ReviewResult:
         issues = list(data.get("issues", []))
         suggestions = list(data.get("suggestions", []))
     return ReviewResult(approved=approved, issues=issues, suggestions=suggestions)
+
+
+def parse_findings_response(raw: str) -> list["Finding"]:
+    """Parse LLM reviewer response into list of Finding objects."""
+    cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+    cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    try:
+        data = json.loads(cleaned)
+        return parse_findings_json(data)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def parse_findings_json(data: dict) -> list["Finding"]:
+    """Parse pre-validated JSON dict into Finding list."""
+    if not isinstance(data, dict):
+        return []
+    findings_data = data.get("findings") or []
+    result = []
+    for f in findings_data:
+        if isinstance(f, dict) and f.get("rule_id") and f.get("issue"):
+            result.append(Finding(
+                section=str(f.get("section", "")),
+                function=f.get("function") or None,
+                field=f.get("field") or None,
+                rule_id=str(f["rule_id"]),
+                issue=str(f["issue"]),
+            ))
+    return result
 
 
 def review_document(
