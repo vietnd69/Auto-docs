@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 # validator/src/validator/content/sections.py
 """Markdown section splitting and Lua context extraction for chunked content validation."""
 
@@ -397,6 +399,77 @@ def ensure_required_fields(fn_blocks: list[str]) -> list[str]:
             if f"* **{field}:**" not in block:
                 updated = updated.rstrip("\n") + f"\n* **{field}:** TODO\n"
         result.append(updated)
+    return result
+
+
+# ── Apply engine ──────────────────────────────────────────────────────────────
+
+def _update_field_in_text(text: str, field: str, value: str) -> str:
+    """Replace single-line '* **{field}:** ...' with '* **{field}:** {value}'.
+
+    Only replaces the first match. Multi-line fields (nested bullets) are not
+    targeted — use update_section or rewrite_function for those.
+    """
+    if not field:
+        return text
+    pattern = re.compile(rf'^\* \*\*{re.escape(field)}:\*\*.*$', re.MULTILINE)
+    return pattern.sub(f"* **{field}:** {value}", text, count=1)
+
+
+def apply_typed_ops(
+    sections: list[DocSection],
+    ops: list,  # list[TypedOp] — late import to avoid circular dep
+    frontmatter: str,
+    intentionally_removed: set[str] | None = None,
+) -> list[DocSection]:
+    """Apply typed operations to sections. Returns new list (no mutation).
+
+    intentionally_removed: names pre-stripped by prefilter_fn_blocks; any
+    delete_function op targeting these names is silently skipped.
+    """
+    from validator.content.writer import TypedOp  # local import avoids circular dep at module load
+
+    result = [DocSection(heading=s.heading, text=s.text) for s in sections]
+    removed = intentionally_removed or set()
+
+    for op in ops:
+        if not isinstance(op, TypedOp):
+            continue
+        idx = next((i for i, s in enumerate(result) if s.heading == op.section), None)
+        if idx is None:
+            continue  # section not found — silent no-op
+        section = result[idx]
+
+        if op.op == "update_section":
+            section.text = op.content or ""
+
+        elif op.op == "update_field" and op.function:
+            preamble, fn_blocks = split_section_blocks(section.text)
+            for j, block in enumerate(fn_blocks):
+                bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
+                if bm and bm.group(1).strip() == op.function:
+                    fn_blocks[j] = _update_field_in_text(block, op.field or "", op.value or "")
+                    break
+            section.text = preamble + "".join(fn_blocks)
+
+        elif op.op == "update_field":
+            section.text = _update_field_in_text(section.text, op.field or "", op.value or "")
+
+        elif op.op == "rewrite_function" and op.function:
+            preamble, fn_blocks = split_section_blocks(section.text)
+            for j, block in enumerate(fn_blocks):
+                bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
+                if bm and bm.group(1).strip() == op.function:
+                    fn_blocks[j] = op.content or ""
+                    break
+            # If function not found: no-op (loop completes without modifying)
+            section.text = preamble + "".join(fn_blocks)
+
+        elif op.op == "delete_function" and op.function:
+            if op.function in removed:
+                continue  # already pre-stripped — silent no-op
+            section.text = delete_fn_block(section.text, op.function)
+
     return result
 
 

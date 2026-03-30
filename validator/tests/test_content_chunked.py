@@ -869,3 +869,93 @@ def test_ensure_required_fields_pure_function():
     original = block
     ensure_required_fields([block])
     assert block == original
+
+
+# ── Task 3: apply_typed_ops ──────────────────────────────────────────────────
+
+from validator.content.sections import apply_typed_ops, DocSection
+from validator.content.writer import TypedOp
+
+
+def _section(heading: str, text: str) -> DocSection:
+    return DocSection(heading=heading, text=text)
+
+
+def test_apply_update_section():
+    sections = [_section("## Overview", "## Overview\nOld text.\n")]
+    op = TypedOp(op="update_section", section="## Overview", content="## Overview\nNew text.\n")
+    result = apply_typed_ops(sections, [op], frontmatter="")
+    assert result[0].text == "## Overview\nNew text.\n"
+
+
+def test_apply_update_field_in_section():
+    sections = [_section("## Overview", "## Overview\n* **Description:** wrong\n")]
+    op = TypedOp(op="update_field", section="## Overview", field="Description", value="correct")
+    result = apply_typed_ops(sections, [op], frontmatter="")
+    assert "* **Description:** correct" in result[0].text
+    assert "wrong" not in result[0].text
+
+
+def test_apply_update_field_in_function():
+    fn_block = "### `Foo(x)`\n* **Returns:** wrong\n"
+    sections = [_section("## Main functions", "## Main functions\n" + fn_block)]
+    op = TypedOp(op="update_field", section="## Main functions", function="Foo", field="Returns", value="entity")
+    result = apply_typed_ops(sections, [op], frontmatter="")
+    assert "* **Returns:** entity" in result[0].text
+    assert "wrong" not in result[0].text
+
+
+def test_apply_rewrite_function():
+    fn_block = "### `Foo(x)`\n* **Description:** old\n"
+    sections = [_section("## Main functions", "## Main functions\n" + fn_block)]
+    new_block = "### `Foo(x)`\n* **Description:** new\n"
+    op = TypedOp(op="rewrite_function", section="## Main functions", function="Foo", content=new_block)
+    result = apply_typed_ops(sections, [op], frontmatter="")
+    assert "new" in result[0].text
+    assert "old" not in result[0].text
+
+
+def test_apply_rewrite_function_not_found_no_exception():
+    """Rewrite op for non-existent function → silent no-op, no exception."""
+    sections = [_section("## Main functions", "## Main functions\n### `Bar()`\ncontent\n")]
+    op = TypedOp(op="rewrite_function", section="## Main functions", function="NonExistent", content="x")
+    result = apply_typed_ops(sections, [op], frontmatter="")
+    assert "Bar" in result[0].text  # original preserved
+
+
+def test_apply_delete_function():
+    sections = [_section("## Main functions",
+        "## Main functions\n### `Foo()`\nfoo\n\n### `Bar()`\nbar\n")]
+    op = TypedOp(op="delete_function", section="## Main functions", function="Foo")
+    result = apply_typed_ops(sections, [op], frontmatter="")
+    assert "### `Foo()`" not in result[0].text
+    assert "### `Bar()`" in result[0].text
+
+
+def test_apply_delete_function_intentionally_removed_noop():
+    """delete_function for already-stripped name → silent no-op."""
+    sections = [_section("## Main functions",
+        "## Main functions\n### `Bar()`\nbar\n")]
+    op = TypedOp(op="delete_function", section="## Main functions", function="_helper")
+    result = apply_typed_ops(
+        sections, [op], frontmatter="",
+        intentionally_removed={"_helper"}
+    )
+    assert result[0].text == sections[0].text  # unchanged
+
+
+def test_apply_section_not_found_noop():
+    """Op targeting missing section → no exception, other sections unchanged."""
+    sections = [_section("## Overview", "## Overview\ncontent\n")]
+    op = TypedOp(op="update_section", section="## NonExistent", content="new")
+    result = apply_typed_ops(sections, [op], frontmatter="")
+    assert result[0].text == "## Overview\ncontent\n"
+
+
+def test_apply_does_not_mutate_input():
+    """apply_typed_ops must return new sections, not modify input."""
+    original_text = "## Overview\noriginal\n"
+    sections = [_section("## Overview", original_text)]
+    op = TypedOp(op="update_section", section="## Overview", content="## Overview\nnew\n")
+    apply_typed_ops(sections, [op], frontmatter="")
+    assert sections[0].text == original_text  # input unchanged
