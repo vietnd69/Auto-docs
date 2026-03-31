@@ -1049,3 +1049,75 @@ def test_extract_respects_max_tokens():
     tokens = count_tokens(result)
     if tokens != -1:
         assert tokens <= 110  # allow small margin for truncation marker
+
+
+# ── Task 6: parse_findings_response / parse_typed_op_response ────────────────
+
+import json as _json
+
+from validator.content.reviewer import Finding, parse_findings_response, parse_findings_json
+from validator.content.writer import TypedOp, parse_typed_op_response, parse_typed_op_json
+
+
+def test_parse_findings_response_approved():
+    raw = '{"approved": true, "findings": []}'
+    findings = parse_findings_response(raw)
+    assert findings == []
+
+
+def test_parse_findings_response_with_finding():
+    raw = _json.dumps({
+        "approved": False,
+        "findings": [{
+            "section": "## Main functions",
+            "function": "GetOwner",
+            "field": "Returns",
+            "rule_id": "WRONG_VALUE",
+            "issue": "Returns description is wrong",
+        }]
+    })
+    findings = parse_findings_response(raw)
+    assert len(findings) == 1
+    assert findings[0].rule_id == "WRONG_VALUE"
+    assert findings[0].function == "GetOwner"
+
+
+def test_parse_findings_response_strips_think_tags():
+    raw = '<think>thinking...</think>{"approved": true, "findings": []}'
+    findings = parse_findings_response(raw)
+    assert findings == []
+
+
+def test_parse_findings_response_malformed_returns_empty():
+    assert parse_findings_response("not json") == []
+
+
+def test_parse_findings_json_missing_rule_id_skipped():
+    """Findings without rule_id are silently skipped."""
+    data = {"approved": False, "findings": [{"section": "## Overview", "issue": "bad"}]}
+    findings = parse_findings_json(data)
+    assert findings == []
+
+
+def test_parse_typed_op_response_update_field():
+    raw = _json.dumps({
+        "op": "update_field",
+        "section": "## Main functions",
+        "function": "GetOwner",
+        "field": "Returns",
+        "value": "entity or nil",
+        "content": None,
+    })
+    op = parse_typed_op_response(raw)
+    assert op is not None
+    assert op.op == "update_field"
+    assert op.value == "entity or nil"
+
+
+def test_parse_typed_op_response_missing_op_returns_none():
+    raw = _json.dumps({"section": "## Overview"})
+    assert parse_typed_op_response(raw) is None
+
+
+def test_parse_typed_op_response_malformed_returns_none():
+    assert parse_typed_op_response("broken") is None
