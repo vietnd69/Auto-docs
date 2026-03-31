@@ -517,6 +517,89 @@ def _truncate_blocks_to_lua_limit(blocks: list[str], limit: int = LUA_CONTEXT_TO
     return result
 
 
+def extract_section_lua_context(
+    section_heading: str,
+    lua_source: str,
+    max_tokens: int,
+) -> str:
+    """Return a Lua excerpt tailored to the section being reviewed.
+
+    Each heading type receives a different extraction strategy.
+    Returns "" for unknown section types.
+    """
+    lines = lua_source.splitlines(keepends=True)
+
+    if section_heading == "## Overview":
+        # Lines up to (not including) the first function definition
+        module_lines: list[str] = []
+        for line in lines:
+            if re.match(r'^(local\s+)?function\b', line):
+                break
+            module_lines.append(line.rstrip("\n"))
+        blocks = ["\n".join(module_lines)] if module_lines else []
+
+    elif section_heading == "## Usage example":
+        # Public function signatures: definition line only, no body
+        sig_lines = [
+            line.rstrip("\n")
+            for line in lines
+            if re.match(r'^function\s+\w+', line)
+        ]
+        blocks = sig_lines  # one item per signature line
+
+    elif section_heading == "## Dependencies & tags":
+        dep_lines = [
+            line.rstrip("\n")
+            for line in lines
+            if re.search(r'require\(|\.components\.|:HasTag\(|:AddTag\(|:RemoveTag\(', line)
+        ]
+        blocks = ["\n".join(dep_lines)] if dep_lines else []
+
+    elif section_heading == "## Properties":
+        class_match = re.search(r'\bClass\s*\(', lua_source)
+        if class_match:
+            # Extract constructor body: from the Class( line to the closing end)
+            # The constructor argument is function(self, inst) ... end)
+            # Find the closing end) that closes the Class( call, then capture
+            # everything from the start of the Class line up to that point.
+            start = lua_source.rfind("\n", 0, class_match.start()) + 1
+            tail = lua_source[class_match.end():]
+            # Find the constructor's closing 'end)' — first occurrence after Class(
+            end_paren_match = re.search(r'\bend\s*\)', tail)
+            if end_paren_match:
+                end = class_match.end() + end_paren_match.end()
+            else:
+                # Fallback: up to next top-level function after skipping one fn keyword
+                after_first_fn = re.sub(r'function\b', '', tail, count=1)
+                end_match = re.search(r'(?m)^(local\s+)?function\b', after_first_fn)
+                end = class_match.end() + end_match.start() if end_match else len(lua_source)
+            blocks = [lua_source[start:end]]
+        else:
+            # Utility module fallback: module-level constants + table assignments
+            prop_lines = [
+                line.rstrip("\n")
+                for line in lines
+                if re.match(r'^local\s+[A-Z_]+\s*=', line)
+                or re.match(r'^\w+\.\w+\s*=', line)
+            ]
+            blocks = ["\n".join(prop_lines)] if prop_lines else []
+
+    elif section_heading == "## Events & listeners":
+        ctx_parts: list[str] = []
+        for i, line in enumerate(lines):
+            if re.search(r'ListenForEvent|PushEvent', line):
+                start = max(0, i - 2)
+                end = min(len(lines), i + 3)
+                ctx_parts.extend(l.rstrip("\n") for l in lines[start:end])
+                ctx_parts.append("---")
+        blocks = ["\n".join(ctx_parts)] if ctx_parts else []
+
+    else:
+        return ""
+
+    return _truncate_blocks_to_lua_limit(blocks, max_tokens)
+
+
 def extract_lua_context(
     lua_source: str,
     fn_names: list[str],

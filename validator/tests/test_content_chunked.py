@@ -959,3 +959,93 @@ def test_apply_does_not_mutate_input():
     op = TypedOp(op="update_section", section="## Overview", content="## Overview\nnew\n")
     apply_typed_ops(sections, [op], frontmatter="")
     assert sections[0].text == original_text  # input unchanged
+
+
+# ── Task 4: extract_section_lua_context ──────────────────────────────────────
+
+from validator.content.sections import extract_section_lua_context
+
+
+_LUA_MODULE = """\
+local MYCONST = 42
+local DEFAULT_VAL = "hello"
+require("mymodule")
+inst.components.combat:SetHurtSound("dontstarve/creatures/hurt")
+inst:AddTag("monster")
+
+function GetOwner(inst)
+    return inst.owner
+end
+
+function SetTarget(inst, target)
+    inst.target = target
+end
+
+ListenForEvent("death", inst, OnDeath)
+PushEvent("attacked", inst, {attacker = attacker})
+"""
+
+
+def test_extract_overview_stops_at_first_function():
+    result = extract_section_lua_context("## Overview", _LUA_MODULE, max_tokens=8000)
+    assert "MYCONST" in result
+    assert "GetOwner" not in result  # function body not included
+
+
+def test_extract_usage_example_signatures_only():
+    result = extract_section_lua_context("## Usage example", _LUA_MODULE, max_tokens=8000)
+    assert "GetOwner" in result
+    assert "SetTarget" in result
+    # Function bodies not included (only the definition line)
+    assert "inst.owner" not in result
+
+
+def test_extract_dependencies_tags_patterns():
+    result = extract_section_lua_context("## Dependencies & tags", _LUA_MODULE, max_tokens=8000)
+    assert "require" in result
+    assert "AddTag" in result
+    assert "combat" in result
+
+
+def test_extract_properties_class_constructor():
+    lua = (
+        "local MyClass = Class(function(self, inst)\n"
+        "    self.value = 0\n"
+        "    self.name = ''\n"
+        "end)\n"
+        "\n"
+        "function MyClass:Method()\n"
+        "    return self.value\n"
+        "end\n"
+    )
+    result = extract_section_lua_context("## Properties", lua, max_tokens=8000)
+    assert "self.value" in result
+    assert "self.name" in result
+
+
+def test_extract_properties_utility_fallback():
+    """Utility module (no Class()) uses constants + table assignments."""
+    lua = "local MAX_SIZE = 100\nlocal MIN_VAL = 0\nfunction Foo() end\n"
+    result = extract_section_lua_context("## Properties", lua, max_tokens=8000)
+    assert "MAX_SIZE" in result
+
+
+def test_extract_events_listeners():
+    result = extract_section_lua_context("## Events & listeners", _LUA_MODULE, max_tokens=8000)
+    assert "ListenForEvent" in result
+    assert "PushEvent" in result
+
+
+def test_extract_unknown_section_returns_empty():
+    result = extract_section_lua_context("## Unknown Section", _LUA_MODULE, max_tokens=8000)
+    assert result == ""
+
+
+def test_extract_respects_max_tokens():
+    """Result token count must not exceed max_tokens limit."""
+    from llm.tokens import count_tokens
+    lua = "\n".join(f"require('module_{i}')" for i in range(500))
+    result = extract_section_lua_context("## Dependencies & tags", lua, max_tokens=100)
+    tokens = count_tokens(result)
+    if tokens != -1:
+        assert tokens <= 110  # allow small margin for truncation marker
