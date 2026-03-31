@@ -263,3 +263,148 @@ old_text must be an EXACT substring of the section. Keep patches minimal."""
 {feedback}"""
 
     return system_prompt, user_content
+
+
+# ── Typed prompt builders (used by chunked.py typed-ops path) ─────────────────
+
+# rule_id sets per section heading — controls what rule_ids the reviewer emits
+_RULE_IDS_BY_SECTION: dict[str, list[str]] = {
+    "## Overview":             ["WRONG_FILE_TYPE", "INACCURATE_DESCRIPTION", "MISSING_KEY_INFO"],
+    "## Usage example":        ["WRONG_FUNCTION_CALL", "USES_INVALID_API", "UNREALISTIC_EXAMPLE"],
+    "## Dependencies & tags":  ["MISSING_ENTRY", "EXTRA_ENTRY", "WRONG_USAGE_DESC"],
+    "## Properties":           ["WRONG_TYPE", "WRONG_DEFAULT", "MISSING_PROPERTY", "EXTRA_PROPERTY"],
+    "## Main functions":       ["WRONG_VALUE", "MISSING_PARAM", "EXTRA_PARAM", "WRONG_DESCRIPTION"],
+    "## Events & listeners":   ["MISSING_EVENT", "WRONG_EVENT_NAME"],
+}
+
+
+_FILE_TYPE_DESC = {
+    "component": "component with Class() constructor and self.inst",
+    "data_config": "data config — returns a plain table/array, no Class() constructor",
+    "utility": (
+        "utility module — standalone functions accessed via require('modulename'), "
+        "NOT via inst.components.X"
+    ),
+}
+
+
+def build_typed_reviewer_prompt(
+    section_text: str,
+    lua_context: str,
+    section_heading: str = "",
+    rule_ids: list[str] | None = None,
+    file_type: str = "component",
+) -> tuple[str, str]:
+    """Reviewer prompt that emits typed Finding objects.
+
+    Returns (system_prompt, user_content) for multi-role conversation.
+    """
+    section_ctx = _section_context(section_heading)  # returns "" for unknown headings
+    effective_rule_ids = rule_ids or _RULE_IDS_BY_SECTION.get(section_heading, [])
+    rule_ids_str = ", ".join(effective_rule_ids) if effective_rule_ids else "WRONG_VALUE"
+    file_desc = _FILE_TYPE_DESC.get(file_type, _FILE_TYPE_DESC["component"])
+
+    is_main_fns = section_heading == "## Main functions"
+    batch_scope_note = (
+        "\n=== SCOPE NOTE ===\n"
+        f"You are reviewing a BATCH of ### function entries from '{section_heading}'. "
+        "Do NOT flag missing ## sections (## Overview, ## Usage example, etc.) — "
+        "they exist elsewhere in the document and are out of scope here.\n"
+        if is_main_fns else ""
+    )
+
+    lua_block = f"```lua\n{lua_context}\n```" if lua_context else "(none)"
+
+    system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API docs.
+Review CONTENT ACCURACY ONLY. Do not flag formatting or structural notation issues.
+
+=== TARGET ===
+Section:   {section_heading or "(preamble)"}
+File type: {file_type} ({file_desc})
+
+=== LUA CONTEXT (ground truth) ===
+{lua_block}
+{batch_scope_note}
+=== SECTION REQUIREMENTS ===
+{section_ctx}{_REVIEWER_SKILL}
+
+=== ALLOWED rule_id VALUES ===
+{rule_ids_str}
+
+=== RESPONSE FORMAT ===
+Respond in JSON only:
+{{
+    "approved": true/false,
+    "findings": [
+        {{
+            "section": "{section_heading}",
+            "function": "FunctionName or null",
+            "field": "FieldName or null",
+            "rule_id": "one of the allowed rule_ids above",
+            "issue": "specific problem description"
+        }}
+    ]
+}}
+approved=true with empty findings if accurate. One Finding per (function, field) problem."""
+
+    user_content = f"=== SECTION TO REVIEW ===\n{section_text}"
+    return system_prompt, user_content
+
+
+def build_typed_writer_prompt(
+    target_text: str,
+    lua_context: str,
+    finding: object,  # Finding — forward ref to avoid import cycle
+    section_heading: str = "",
+    file_type: str = "component",
+) -> tuple[str, str]:
+    """Writer prompt that fixes ONE Finding and returns ONE TypedOp.
+
+    Returns (system_prompt, user_content) for multi-role conversation.
+    """
+    lua_block = f"```lua\n{lua_context}\n```" if lua_context else "(none)"
+
+    system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API docs.
+Fix ONE specific issue by returning ONE typed operation. Return JSON only.
+
+=== FORMAT RULES ===
+{_WRITER_SKILL}
+
+=== OPERATION TYPES ===
+- update_section:   replace the full section text (Overview, Usage example rewrites)
+- update_field:     replace one field's inline value (single-line field label only)
+- rewrite_function: replace the entire ### function block for the named function
+- delete_function:  remove the ### function block (use for hallucinated functions)
+
+=== RESPONSE FORMAT ===
+Return a single JSON object:
+{{
+    "op": "update_section | update_field | rewrite_function | delete_function",
+    "section": "## Section heading",
+    "function": "FunctionName or null",
+    "field": "FieldName or null",
+    "value": "new single-line field value or null",
+    "content": "full replacement content or null"
+}}"""
+
+    # finding may be a Finding dataclass — access via attribute
+    fn_val = getattr(finding, "function", None)
+    fld_val = getattr(finding, "field", None)
+    rule_val = getattr(finding, "rule_id", "")
+    issue_val = getattr(finding, "issue", "")
+    section_val = getattr(finding, "section", section_heading)
+
+    user_content = f"""=== LUA CONTEXT (ground truth) ===
+{lua_block}
+
+=== ISSUE TO FIX ===
+section:  {section_val}
+function: {fn_val or "(none)"}
+field:    {fld_val or "(none)"}
+rule_id:  {rule_val}
+issue:    {issue_val}
+
+=== TARGET TEXT ===
+{target_text}"""
+
+    return system_prompt, user_content

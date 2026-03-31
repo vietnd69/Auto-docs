@@ -1121,3 +1121,81 @@ def test_parse_typed_op_response_missing_op_returns_none():
 
 def test_parse_typed_op_response_malformed_returns_none():
     assert parse_typed_op_response("broken") is None
+
+
+# ── Task 7: typed prompt builders ────────────────────────────────────────────
+
+from validator.content.prompts import build_typed_reviewer_prompt, build_typed_writer_prompt
+
+
+def test_build_typed_reviewer_prompt_returns_tuple():
+    system, user = build_typed_reviewer_prompt(
+        "## Main functions\n### `Foo(x)`\n* **Description:** x\n",
+        "function Foo(x) end",
+        section_heading="## Main functions",
+    )
+    assert isinstance(system, str)
+    assert isinstance(user, str)
+
+
+def test_build_typed_reviewer_prompt_includes_rule_ids():
+    system, _ = build_typed_reviewer_prompt(
+        "## Main functions\n### `Foo(x)`\n* **Description:** x\n",
+        "",
+        section_heading="## Main functions",
+        rule_ids=["WRONG_VALUE", "MISSING_PARAM"],
+    )
+    assert "WRONG_VALUE" in system
+    assert "MISSING_PARAM" in system
+
+
+def test_build_typed_reviewer_prompt_scope_note_for_main_functions():
+    """Reviewer for Main functions must include scope note to avoid false positives."""
+    system, _ = build_typed_reviewer_prompt(
+        "### `Foo(x)`\n* **Description:** x\n",
+        "",
+        section_heading="## Main functions",
+    )
+    assert "SCOPE" in system or "scope" in system
+
+
+def test_build_typed_reviewer_prompt_no_scope_note_for_overview():
+    system, _ = build_typed_reviewer_prompt("## Overview\nSome text.\n", "", "## Overview")
+    # Overview review should NOT include the Main-functions batch restriction
+    assert "SCOPE NOTE" not in system
+
+
+def test_build_typed_writer_prompt_returns_tuple():
+    from validator.content.reviewer import Finding
+    finding = Finding(
+        section="## Main functions",
+        function="Foo",
+        field="Returns",
+        rule_id="WRONG_VALUE",
+        issue="Returns nil but should return entity",
+    )
+    system, user = build_typed_writer_prompt(
+        "### `Foo(x)`\n* **Returns:** nil\n",
+        "function Foo(x) end",
+        finding=finding,
+    )
+    assert isinstance(system, str)
+    assert isinstance(user, str)
+
+
+def test_build_typed_writer_prompt_includes_issue():
+    from validator.content.reviewer import Finding
+    finding = Finding(
+        section="## Main functions", function="Foo", field="Returns",
+        rule_id="WRONG_VALUE", issue="Returns nil but should return entity",
+    )
+    _, user = build_typed_writer_prompt("### `Foo(x)`\n* **Returns:** nil\n", "", finding=finding)
+    assert "Returns nil but should return entity" in user
+
+
+def test_build_typed_writer_prompt_includes_op_choices():
+    from validator.content.reviewer import Finding
+    finding = Finding(section="## Overview", function=None, field=None, rule_id="INACCURATE_DESCRIPTION", issue="x")
+    system, _ = build_typed_writer_prompt("## Overview\ntext\n", "", finding=finding)
+    assert "update_section" in system
+    assert "update_field" in system
