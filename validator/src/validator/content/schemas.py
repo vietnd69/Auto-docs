@@ -31,3 +31,41 @@ PATCHES_SCHEMA: dict = {
         "required": ["old_text", "new_text", "reason"],
     },
 }
+
+# ── Typed schemas for chunked validator (replaces REVIEW_SCHEMA / PATCHES_SCHEMA in chunked path) ──
+
+FINDINGS_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "approved": {"type": "boolean"},
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "section":   {"type": "string"},
+                    "function":  {"type": ["string", "null"]},
+                    "field":     {"type": ["string", "null"]},
+                    "rule_id":   {"type": "string"},
+                    "issue":     {"type": "string"},
+                },
+                "required": ["section", "rule_id", "issue"],
+            },
+        },
+    },
+    "required": ["approved", "findings"],
+}
+
+TYPED_OP_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "op":       {"type": "string",
+                     "enum": ["update_section", "update_field", "rewrite_function", "delete_function"]},
+        "section":  {"type": "string"},
+        "function": {"type": ["string", "null"]},
+        "field":    {"type": ["string", "null"]},
+        "value":    {"type": ["string", "null"]},
+        "content":  {"type": ["string", "null"]},
+    },
+    "required": ["op", "section"],
+}
