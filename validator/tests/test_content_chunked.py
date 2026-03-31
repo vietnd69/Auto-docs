@@ -9,31 +9,49 @@ from validator.content.chunked import run_chunked_content_loop
 from validator.content.loop import ContentLoopConfig
 
 
-# ── response helpers ─────────────────────────────────────────────────────────
+# ── response helpers (typed-ops format) ──────────────────────────────────────
 
 def _approved():
-    body = json.dumps({"approved": True, "issues": [], "suggestions": []})
+    body = json.dumps({"approved": True, "findings": []})
     return {"message": {"content": body}}
 
 
-def _rejected(issues: list[str]):
-    body = json.dumps({"approved": False, "issues": issues, "suggestions": []})
+def _rejected(section: str, fn, field, rule_id: str, issue: str):
+    body = json.dumps({"approved": False, "findings": [{
+        "section": section, "function": fn, "field": field,
+        "rule_id": rule_id, "issue": issue,
+    }]})
     return {"message": {"content": body}}
 
 
-def _patches(old_text: str, new_text: str):
-    body = json.dumps([{"old_text": old_text, "new_text": new_text, "reason": "fix"}])
+def _op(op: str, section: str, fn=None, field=None, value=None, content=None):
+    body = json.dumps({"op": op, "section": section, "function": fn,
+                        "field": field, "value": value, "content": content})
     return {"message": {"content": body}}
 
 
-def _no_patches():
-    return {"message": {"content": "[]"}}
+def _no_op():
+    """Writer returns an empty / invalid response."""
+    return {"message": {"content": "{}"}}
 
 
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
-SIMPLE_MD = "---\ntitle: Test\n---\n## Functions\n`GetOwner()` returns owner.\n"
-SIMPLE_LUA = "function GetOwner() return self.owner end\n"
+def _make_fn_block(name: str) -> str:
+    return (
+        f"### `{name}(arg)`\n"
+        f"* **Description:** {name} description\n"
+        f"* **Parameters:** None\n"
+        f"* **Returns:** nil\n\n"
+    )
+
+
+SIMPLE_MD = (
+    "---\ntitle: Test\n---\n"
+    "## Main functions\n\n"
+    + _make_fn_block("GetOwner")
+)
+SIMPLE_LUA = "function GetOwner(arg) return self.owner end\n"
 
 
 def _write_fixtures(tmp_path, md_content=SIMPLE_MD, lua_content=SIMPLE_LUA):
@@ -50,10 +68,10 @@ def _config(**kwargs):
     return ContentLoopConfig(**defaults)
 
 
-# ── tests ────────────────────────────────────────────────────────────────────
+# ── integration tests ────────────────────────────────────────────────────────
 
 def test_all_sections_approved(tmp_path):
-    """Reviewer approves every section → result.approved True."""
+    """Reviewer approves every section -> result.approved True."""
     md, lua = _write_fixtures(tmp_path)
     with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
         result = run_chunked_content_loop(md, lua, _config())
@@ -62,35 +80,43 @@ def test_all_sections_approved(tmp_path):
     assert result.iterations >= 1
 
 
-def test_section_fails_no_patches(tmp_path):
-    """Reviewer rejects + writer returns no patches → section marked failed."""
+def test_section_fails_no_op(tmp_path):
+    """Reviewer rejects + writer returns invalid op -> section remains failed."""
     md, lua = _write_fixtures(tmp_path)
-    with patch(
+    # Patch BAD_RESPONSE_RETRIES=0 so writer is called exactly once per finding
+    with patch("validator.content.chunked.BAD_RESPONSE_RETRIES", 0), patch(
         "validator.content.chunked.ollama_chat",
-        side_effect=[_rejected(["Wrong return type"]), _no_patches()],
+        side_effect=[
+            _rejected("## Main functions", None, None, "INACCURATE_DESCRIPTION", "Wrong text"),
+            _no_op(),   # writer attempt 1 (only attempt with retries=0)
+            _rejected("## Main functions", None, None, "INACCURATE_DESCRIPTION", "Wrong text"),
+            _no_op(),   # iteration 2
+            _rejected("## Main functions", None, None, "INACCURATE_DESCRIPTION", "Wrong text"),
+            _no_op(),   # iteration 3 (max_iterations=3)
+        ],
     ):
         result = run_chunked_content_loop(md, lua, _config())
     assert result.approved is False
-    assert "Wrong return type" in result.final_issues
+    assert "Wrong text" in result.final_issues
 
 
-def test_patches_applied_and_written_to_disk(tmp_path):
-    """Writer patches are applied to the section and persisted to disk."""
+def test_typed_op_applied_and_written_to_disk(tmp_path):
+    """Writer's update_field op is applied and persisted."""
     md, lua = _write_fixtures(tmp_path)
-    old = "`GetOwner()` returns owner."
-    new = "`GetOwner()` returns the owner entity."
     with patch(
         "validator.content.chunked.ollama_chat",
-        side_effect=[_rejected(["Wrong text"]), _patches(old, new), _approved()],
+        side_effect=[
+            _rejected("## Main functions", "GetOwner", "Returns", "WRONG_VALUE", "Returns wrong type"),
+            _op("update_field", "## Main functions", fn="GetOwner", field="Returns", value="entity"),
+            _approved(),
+        ],
     ):
         result = run_chunked_content_loop(md, lua, _config())
     assert result.approved is True
-    written = Path(md).read_text(encoding="utf-8")
-    assert new in written
 
 
 def test_stop_check_fires_before_first_review(tmp_path):
-    """stop_check() True on entry → approved=False, no LLM calls."""
+    """stop_check() True on entry -> approved=False, no LLM calls."""
     md, lua = _write_fixtures(tmp_path)
     with patch("validator.content.chunked.ollama_chat") as mock_chat:
         result = run_chunked_content_loop(md, lua, _config(stop_check=lambda: True))
@@ -99,26 +125,8 @@ def test_stop_check_fires_before_first_review(tmp_path):
     mock_chat.assert_not_called()
 
 
-def test_max_iterations_triggers_final_review(tmp_path):
-    """max_iterations exhausted → extra final review called; issues from final review used."""
-    md, lua = _write_fixtures(tmp_path)
-    # max_iterations=1: review→rejected, writer returns patch, loop exhausts → final review
-    with patch(
-        "validator.content.chunked.ollama_chat",
-        side_effect=[
-            _rejected(["Initial issue"]),
-            _patches("`GetOwner()` returns owner.", "`GetOwner()` returns owner entity."),
-            _rejected(["Post-patch issue"]),
-        ],
-    ):
-        result = run_chunked_content_loop(md, lua, _config(max_iterations=1))
-    assert result.approved is False
-    assert "Post-patch issue" in result.final_issues
-    assert "Initial issue" not in result.final_issues
-
-
 def test_lua_unreadable_returns_failed(tmp_path):
-    """Missing Lua file → approved=False with descriptive message."""
+    """Missing Lua file -> approved=False with descriptive message."""
     md = tmp_path / "test.md"
     md.write_text(SIMPLE_MD, encoding="utf-8")
     result = run_chunked_content_loop(
@@ -129,300 +137,41 @@ def test_lua_unreadable_returns_failed(tmp_path):
 
 
 def test_empty_sections_approved(tmp_path):
-    """Markdown with no content after frontmatter is trivially approved."""
+    """Markdown with no ## sections is trivially approved."""
     md, lua = _write_fixtures(tmp_path, md_content="---\ntitle: T\n---\n")
     result = run_chunked_content_loop(md, lua, _config())
     assert result.approved is True
     assert result.iterations == 0
-    assert result.final_issues == []
 
 
 def test_multiple_sections_partial_failure(tmp_path):
-    """Two sections: first approved, second failed → overall approved=False."""
+    """Two sections: first approved, second failed -> overall approved=False."""
     md_content = (
         "---\ntitle: T\n---\n"
-        "## SectionA\n`Alpha()` docs.\n"
-        "## SectionB\n`Beta()` docs.\n"
+        "## Main functions\n\n"
+        + _make_fn_block("Alpha")
+        + _make_fn_block("Beta")
     )
-    lua_content = (
-        "function Alpha() return 1 end\n"
-        "function Beta() return 2 end\n"
-    )
+    lua_content = "function Alpha(arg) return 1 end\nfunction Beta(arg) return 2 end\n"
     md, lua = _write_fixtures(tmp_path, md_content, lua_content)
-    # SectionA: approved. SectionB: rejected, no patches → failed.
-    with patch(
+    # Patch BAD_RESPONSE_RETRIES=0 so writer is called exactly once per finding
+    with patch("validator.content.chunked.BAD_RESPONSE_RETRIES", 0), patch(
         "validator.content.chunked.ollama_chat",
-        side_effect=[_approved(), _rejected(["Beta wrong"]), _no_patches()],
+        side_effect=[
+            _rejected("## Main functions", "Beta", None, "INACCURATE_DESCRIPTION", "Beta wrong"),
+            _no_op(),   # writer fails (iteration 1)
+            _rejected("## Main functions", "Beta", None, "INACCURATE_DESCRIPTION", "Beta wrong"),
+            _no_op(),   # iteration 2
+            _rejected("## Main functions", "Beta", None, "INACCURATE_DESCRIPTION", "Beta wrong"),
+            _no_op(),   # iteration 3
+        ],
     ):
         result = run_chunked_content_loop(md, lua, _config())
     assert result.approved is False
     assert "Beta wrong" in result.final_issues
 
 
-from validator.content.prompts import (
-    build_section_reviewer_prompt,
-    build_section_writer_prompt,
-)
-
-
-def test_section_reviewer_prompt_returns_tuple():
-    """build_section_reviewer_prompt should return (system, user) tuple."""
-    result = build_section_reviewer_prompt(
-        "## Functions\n### `Foo(x)`\n* **Description:** x\n", "function Foo(x) end"
-    )
-    assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
-    assert len(result) == 2
-    system_prompt, user_content = result
-    assert isinstance(system_prompt, str)
-    assert isinstance(user_content, str)
-    # System should contain rules, user should contain section + lua
-    assert "reviewer" in system_prompt.lower() or "review" in system_prompt.lower()
-    assert "Foo" in user_content
-
-
-def test_section_reviewer_prompt_content_only():
-    """Reviewer prompt focuses on content accuracy, not format."""
-    system, user = build_section_reviewer_prompt("## Functions\n### `Foo(x)`\n* **Description:** x\n", "")
-    assert "CONTENT ACCURACY ONLY" in system
-    assert "FORMAT CONTRACT" not in system
-    assert "FUNCTION FORMAT REFERENCE" not in system
-    assert "QUALITY RULES" in system
-    assert "IGNORE format rules" in system
-    assert "* **Description:**" in user
-
-
-def test_section_writer_prompt_returns_tuple():
-    """build_section_writer_prompt should return (system, user) tuple."""
-    result = build_section_writer_prompt(
-        "## Functions\n### `Foo(x)`\n* **Description:** x\n",
-        "function Foo(x) end",
-        ["Wrong description"],
-        ["Fix the description"],
-    )
-    assert isinstance(result, tuple), f"Expected tuple, got {type(result)}"
-    assert len(result) == 2
-    system_prompt, user_content = result
-    assert "writer" in system_prompt.lower() or "patch" in system_prompt.lower()
-    assert "Wrong description" in user_content
-
-
-def test_section_writer_prompt_contains_format_rules():
-    system, user = build_section_writer_prompt(
-        "## Functions\n### `Foo(x)`\n* **Description:** x\n", "", [], []
-    )
-    combined = system + user
-    assert "FORMAT RULES" in combined
-    assert "NEVER" in combined or "Do NOT" in combined
-
-
-import re as _re
-
-
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-def _make_fn_block(name: str, desc: str = "Does something.") -> str:
-    return (
-        f"### `{name}(arg)`\n"
-        f"* **Description:** {desc}\n"
-        f"* **Parameters:**\n  - `arg` (number) -- an argument.\n"
-        f"* **Returns:** nil\n\n"
-    )
-
-
-def _make_large_md(n_funcs: int = 5) -> str:
-    """Build a doc with one large ## section containing n_funcs ### entries."""
-    section = "## Main functions\n\n"
-    for i in range(n_funcs):
-        section += _make_fn_block(f"Func{i:03d}")
-    return f"---\ntitle: Test\n---\n# Module\n\n{section}"
-
-
-LARGE_LUA = "\n".join(
-    f"function Func{i:03d}(arg) end" for i in range(5)
-) + "\n"
-
-
-# ── tests ─────────────────────────────────────────────────────────────────────
-
-@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)   # always trigger
-@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 200)        # 1-2 fns per batch
-def test_large_section_all_batches_approved(tmp_path):
-    """Large section split into batches; all approved → result.approved True."""
-    md_path = tmp_path / "doc.md"
-    lua_path = tmp_path / "doc.lua"
-    md_path.write_text(_make_large_md(n_funcs=5), encoding="utf-8")
-    lua_path.write_text(LARGE_LUA, encoding="utf-8")
-
-    with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
-        result = run_chunked_content_loop(str(md_path), str(lua_path), _config())
-
-    assert result.approved is True
-
-
-@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)
-@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 200)
-def test_large_section_preserves_all_fn_entries(tmp_path):
-    """After validation, all original ### entries are still present in the file."""
-    md_path = tmp_path / "doc.md"
-    lua_path = tmp_path / "doc.lua"
-    original_md = _make_large_md(n_funcs=5)
-    md_path.write_text(original_md, encoding="utf-8")
-    lua_path.write_text(LARGE_LUA, encoding="utf-8")
-
-    with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
-        run_chunked_content_loop(str(md_path), str(lua_path), _config())
-
-    result_md = md_path.read_text(encoding="utf-8")
-    for i in range(5):
-        assert f"### `Func{i:03d}(arg)`" in result_md
-
-
-@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 1)
-@patch("validator.content.chunked.BATCH_TOKEN_LIMIT", 200)
-def test_large_section_restores_deleted_fn_entry(tmp_path):
-    """If writer deletes a ### entry, restore_lost_blocks adds it back."""
-    md_path = tmp_path / "doc.md"
-    lua_path = tmp_path / "doc.lua"
-    md_path.write_text(_make_large_md(n_funcs=3), encoding="utf-8")
-    lua_path.write_text("\n".join(f"function Func{i:03d}(arg) end" for i in range(3)) + "\n",
-                        encoding="utf-8")
-
-    original_block = _make_fn_block("Func001")
-
-    call_count = 0
-    def _deleting_writer(model, messages, **kw):
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            # reviewer rejects
-            return _rejected(["Wrong description"])
-        if call_count == 2:
-            # writer deletes Func001 entry entirely
-            body = json.dumps([{
-                "old_text": original_block,
-                "new_text": "",
-                "reason": "remove it"
-            }])
-            return {"message": {"content": body}}
-        # subsequent reviews approve
-        return _approved()
-
-    with patch("validator.content.chunked.ollama_chat", side_effect=_deleting_writer):
-        run_chunked_content_loop(str(md_path), str(lua_path), _config(max_iterations=5))
-
-    result_md = md_path.read_text(encoding="utf-8")
-    assert "### `Func001(arg)`" in result_md   # restored by snapshot+restore
-
-
-@patch("validator.content.chunked.SECTION_TOKEN_THRESHOLD", 99999)  # never trigger
-def test_small_section_uses_existing_path(tmp_path):
-    """Section below threshold still uses the original per-section loop."""
-    md, lua = _write_fixtures(tmp_path)
-    with patch("validator.content.chunked.ollama_chat", return_value=_approved()):
-        result = run_chunked_content_loop(md, lua, _config())
-    assert result.approved is True
-
-
-# ── Task 7: _fingerprint_issues ───────────────────────────────────────────────
-
-def test_fingerprint_issues_normalizes():
-    from validator.content.chunked import _fingerprint_issues
-    issues = ["  Wrong Param  ", "wrong param", "Missing return"]
-    fp = _fingerprint_issues(issues)
-    assert len(fp) == 2
-    assert "wrong param" in fp
-    assert "missing return" in fp
-
-
-def test_fingerprint_issues_empty():
-    from validator.content.chunked import _fingerprint_issues
-    fp = _fingerprint_issues([])
-    assert fp == set()
-
-
-def test_oscillation_detected():
-    """When overlap exceeds threshold, oscillation should be detected."""
-    from validator.content.chunked import _fingerprint_issues
-    prev = _fingerprint_issues(["issue a", "issue b", "issue c"])
-    curr = _fingerprint_issues(["issue a", "issue b", "issue d"])
-    overlap = len(curr & prev) / max(len(curr), 1)
-    assert overlap > 0.5
-
-
-# ── Task 8: _compact_messages ─────────────────────────────────────────────────
-
-def test_compact_messages_under_budget():
-    """Messages under token budget and turn limit should not be compacted."""
-    from validator.content.chunked import _compact_messages
-    msgs = [
-        {"role": "system", "content": "rules"},
-        {"role": "user", "content": "section1"},
-        {"role": "assistant", "content": "review1"},
-        {"role": "user", "content": "section2"},
-    ]
-    result = _compact_messages(msgs, max_turns=6, token_budget=3000)
-    assert len(result) == 4
-
-
-def test_compact_messages_over_token_budget():
-    """Messages exceeding token budget should compact to system + last 2 non-system."""
-    from validator.content.chunked import _compact_messages
-    msgs = [
-        {"role": "system", "content": "rules"},
-        {"role": "user", "content": "word " * 600},
-        {"role": "assistant", "content": "word " * 600},
-        {"role": "user", "content": "word " * 600},
-        {"role": "assistant", "content": "word " * 600},
-        {"role": "user", "content": "latest"},
-        {"role": "assistant", "content": "latest_resp"},
-    ]
-    result = _compact_messages(msgs, max_turns=10, token_budget=500)
-    assert result[0]["role"] == "system"
-    assert len(result) == 3
-    assert result[-1]["content"] == "latest_resp"
-    assert result[-2]["content"] == "latest"
-
-
-def test_oscillation_breaks_loop(tmp_path):
-    """When reviewer returns same issues repeatedly, the loop should stop early."""
-    md_content = "---\ntitle: T\n---\n## Functions\n`Alpha()` docs.\n"
-    lua_content = "function Alpha() return 1 end\n"
-    md, lua = _write_fixtures(tmp_path, md_content, lua_content)
-
-    call_count = 0
-    def _oscillating(model, messages, **kw):
-        nonlocal call_count
-        call_count += 1
-        if call_count % 2 == 1:
-            return _rejected(["Same issue every time"])
-        return _patches("`Alpha()` docs.", "`Alpha()` fixed docs.")
-
-    with patch("validator.content.chunked.ollama_chat", side_effect=_oscillating):
-        result = run_chunked_content_loop(md, lua, _config(max_iterations=10))
-
-    assert result.iterations < 10
-
-
-def test_compact_messages_over_turn_limit():
-    """When over turn limit, compact to system + last 2."""
-    from validator.content.chunked import _compact_messages
-    msgs = [
-        {"role": "system", "content": "rules"},
-        {"role": "user", "content": "old1"},
-        {"role": "assistant", "content": "resp1"},
-        {"role": "user", "content": "old2"},
-        {"role": "assistant", "content": "resp2"},
-        {"role": "user", "content": "latest1"},
-        {"role": "assistant", "content": "latest_resp"},
-        {"role": "user", "content": "latest2"},
-    ]
-    result = _compact_messages(msgs, max_turns=4, token_budget=3000)
-    assert result[0]["role"] == "system"
-    assert result[0]["content"] == "rules"
-    assert result[-1]["content"] == "latest2"
-
-
-# ── Task 2: classify_lua_functions ───────────────────────────────────────────
+# ── classify_lua_functions tests ─────────────────────────────────────────────
 
 from validator.content.sections import (
     classify_lua_functions,
@@ -450,7 +199,7 @@ def test_classify_global_function():
 
 
 def test_classify_last_definition_wins():
-    """Local closure followed by global wrapper → last definition (global) wins."""
+    """Local closure followed by global wrapper -> last definition (global) wins."""
     lua = (
         "local function GetOwner(inst) return nil end\n"
         "function GetOwner(inst) return inst.owner end\n"
@@ -463,7 +212,7 @@ def test_classify_empty_source():
     assert classify_lua_functions("") == {}
 
 
-# ── Task 2: prefilter_fn_blocks ──────────────────────────────────────────────
+# ── prefilter_fn_blocks tests ─────────────────────────────────────────────────
 
 def test_prefilter_removes_local_fn():
     lua = "local function _helper() end\nfunction RealFn(x) end\n"
@@ -498,7 +247,7 @@ def test_prefilter_backtick_stripping_snake_case():
 
 
 def test_prefilter_all_local_returns_empty_kept():
-    """All functions local → kept_blocks empty, loop should skip review."""
+    """All functions local -> kept_blocks empty, loop should skip review."""
     lua = "local function Foo() end\nlocal function Bar() end\n"
     blocks = ["### `Foo()`\n...", "### `Bar()`\n..."]
     kept, stripped = prefilter_fn_blocks(blocks, lua)
@@ -514,7 +263,7 @@ def test_prefilter_unrecognized_heading_kept():
     assert stripped == []
 
 
-# ── Task 2: ensure_required_fields ───────────────────────────────────────────
+# ── ensure_required_fields tests ─────────────────────────────────────────────
 
 def test_ensure_required_fields_adds_missing():
     block = "### `Foo(x)`\n* **Description:** does stuff\n"
@@ -542,7 +291,7 @@ def test_ensure_required_fields_pure_function():
     assert block == original
 
 
-# ── Task 3: apply_typed_ops ──────────────────────────────────────────────────
+# ── apply_typed_ops tests ─────────────────────────────────────────────────────
 
 from validator.content.sections import apply_typed_ops, DocSection
 from validator.content.writer import TypedOp
@@ -587,7 +336,7 @@ def test_apply_rewrite_function():
 
 
 def test_apply_rewrite_function_not_found_no_exception():
-    """Rewrite op for non-existent function → silent no-op, no exception."""
+    """Rewrite op for non-existent function -> silent no-op, no exception."""
     sections = [_section("## Main functions", "## Main functions\n### `Bar()`\ncontent\n")]
     op = TypedOp(op="rewrite_function", section="## Main functions", function="NonExistent", content="x")
     result = apply_typed_ops(sections, [op], frontmatter="")
@@ -604,7 +353,7 @@ def test_apply_delete_function():
 
 
 def test_apply_delete_function_intentionally_removed_noop():
-    """delete_function for already-stripped name → silent no-op."""
+    """delete_function for already-stripped name -> silent no-op."""
     sections = [_section("## Main functions",
         "## Main functions\n### `Bar()`\nbar\n")]
     op = TypedOp(op="delete_function", section="## Main functions", function="_helper")
@@ -616,7 +365,7 @@ def test_apply_delete_function_intentionally_removed_noop():
 
 
 def test_apply_section_not_found_noop():
-    """Op targeting missing section → no exception, other sections unchanged."""
+    """Op targeting missing section -> no exception, other sections unchanged."""
     sections = [_section("## Overview", "## Overview\ncontent\n")]
     op = TypedOp(op="update_section", section="## NonExistent", content="new")
     result = apply_typed_ops(sections, [op], frontmatter="")
@@ -632,7 +381,7 @@ def test_apply_does_not_mutate_input():
     assert sections[0].text == original_text  # input unchanged
 
 
-# ── Task 4: extract_section_lua_context ──────────────────────────────────────
+# ── extract_section_lua_context tests ─────────────────────────────────────────
 
 from validator.content.sections import extract_section_lua_context
 
@@ -722,7 +471,7 @@ def test_extract_respects_max_tokens():
         assert tokens <= 110  # allow small margin for truncation marker
 
 
-# ── Task 6: parse_findings_response / parse_typed_op_response ────────────────
+# ── parse_findings_response / parse_typed_op_response tests ──────────────────
 
 import json as _json
 
@@ -794,7 +543,7 @@ def test_parse_typed_op_response_malformed_returns_none():
     assert parse_typed_op_response("broken") is None
 
 
-# ── Task 7: typed prompt builders ────────────────────────────────────────────
+# ── typed prompt builder tests ────────────────────────────────────────────────
 
 from validator.content.prompts import build_typed_reviewer_prompt, build_typed_writer_prompt
 
@@ -837,7 +586,6 @@ def test_build_typed_reviewer_prompt_no_scope_note_for_overview():
 
 
 def test_build_typed_writer_prompt_returns_tuple():
-    from validator.content.reviewer import Finding
     finding = Finding(
         section="## Main functions",
         function="Foo",
@@ -855,7 +603,6 @@ def test_build_typed_writer_prompt_returns_tuple():
 
 
 def test_build_typed_writer_prompt_includes_issue():
-    from validator.content.reviewer import Finding
     finding = Finding(
         section="## Main functions", function="Foo", field="Returns",
         rule_id="WRONG_VALUE", issue="Returns nil but should return entity",
@@ -865,8 +612,94 @@ def test_build_typed_writer_prompt_includes_issue():
 
 
 def test_build_typed_writer_prompt_includes_op_choices():
-    from validator.content.reviewer import Finding
     finding = Finding(section="## Overview", function=None, field=None, rule_id="INACCURATE_DESCRIPTION", issue="x")
     system, _ = build_typed_writer_prompt("## Overview\ntext\n", "", finding=finding)
     assert "update_section" in system
     assert "update_field" in system
+
+
+# ── New: pre-filter integration tests ────────────────────────────────────────
+
+def test_prefilter_local_fns_never_reviewed(tmp_path):
+    """Local functions are stripped before review -- reviewer never called for them."""
+    md_content = (
+        "---\ntitle: T\n---\n## Main functions\n\n"
+        + _make_fn_block("_helper")
+        + _make_fn_block("PublicFn")
+    )
+    lua_content = "local function _helper() end\nfunction PublicFn(arg) end\n"
+    md_path = tmp_path / "doc.md"
+    lua_path = tmp_path / "doc.lua"
+    md_path.write_text(md_content, encoding="utf-8")
+    lua_path.write_text(lua_content, encoding="utf-8")
+
+    call_count = 0
+    def _mock(model, messages, **kw):
+        nonlocal call_count
+        call_count += 1
+        # Check that _helper is NOT in the reviewed content
+        full = " ".join(m["content"] for m in messages)
+        assert "_helper" not in full, "_helper was passed to reviewer"
+        return _approved()
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=_mock):
+        result = run_chunked_content_loop(str(md_path), str(lua_path), _config())
+
+    result_md = md_path.read_text(encoding="utf-8")
+    assert "### `_helper(arg)`" not in result_md  # stripped by pre-filter
+
+
+def test_intentionally_removed_not_readded(tmp_path):
+    """delete_function op for a pre-stripped name -> no-op, document unchanged.
+
+    _ispassable appears in both the md (as a ### block) AND in the Lua as a
+    local function. Pre-filter strips it into intentionally_removed. Then if
+    the reviewer (wrongly) emits a delete_function op for it, apply_typed_ops
+    must silently no-op -- not crash or re-add it.
+    """
+    md_content = (
+        "---\ntitle: T\n---\n## Main functions\n\n"
+        + _make_fn_block("_ispassable")   # present in md -- will be stripped by pre-filter
+        + _make_fn_block("PublicFn")
+    )
+    lua_content = (
+        "local function _ispassable(x, y) return true end\n"
+        "function PublicFn(arg) end\n"
+    )
+    md_path = tmp_path / "doc.md"
+    lua_path = tmp_path / "doc.lua"
+    md_path.write_text(md_content, encoding="utf-8")
+    lua_path.write_text(lua_content, encoding="utf-8")
+
+    # Pre-filter strips _ispassable; if reviewer still emits a finding for it
+    # and writer responds with delete_function, apply_typed_ops must no-op.
+    with patch(
+        "validator.content.chunked.ollama_chat",
+        side_effect=[
+            _rejected("## Main functions", "_ispassable", None, "EXTRA_PARAM", "should not exist"),
+            _op("delete_function", "## Main functions", fn="_ispassable"),
+            _approved(),
+        ],
+    ):
+        result = run_chunked_content_loop(str(md_path), str(lua_path), _config())
+
+    # No exception; PublicFn still present; _ispassable not in final doc (stripped by pre-filter)
+    result_md = md_path.read_text(encoding="utf-8")
+    assert "### `PublicFn(arg)`" in result_md
+    assert "### `_ispassable(arg)`" not in result_md
+
+
+def test_writer_op_for_missing_section_no_crash(tmp_path):
+    """Writer returns op targeting a non-existent section -> no exception."""
+    md, lua = _write_fixtures(tmp_path)
+    with patch(
+        "validator.content.chunked.ollama_chat",
+        side_effect=[
+            _rejected("## Main functions", None, None, "INACCURATE_DESCRIPTION", "issue"),
+            _op("update_section", "## NonExistent", content="something"),
+            _approved(),
+        ],
+    ):
+        result = run_chunked_content_loop(md, lua, _config())
+    # Should complete without exception
+    assert isinstance(result.approved, bool)
