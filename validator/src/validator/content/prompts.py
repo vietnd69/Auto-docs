@@ -186,6 +186,9 @@ def build_section_reviewer_prompt(
         "NOT the full document. Do NOT flag missing sections (## Overview, ## Usage example, "
         "## Dependencies & tags, ## Properties, etc.) — they exist elsewhere in the document "
         "and are out of scope for this review.\n"
+        "CRITICAL: Only report findings for functions that appear as ### headings in the "
+        "section text provided. Do NOT report findings for functions visible in the Lua context "
+        "but absent from the section — those belong to other batches.\n"
         if is_main_fns else ""
     )
 
@@ -310,6 +313,10 @@ def build_typed_reviewer_prompt(
         f"You are reviewing a BATCH of ### function entries from '{section_heading}'. "
         "Do NOT flag missing ## sections (## Overview, ## Usage example, etc.) — "
         "they exist elsewhere in the document and are out of scope here.\n"
+        "CRITICAL: Only report findings for functions that appear as ### headings in the "
+        "'=== SECTION TO REVIEW ===' block below. Do NOT report findings for functions "
+        "you see in the Lua context but that have no ### entry in the section — those "
+        "belong to other batches.\n"
         if is_main_fns else ""
     )
 
@@ -345,7 +352,9 @@ Respond in JSON only:
         }}
     ]
 }}
-approved=true with empty findings if accurate. One Finding per (function, field) problem."""
+approved=true with empty findings if accurate. One Finding per (function, field) problem.
+
+IMPORTANT: Report ALL issues you find in this single pass. Do not limit or defer findings — every content error must appear now, not in a later round."""
 
     user_content = f"=== SECTION TO REVIEW ===\n{section_text}"
     return system_prompt, user_content

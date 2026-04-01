@@ -283,9 +283,11 @@ def _main_impl():
             stats["processed"] += 1
         elif file_result.final_status == "content_failed":
             try:
-                os.remove(generated_path)
+                p = Path(generated_path)
+                false_path = p.with_name(p.stem + "-false" + p.suffix)
+                p.rename(false_path)
             except OSError as e:
-                print(f"  [Cảnh báo] Không thể xóa {generated_path}: {e}")
+                print(f"  [Cảnh báo] Không thể đổi tên {generated_path}: {e}")
             stats["failed"] += 1
             stats["validate_failed"] += 1
             stats["failed_list"].append(filename)

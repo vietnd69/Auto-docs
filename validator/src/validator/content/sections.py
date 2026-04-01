@@ -56,6 +56,18 @@ def join_md_sections(frontmatter: str, sections: list[DocSection]) -> str:
     return frontmatter + "".join(s.text for s in sections)
 
 
+def normalize_fn_headings(text: str) -> str:
+    """Ensure every ### heading starts on its own line.
+
+    The merge stage sometimes emits `* **Error states:** None### \`Fn\`` with no
+    newline between the field value and the next function heading.  This makes
+    `(?m)^### ` anchors fail in split_section_blocks, _extract_target_text, and
+    apply_typed_ops, causing silent no-ops.  Insert a newline before any `### `
+    that immediately follows a non-newline character.
+    """
+    return re.sub(r'([^\n])(### )', r'\1\n\2', text)
+
+
 def split_section_blocks(section_text: str) -> tuple[str, list[str]]:
     """Split a ## section into (preamble, fn_blocks).
 
@@ -65,6 +77,7 @@ def split_section_blocks(section_text: str) -> tuple[str, list[str]]:
 
     Round-trip invariant: preamble + "".join(fn_blocks) == section_text
     """
+    section_text = normalize_fn_headings(section_text)
     match = re.search(r'(?m)^### ', section_text)
     if not match:
         return section_text, []

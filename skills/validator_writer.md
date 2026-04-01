@@ -4,6 +4,12 @@
 - NEVER rename or reformat ### headings (lines starting with "### `")
 - NEVER change "* **Description:**", "* **Parameters:**",
   "* **Returns:**", "* **Error states:**" bullet labels
+- NEVER rename a standard field (Description, Parameters, Returns, Error states) to a
+  non-standard name (e.g. Notes, Behavior). If reviewer asks you to rename Error states,
+  incorporate the relevant content into Description instead — do not create a new field label
+- NEVER delete the `* **Error states:**` bullet line entirely. If reviewer says to move
+  content from Error states to Description, move the text AND keep the field as
+  `* **Error states:** None`. Removing the line will be rejected by the patch guard.
 - NEVER convert bullet lists to numbered lists or tables
 - Do NOT add or remove ### function entries UNLESS reviewer feedback explicitly says
   a function is missing or should be removed

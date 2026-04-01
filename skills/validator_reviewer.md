@@ -40,6 +40,23 @@ Data config files: document the top-level container + each record field.
 Each entry uses a ### heading with function name.
 Keep ALL functions — never drop trivial getters/setters.
 
+FIELD RULES:
+- **Error states:** is a valid field even when it describes conditional behavior or logic branches
+  (not just exceptions). Do NOT suggest renaming it to Notes, Behavior, or any other name.
+- If content inside **Error states:** is genuinely non-error (e.g. pure conditional logic with
+  no failure path), suggest incorporating that content into **Description:** instead.
+- `* **Error states:** None` is a valid, correct value — do NOT flag it.
+- Do NOT introduce new field names. Only use: Description, Parameters, Returns, Error states.
+
+ERROR STATES — WHAT DOES NOT BELONG THERE (move to Description):
+  BAD: "Returns false if entity is on specific island" — normal conditional return path
+  BAD: "If inst is nil, falls back to default behavior" — optional parameter handling
+  BAD: "Behavior changes if SPECIAL_EVENTS.X is active" — conditional logic branch
+  BAD: "Returns standard result if entity lacks tag Y" — else branch of an if statement
+  BAD: "Returns nil if no entity found" — expected empty-result return path
+  GOOD: "Errors if inst is nil (no nil guard before member access)" — actual crash path
+  GOOD: "Returns nil if required component missing (inventory, luckuser)" — missing dependency
+
 === SECTION ## Events & listeners ===
 - **Listens to:** events registered via inst:ListenForEvent(event, fn)
 - **Pushes:** events fired via inst:PushEvent(event, data)

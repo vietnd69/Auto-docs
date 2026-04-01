@@ -11,6 +11,7 @@ from typing import Callable
 
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
+from validator.content.cache import CacheManager
 from llm.settings import (
     BAD_RESPONSE_RETRIES, DEBUG_PROMPTS,
     REVIEWER_TEMPERATURE, WRITER_TEMPERATURE, WRITER_THINK,
@@ -35,6 +36,7 @@ from validator.content.sections import (
     extract_lua_context,
     extract_section_lua_context,
     join_md_sections,
+    normalize_fn_headings,
     prefilter_fn_blocks,
     split_md_sections,
     split_section_blocks,
@@ -132,12 +134,12 @@ def _call_reviewer(
     return []
 
 
-def _extract_target_text(text: str, finding: Finding) -> str:
+def _extract_target_text(text: str, finding: Finding) -> str | None:
     """Extract the specific text snippet that a finding targets.
 
-    For function-level findings: returns the fn_block for finding.function.
-    For section-level findings: returns the full section text.
-    Falls back to full text if the function is not found.
+    For function-level findings: returns the fn_block for finding.function,
+    or None if the function is not present in this batch (cross-batch hallucination).
+    For section-level findings (no function): returns the full section text.
     """
     if finding.function:
         _, fn_blocks = split_section_blocks(text)
@@ -145,6 +147,7 @@ def _extract_target_text(text: str, finding: Finding) -> str:
             m = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
             if m and m.group(1).strip() == finding.function:
                 return block
+        return None  # function not in this batch — skip instead of using full text
     return text
 
 
@@ -188,30 +191,47 @@ def _call_writer(
 
 
 def _run_typed_loop(
-    text: str,
+    cache: CacheManager,
+    cache_id: str,
     lua_ctx: str,
     section_heading: str,
     intentionally_removed: set[str],
     config: ContentLoopConfig,
     file_type: str,
 ) -> tuple[str, list[str], int]:
-    """Review + fix loop for one section or batch.
+    """Review + fix loop for one section or batch using cache.
+
+    The cache file identified by cache_id holds the current content.
+    Reviewer reads from cache, writer edits the cache.
 
     Returns (updated_text, remaining_issues, iterations_used).
     remaining_issues is [] when all findings resolved within max_iterations.
     max_iterations is capped at 3 per spec.
     """
-    max_iters = min(config.max_iterations, 3)
+    max_iters = config.max_iterations
+
+    # Normalize headings in cache before starting
+    text = normalize_fn_headings(cache.read(cache_id))
+    cache.write(cache_id, text)
+
     last_findings: list[Finding] = []
 
     for i in range(max_iters):
+        # Read current content from cache
+        text = cache.read(cache_id)
+
         findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type)
         if not findings:
             return text, [], i + 1
         last_findings = findings
 
         for finding in findings:
+            # Re-read from cache each time (writer may have updated it)
+            text = cache.read(cache_id)
             target_text = _extract_target_text(text, finding)
+            if target_text is None:
+                print(f"  [content/chunked] Finding for '{finding.function}' not in batch — skipping")
+                continue
             op = _call_writer(target_text, lua_ctx, finding, config, file_type)
             if op is None:
                 continue
@@ -220,11 +240,16 @@ def _run_typed_loop(
                 [dummy], [op], frontmatter="",
                 intentionally_removed=intentionally_removed,
             )
-            text = updated[0].text
+            # Writer updates the cache
+            cache.write(cache_id, updated[0].text)
 
         _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
 
-    return text, [f.issue for f in last_findings], max_iters
+    # Final verification: fixes from the last iteration are applied but unreviewed.
+    # One extra review confirms whether they resolved the issues.
+    text = cache.read(cache_id)
+    final_findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type)
+    return text, [f.issue for f in final_findings], max_iters + 1
 
 
 def run_chunked_content_loop(
@@ -232,7 +257,13 @@ def run_chunked_content_loop(
     lua_filepath: str,
     config: ContentLoopConfig,
 ) -> ContentLoopResult:
-    """Per-section typed-ops validation loop for large files.
+    """Per-section typed-ops validation loop for large files using cache.
+
+    Cache-based flow:
+    1. Read md content, split into sections/batches
+    2. Create cache files for each batch/section
+    3. Reviewer reads from cache, writer edits cache
+    4. After all sections done, assemble from cache and write to original file
 
     Phase 1 (pre-filter): classify local functions, strip hallucinations,
     ensure required fields -- deterministic, no LLM.
@@ -259,12 +290,18 @@ def run_chunked_content_loop(
     if not sections:
         return ContentLoopResult(approved=True, iterations=0, final_issues=[])
 
+    # Create cache manager for this file
+    cache = CacheManager(md_filepath)
+    print(f"  [content/chunked] Cache created: {cache.cache_dir}")
+
     file_type = _detect_file_type(lua_filepath, lua_source)
     total_iterations = 0
     all_issues: list[str] = []
 
     for sec_idx, section in enumerate(sections, 1):
         if config.stop_check():
+            # Write current state from cache/sections to original file
+            md_path.write_text(join_md_sections(frontmatter, sections), encoding="utf-8")
             return ContentLoopResult(
                 approved=False, iterations=total_iterations,
                 final_issues=["Interrupted by user"],
@@ -306,9 +343,13 @@ def run_chunked_content_loop(
                 batch_lua_ctx = extract_lua_context(
                     lua_source, extract_function_names(batch_text), max_tokens=8000
                 )
+                # Create cache for this batch
+                batch_cache_id = f"sec{sec_idx}_batch{bi}"
+                cache.create(batch_cache_id, batch_text)
+
                 print(f"  [content/chunked] Section {sec_idx} batch {bi}/{n_batches} -- reviewing...")
                 batch_text, issues, iters = _run_typed_loop(
-                    batch_text, batch_lua_ctx, section.heading,
+                    cache, batch_cache_id, batch_lua_ctx, section.heading,
                     intentionally_removed, config, file_type,
                 )
                 total_iterations += iters
@@ -316,8 +357,9 @@ def run_chunked_content_loop(
                 # Split updated batch back into individual fn_blocks
                 updated_blocks = [b for b in re.split(r'(?m)^(?=### )', batch_text) if b]
                 all_updated_blocks.extend(updated_blocks)
-
-            section.text = preamble + "".join(all_updated_blocks)
+                # Intermediate write to cache (assemble section so far)
+                section.text = preamble + "".join(all_updated_blocks)
+                cache.write(f"sec{sec_idx}_assembled", section.text)
 
         else:
             fn_count = len(re.findall(r'(?m)^### ', section.text))
@@ -328,13 +370,19 @@ def run_chunked_content_loop(
                 print(f"  [content/chunked] Section {sec_idx} -- skipped (no content to validate)")
                 continue
 
-            section.text, issues, iters = _run_typed_loop(
-                section.text, lua_ctx, section.heading,
+            # Create cache for this section
+            sec_cache_id = f"sec{sec_idx}"
+            cache.create(sec_cache_id, section.text)
+
+            updated_text, issues, iters = _run_typed_loop(
+                cache, sec_cache_id, lua_ctx, section.heading,
                 intentionally_removed=set(), config=config, file_type=file_type,
             )
+            section.text = updated_text
             total_iterations += iters
             all_issues.extend(issues)
 
+    # Final assembly: write all sections to original file
     md_path.write_text(join_md_sections(frontmatter, sections), encoding="utf-8")
 
     n_issues = len(all_issues)

@@ -93,6 +93,7 @@ def test_section_fails_no_op(tmp_path):
             _no_op(),   # iteration 2
             _rejected("## Main functions", None, None, "INACCURATE_DESCRIPTION", "Wrong text"),
             _no_op(),   # iteration 3 (max_iterations=3)
+            _rejected("## Main functions", None, None, "INACCURATE_DESCRIPTION", "Wrong text"),  # final verification pass
         ],
     ):
         result = run_chunked_content_loop(md, lua, _config())
@@ -164,6 +165,7 @@ def test_multiple_sections_partial_failure(tmp_path):
             _no_op(),   # iteration 2
             _rejected("## Main functions", "Beta", None, "INACCURATE_DESCRIPTION", "Beta wrong"),
             _no_op(),   # iteration 3
+            _rejected("## Main functions", "Beta", None, "INACCURATE_DESCRIPTION", "Beta wrong"),  # final verification pass
         ],
     ):
         result = run_chunked_content_loop(md, lua, _config())

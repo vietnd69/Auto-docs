@@ -106,6 +106,7 @@ mod-document/
 ### Running the System
 
 ```bash
+# Sử dụng .vevn do phiên bản python khác với python hệ thống
 # Sinh docs cho toàn bộ file .lua (bỏ qua file đã có docs)
 uv run mod-document
 
