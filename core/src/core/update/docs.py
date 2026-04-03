@@ -51,6 +51,7 @@ def parse_args():
                         help="Chỉ xử lý action type này")
     parser.add_argument("--limit", type=int, default=0, help="Số file tối đa cần xử lý")
     parser.add_argument("--no-validate", action="store_true", help="Bỏ qua bước validation")
+    parser.add_argument("--force", action="store_true", help="Xử lý lại kể cả file đã gen thành công")
     return parser.parse_args()
 
 
@@ -215,6 +216,55 @@ def _patch_frontmatter_only(
 
     print(f"  - Patched frontmatter (data-only, no re-render): {diff_summary}")
     return True
+
+
+def _read_frontmatter_hash(md_path: str) -> str | None:
+    """Đọc source_hash từ YAML frontmatter của doc file."""
+    if not os.path.exists(md_path):
+        return None
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        in_fm = False
+        for line in content.splitlines():
+            if line.strip() == "---":
+                if not in_fm:
+                    in_fm = True
+                    continue
+                else:
+                    break
+            if in_fm and line.startswith("source_hash:"):
+                return line.split(":", 1)[1].strip()
+    except Exception:
+        pass
+    return None
+
+
+def _already_processed(path: str, md_filepath: str, action: str, old_path: str = "", content_changed: bool = True) -> bool:
+    """
+    Kiểm tra xem file này đã được xử lý thành công trong lần chạy trước chưa.
+    - added/modified/moved(content_changed): so sánh source_hash trong frontmatter với hash của Lua source hiện tại.
+    - moved(no content change): kiểm tra doc mới tồn tại và có moved_from field.
+    """
+    if action == "moved" and not content_changed:
+        if not os.path.exists(md_filepath):
+            return False
+        try:
+            with open(md_filepath, "r", encoding="utf-8") as f:
+                return f"moved_from: {old_path}" in f.read()
+        except Exception:
+            return False
+
+    existing_hash = _read_frontmatter_hash(md_filepath)
+    if not existing_hash:
+        return False
+
+    lua_abs_path = os.path.join(SCRIPTS_DIR, path)
+    lua_code = safe_read_lua(lua_abs_path)
+    if not lua_code:
+        return False
+
+    return existing_hash == compute_source_hash(lua_code)
 
 
 def _render_file(
@@ -402,6 +452,7 @@ def main():
     print(f"  Chế độ      : {'Dry-run' if args.dry_run else 'Thực thi'}")
     print(f"  File xử lý  : {len(changes)}")
     print(f"  Validation  : {'Tắt' if args.no_validate else 'Bật'}")
+    print(f"  Force rerun : {'Bật' if args.force else 'Tắt (skip file đã xử lý)'}")
     print("=" * 60)
 
     file_tree = config.get_shared_file_tree()
@@ -424,6 +475,12 @@ def main():
             continue
 
         md_filepath = get_md_path(path)
+
+        if not args.dry_run and not args.force and action != "deleted":
+            if _already_processed(path, md_filepath, action, old_path, content_changed):
+                print(f"  - Skip: Đã xử lý thành công (source_hash match). Dùng --force để xử lý lại.")
+                stats["skipped"] += 1
+                continue
 
         # MOVED — không thay đổi nội dung: chỉ rename + cập nhật frontmatter
         if action == "moved" and not content_changed:
