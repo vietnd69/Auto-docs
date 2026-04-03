@@ -783,6 +783,12 @@ def autofix_file(filepath: str, dry_run: bool = False) -> FixResult:
         text = new_text
         applied.append("Đã phát hiện và cắt bỏ nội dung bị lặp lại trong file.")
 
+    # Fix missing blank line before ## / ### headings
+    new_text, heading_fixes = fix_missing_blank_line_before_headings(text)
+    if heading_fixes > 0:
+        text = new_text
+        applied.append(f"Đã thêm blank line trước {heading_fixes} heading(s) bị thiếu.")
+
     # Ghi file một lần duy nhất cho Phase 1 nếu có thay đổi
     if not dry_run and text != original_text:
         path.write_text(text, encoding="utf-8")
@@ -851,6 +857,19 @@ def autofix_file(filepath: str, dry_run: bool = False) -> FixResult:
     from validator.format.checks import validate_all
     remaining = validate_all(filepath) if not dry_run else []
     return FixResult(changes=applied, remaining_errors=remaining)
+
+
+def fix_missing_blank_line_before_headings(text: str) -> tuple[str, int]:
+    """Ensure a blank line before every ## and ### heading.
+
+    Fixes cases like:
+        - `tag` -- check
+        ## Properties        ← no blank line
+    by inserting \\n between the preceding non-blank line and the heading.
+    Does not affect headings that already have a blank line before them.
+    """
+    fixed, count = re.subn(r'([^\n])\n(#{2,3} )', r'\1\n\n\2', text)
+    return fixed, count
 
 
 # ── 4. Fallback: fix thô toàn bộ file ─────────────────────────────
