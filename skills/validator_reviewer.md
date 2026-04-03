@@ -24,6 +24,11 @@ and how other systems access it via require(). Do NOT reference ECS or AddCompon
 [Data config] Show require() followed by table index access (e.g. Table[1]).
 No CreateEntity(), AddComponent(), or inst.components.
 
+REQUIRE PATH RULE: The require() path must match the actual source FILE NAME, not the class name.
+Example: if the file is `brains/crittersbrain.lua` and the class is `CritterBrain`,
+the correct path is require("brains/crittersbrain") — NOT require("brains/critterbrain").
+Do NOT flag a require path as wrong solely because it differs from the class name.
+
 === SECTION ## Dependencies & tags ===
 Must contain EXACTLY these labels (in order):
 **External dependencies:** — list each `name` -- usage, or omit if none

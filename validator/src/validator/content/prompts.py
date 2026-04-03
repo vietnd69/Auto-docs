@@ -144,7 +144,10 @@ Rules:
 - old_text must be an EXACT substring of the current document
 - Keep patches minimal — only change what's needed to fix the issues
 - Do NOT modify YAML frontmatter
-- Preserve markdown formatting and structure"""
+- Preserve markdown formatting and structure
+- old_text must NOT span more than one ### function block — never include two or more ### headings in the same old_text
+- To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
+- To DELETE a function: target only that function's own block, never include surrounding functions in old_text"""
 
 
 def build_section_reviewer_prompt(
@@ -244,7 +247,9 @@ Section: {section_heading or "(preamble)"}
 
 === RESPONSE FORMAT ===
 Return a JSON array of patches. Each patch has "old_text", "new_text", "reason".
-old_text must be an EXACT substring of the section. Keep patches minimal."""
+old_text must be an EXACT substring of the section. Keep patches minimal.
+old_text must NOT span more than one ### function block — never include two or more ### headings in the same old_text.
+To ADD a new ### function: use the last 1-2 lines of an adjacent function as anchor, then include those lines plus the new function in new_text."""
 
     feedback_lines = []
     for i, issue in enumerate(issues, 1):

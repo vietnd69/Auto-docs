@@ -31,6 +31,10 @@ from rag.docs import (
 )
 from validator.pipeline import PipelineConfig, process_file
 
+# File data-only không có function: re-render không có giá trị (chỉ liệt kê keys).
+# Threshold: nếu token Lua >= giá trị này VÀ không có function → patch frontmatter thay vì render.
+DATA_ONLY_TOKEN_THRESHOLD = 50_000
+
 _WORKSPACE_ROOT = Path(__file__).parents[4]
 DOCS_DIR = BASE_DOCS_DIR
 SCRIPTS_DIR = BASE_LUA_DIR
@@ -134,6 +138,85 @@ def _update_moved_frontmatter(md_path: str, old_path: str, new_path: str, new_ha
         f.write("\n".join(lines))
 
 
+def _is_data_only(lua_code: str) -> bool:
+    """
+    True nếu file Lua là pure-data (không có function definition).
+    Dùng để quyết định có nên re-render toàn bộ hay không.
+
+    strings.lua, map data, config tables — tất cả đều là data-only.
+    Chunked pipeline với 66+ chunks cho 6 dòng thay đổi là không hợp lý.
+    """
+    import re
+    # Chỉ match function definition ở đầu dòng, tránh match 'function' trong string values
+    has_function = bool(re.search(r'^\s*(local\s+)?function\s+\w', lua_code, re.MULTILINE))
+    if has_function:
+        return False
+    return count_tokens(lua_code) >= DATA_ONLY_TOKEN_THRESHOLD
+
+
+def _patch_frontmatter_only(
+    md_path: str,
+    new_hash: str,
+    new_ver: str,
+    diff_summary: str,
+) -> bool:
+    """
+    Cập nhật source_hash, last_updated, build_version, change_status trong frontmatter.
+    Không re-render nội dung doc. Dùng cho data-only files.
+    Returns True nếu thành công.
+    """
+    if not os.path.exists(md_path):
+        print(f"  - Bỏ qua patch frontmatter: doc chưa tồn tại ({md_path})")
+        return False
+
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    with open(md_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    lines = content.splitlines()
+    in_fm = False
+    fm_end = -1
+    updated = set()
+
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            if not in_fm:
+                in_fm = True
+            else:
+                fm_end = i
+                break
+        if in_fm and line.strip() != "---":
+            if line.startswith("source_hash:"):
+                lines[i] = f"source_hash: {new_hash}"
+                updated.add("source_hash")
+            elif line.startswith("last_updated:"):
+                lines[i] = f"last_updated: {today}"
+                updated.add("last_updated")
+            elif line.startswith("build_version:"):
+                lines[i] = f"build_version: {new_ver}"
+                updated.add("build_version")
+            elif line.startswith("change_status:"):
+                lines[i] = "change_status: data_patched"
+                updated.add("change_status")
+
+    if fm_end < 0:
+        print(f"  - Cảnh báo: Không tìm thấy frontmatter trong {md_path}")
+        return False
+
+    # Inject change_status nếu chưa có
+    if "change_status" not in updated:
+        lines.insert(fm_end, "change_status: data_patched")
+        fm_end += 1
+
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"  - Patched frontmatter (data-only, no re-render): {diff_summary}")
+    return True
+
+
 def _render_file(
     path: str,
     md_filepath: str,
@@ -155,6 +238,22 @@ def _render_file(
     if lua_code is None:
         print(f"  - Lỗi: Không thể đọc source {lua_abs_path}")
         return False
+
+    # Data-only files (strings.lua, map tables...): không có function, quá lớn để re-render.
+    # Chunked pipeline sẽ tạo 60+ LLM calls mà output không có giá trị API.
+    # Chỉ patch frontmatter để tracking build version.
+    if _is_data_only(lua_code):
+        token_count = count_tokens(lua_code)
+        print(f"  [DATA-ONLY] {token_count} tokens, 0 functions — skip re-render, patch frontmatter only")
+        if args.dry_run:
+            print(f"  - (Dry-run) Sẽ patch frontmatter: {md_filepath}")
+            return True
+        return _patch_frontmatter_only(
+            md_path=md_filepath,
+            new_hash=compute_source_hash(lua_code),
+            new_ver=config.VERSION,
+            diff_summary=f"{token_count} tokens, data-only file",
+        )
 
     source_hash = compute_source_hash(lua_code)
     lua_refs = extract_lua_references(lua_code, path)

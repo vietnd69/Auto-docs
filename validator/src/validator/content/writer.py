@@ -6,6 +6,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+_FN_HEADING_RE = re.compile(r'^### ', re.MULTILINE)
+_FN_NAME_RE = re.compile(r'^### `?([^`(\n]+)', re.MULTILINE)
+
+
+def _fn_names(text: str) -> set[str]:
+    return {m.group(1).strip() for m in _FN_NAME_RE.finditer(text)}
+
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
@@ -44,7 +51,13 @@ class TypedOp:
 
 
 def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["Patch"]]:
-    """Apply patches to content via str.replace(). Returns (new_content, failed_count, ambiguous_patches)."""
+    """Apply patches to content via str.replace(). Returns (new_content, failed_count, ambiguous_patches).
+
+    Regression guard: each patch is applied to a temporary copy first. If applying
+    it would reduce the number of ### function headings, the patch is rejected —
+    this prevents writer from silently dropping functions when old_text spans
+    multiple ### blocks and new_text omits some of them.
+    """
     failed = 0
     ambiguous: list[Patch] = []
     for patch in patches:
@@ -56,7 +69,19 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
             failed += 1
             ambiguous.append(patch)
         else:
-            content = content.replace(patch.old_text, patch.new_text, 1)
+            old_fn_count = len(_FN_HEADING_RE.findall(patch.old_text))
+            if old_fn_count >= 2:
+                # Multi-block patch: compare function names in accumulated content before/after
+                # to catch regressions regardless of count (handles rename and swap cases too)
+                candidate = content.replace(patch.old_text, patch.new_text, 1)
+                lost = _fn_names(content) - _fn_names(candidate)
+                if lost:
+                    print(f"  [content/writer] Patch blocked — multi-block patch drops: {', '.join(sorted(lost))}: {patch.old_text[:60]!r}")
+                    failed += 1
+                else:
+                    content = candidate
+            else:
+                content = content.replace(patch.old_text, patch.new_text, 1)
     return content, failed, ambiguous
 
 
