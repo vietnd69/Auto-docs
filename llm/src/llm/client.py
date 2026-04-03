@@ -61,8 +61,11 @@ def _is_rate_limit_error(error: Exception) -> bool:
 
 
 def _is_timeout_error(error: Exception) -> bool:
-    """Kiểm tra xem lỗi có phải timeout không."""
-    return isinstance(error, (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.TimeoutException))
+    """Kiểm tra xem lỗi có phải timeout hoặc connection drop không."""
+    return isinstance(error, (
+        httpx.ReadTimeout, httpx.ConnectTimeout, httpx.TimeoutException,
+        httpx.RemoteProtocolError,  # "peer closed connection / incomplete chunked read"
+    ))
 
 
 def _is_retryable_error(error: Exception) -> bool:
