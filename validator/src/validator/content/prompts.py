@@ -276,7 +276,8 @@ _RULE_IDS_BY_SECTION: dict[str, list[str]] = {
     "## Usage example":        ["WRONG_FUNCTION_CALL", "USES_INVALID_API", "UNREALISTIC_EXAMPLE"],
     "## Dependencies & tags":  ["MISSING_ENTRY", "EXTRA_ENTRY", "WRONG_USAGE_DESC"],
     "## Properties":           ["WRONG_TYPE", "WRONG_DEFAULT", "MISSING_PROPERTY", "EXTRA_PROPERTY"],
-    "## Main functions":       ["WRONG_VALUE", "MISSING_PARAM", "EXTRA_PARAM", "WRONG_DESCRIPTION"],
+    "## Main functions":       ["WRONG_VALUE", "MISSING_PARAM", "EXTRA_PARAM", "WRONG_DESCRIPTION",
+                               "WRONG_ERROR_STATE", "MISPLACED_ERROR_STATE"],
     "## Events & listeners":   ["MISSING_EVENT", "WRONG_EVENT_NAME"],
 }
 

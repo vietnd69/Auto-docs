@@ -143,9 +143,11 @@ def _extract_target_text(text: str, finding: Finding) -> str | None:
     """
     if finding.function:
         _, fn_blocks = split_section_blocks(text)
+        # Strip params from reviewer output: "Foo(x, y)" → "Foo" to match heading regex
+        fn_name = re.sub(r'\s*\(.*$', '', finding.function).strip()
         for block in fn_blocks:
             m = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-            if m and m.group(1).strip() == finding.function:
+            if m and m.group(1).strip() == fn_name:
                 return block
         return None  # function not in this batch — skip instead of using full text
     return text

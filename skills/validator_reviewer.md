@@ -48,6 +48,12 @@ FIELD RULES:
 - `* **Error states:** None` is a valid, correct value — do NOT flag it.
 - Do NOT introduce new field names. Only use: Description, Parameters, Returns, Error states.
 
+ERROR STATES BOUNDARY TEST (apply before flagging anything in this field):
+  Ask: "Would calling this function with this input CRASH or SILENTLY CORRUPT state,
+  given no guard exists in the Lua source?" If YES → valid Error states entry.
+  If NO (it returns a defined value, falls back, or is an optional param) → belongs in
+  Description or Returns, NOT Error states.
+
 ERROR STATES — WHAT DOES NOT BELONG THERE (move to Description):
   BAD: "Returns false if entity is on specific island" — normal conditional return path
   BAD: "If inst is nil, falls back to default behavior" — optional parameter handling
