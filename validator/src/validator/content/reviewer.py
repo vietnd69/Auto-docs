@@ -138,6 +138,8 @@ def review_document(
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
         response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
         raw = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_prompt("reviewer_response", raw)
         result = parse_review_response(raw)
         is_bad = not raw.strip() or (result.issues and result.issues[0].startswith("Failed to parse"))
         if not is_bad:

@@ -170,6 +170,8 @@ def rewrite_document(
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
         response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
         raw = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_prompt("writer_response", raw)
         if raw.strip():
             break
         remaining = BAD_RESPONSE_RETRIES - attempt
