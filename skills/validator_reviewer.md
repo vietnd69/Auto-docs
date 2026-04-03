@@ -37,7 +37,9 @@ Must contain EXACTLY these labels (in order):
 
 === SECTION ## Properties ===
 Table with columns: Property | Type | Default Value | Description.
-If no properties exist, write header + separator row only (no data rows).
+If no properties exist, the table MUST include a None data row:
+| None | | | No properties are defined. |
+Do NOT leave the table with header + separator only and no data rows — that is incorrect.
 Do NOT invent properties not in the constructor.
 Data config files: document the top-level container + each record field.
 

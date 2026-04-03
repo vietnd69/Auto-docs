@@ -579,6 +579,59 @@ def fix_malformed_multiline_backticks(text: str) -> tuple[str, int]:
         i += 1
     return "".join(lines), count
 
+def fix_empty_properties_section(text: str) -> tuple[str, bool]:
+    """
+    Nếu ## Properties section không có data rows, tự động thêm row None.
+    Xử lý 2 case:
+    - Không có table nào → inject full table (header + separator + None row)
+    - Có header + separator nhưng không có data rows → thêm None row sau separator
+    """
+    prop_match = re.search(r'^## Properties\s*$', text, re.MULTILINE)
+    if not prop_match:
+        return text, False
+
+    after_start = prop_match.end()
+    next_heading = re.search(r'^##\s', text[after_start:], re.MULTILINE)
+    section_end = after_start + next_heading.start() if next_heading else len(text)
+    section_body = text[after_start:section_end]
+
+    table_lines = [l for l in section_body.splitlines() if l.strip().startswith('|')]
+    none_row = "| None | | | No properties are defined. |"
+
+    if not table_lines:
+        # Case 1: không có table — inject full table
+        none_table = (
+            "\n"
+            "| Property | Type | Default Value | Description |\n"
+            "|----------|------|---------------|-------------|\n"
+            f"{none_row}\n"
+        )
+        return text[:after_start] + none_table + text[after_start:], True
+
+    # Case 2: có table rows — kiểm tra data rows (non-separator, non-header)
+    is_separator = lambda row: bool(re.match(r'^\|[\s\-:|]+\|$', row.strip()))
+    non_separator = [r for r in table_lines if not is_separator(r)]
+
+    # non_separator[0] = header row; non_separator[1:] = data rows
+    if len(non_separator) > 1:
+        return text, False  # Đã có data rows, không cần fix
+
+    # Chỉ có header (hoặc chỉ separator) — thêm None row sau separator cuối cùng
+    sep_match = re.search(r'^\|[\s\-:|]+\|[^\n]*\n', section_body, re.MULTILINE)
+    if sep_match:
+        insert_pos = after_start + sep_match.end()
+        return text[:insert_pos] + f"{none_row}\n" + text[insert_pos:], True
+
+    # Fallback: separator không tìm thấy — inject full table
+    none_table = (
+        "\n"
+        "| Property | Type | Default Value | Description |\n"
+        "|----------|------|---------------|-------------|\n"
+        f"{none_row}\n"
+    )
+    return text[:after_start] + none_table + text[after_start:], True
+
+
 def prune_duplicated_content(text: str) -> tuple[str, bool]:
     """
     Phát hiện và cắt bỏ nội dung bị lặp lại (ví dụ: toàn bộ file bị append thêm n lần).
@@ -782,6 +835,12 @@ def autofix_file(filepath: str, dry_run: bool = False) -> FixResult:
     if pruned:
         text = new_text
         applied.append("Đã phát hiện và cắt bỏ nội dung bị lặp lại trong file.")
+
+    # Fix empty ## Properties section (add None table)
+    new_text, props_fixed = fix_empty_properties_section(text)
+    if props_fixed:
+        text = new_text
+        applied.append("Đã thêm bảng None vào ## Properties section trống.")
 
     # Fix missing blank line before ## / ### headings
     new_text, heading_fixes = fix_missing_blank_line_before_headings(text)
