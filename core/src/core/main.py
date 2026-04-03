@@ -238,6 +238,7 @@ def _main_impl():
                 result = generate_doc(
                     prompt=prompt_text,
                     md_filepath=md_filepath,
+                    source_hash=source_hash,
                     model_name=MODEL_NAME,
                     sleep_time=20,
                 )

@@ -1,12 +1,13 @@
 import os
 import time
 from llm import client as config
-from rag.docs import clean_model_output
+from rag.docs import clean_model_output, inject_frontmatter_field
 
 
 def generate_doc(
     prompt: str,
     md_filepath: str,
+    source_hash: str = "",
     model_name: str = "qwen3-coder-next:cloud",
     sleep_time: int = 0,
     max_retries: int = 3,
@@ -55,6 +56,9 @@ def generate_doc(
             # Kiểm tra sanity: output phải bắt đầu bằng YAML frontmatter
             if not md_content.startswith("---"):
                 print(f"[Cảnh báo] Output của {md_filename} không bắt đầu bằng YAML frontmatter!")
+
+            if source_hash:
+                md_content = inject_frontmatter_field(md_content, "source_hash", source_hash)
 
             dirname = os.path.dirname(md_filepath)
             if dirname:

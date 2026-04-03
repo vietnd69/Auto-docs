@@ -623,6 +623,74 @@ def prune_duplicated_content(text: str) -> tuple[str, bool]:
     return text, False
 
 # ── 3. Apply fix vào file ──────────────────────────────────────────
+def _fix_missing_source_hash(filepath: str, text: str) -> tuple[str, str | None]:
+    """Recover source_hash from the corresponding Lua file if missing in frontmatter.
+    Returns (updated_text, hash_value_or_None)."""
+    fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
+    if not fm_match or re.search(r'^source_hash:', fm_match.group(1), re.MULTILINE):
+        return text, None
+
+    from validator.utils import resolve_lua_path
+    from rag.docs import safe_read_lua, compute_source_hash, inject_frontmatter_field
+    lua_path = resolve_lua_path(filepath)
+    if not lua_path:
+        return text, None
+    lua_code = safe_read_lua(lua_path)
+    if not lua_code:
+        return text, None
+    hash_val = compute_source_hash(lua_code)
+    return inject_frontmatter_field(text, "source_hash", hash_val), hash_val
+
+
+def _fix_missing_frontmatter_fields(filepath: str, text: str) -> tuple[str, list[str]]:
+    """Inject deterministic frontmatter fields that are missing and can be derived from context.
+
+    Handles: id, title, sidebar_position, last_updated, build_version, change_status, category_type.
+    Returns (updated_text, list_of_applied_descriptions).
+    """
+    from datetime import datetime
+    from pathlib import Path as _Path
+    from rag.docs import inject_frontmatter_field
+    from llm.settings import BUILD_VERSION
+
+    fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
+    if not fm_match:
+        return text, []
+
+    md_path = _Path(filepath)
+    stem = md_path.stem  # filename without .md
+
+    # Derive category_type: first subdir after 'docs/' in the path, or "root" for top-level files
+    try:
+        parts = md_path.parts
+        docs_idx = parts.index("docs")
+        rel_parts = parts[docs_idx + 1:]
+        category_type = rel_parts[0] if len(rel_parts) > 1 else "root"
+    except (ValueError, IndexError):
+        category_type = "root"
+
+    defaults = {
+        "id":              stem,
+        "title":           stem.replace("_", " ").title(),
+        "sidebar_position": "10",
+        "last_updated":    datetime.now().strftime("%Y-%m-%d"),
+        "build_version":   BUILD_VERSION,
+        "change_status":   "stable",
+        "category_type":   category_type,
+    }
+
+    applied = []
+    fm_body = fm_match.group(1)
+    for field, value in defaults.items():
+        if not re.search(rf'^{re.escape(field)}:', fm_body, re.MULTILINE):
+            text = inject_frontmatter_field(text, field, str(value))
+            fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
+            fm_body = fm_match.group(1) if fm_match else fm_body
+            applied.append(f"Đã thêm {field}: {value}")
+
+    return text, applied
+
+
 def autofix_file(filepath: str, dry_run: bool = False) -> FixResult:
     path = Path(filepath)
     original_text = path.read_text(encoding="utf-8")
@@ -630,6 +698,18 @@ def autofix_file(filepath: str, dry_run: bool = False) -> FixResult:
     applied = []
 
     # --- PHASE 1: Static Fixes (In-memory batch) ---
+
+    # Recover missing deterministic frontmatter fields
+    new_text, field_fixes = _fix_missing_frontmatter_fields(filepath, text)
+    if field_fixes:
+        text = new_text
+        applied.extend(field_fixes)
+
+    # Recover missing source_hash from Lua source
+    new_text, recovered_hash = _fix_missing_source_hash(filepath, text)
+    if recovered_hash is not None:
+        text = new_text
+        applied.append(f"Đã thêm source_hash: {recovered_hash} (khôi phục từ file Lua).")
 
     # Xoá pure emojis trước
     new_text, emoji_count = remove_pure_emojis(text)

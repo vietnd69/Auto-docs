@@ -76,6 +76,18 @@ def compute_source_hash(lua_code: str) -> str:
     return hashlib.md5(lua_code.encode("utf-8")).hexdigest()[:8]
 
 
+def inject_frontmatter_field(text: str, field: str, value: str) -> str:
+    """Insert a missing field into YAML frontmatter. No-op if already present or no frontmatter."""
+    fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
+    if not fm_match:
+        return text
+    if re.search(rf'^{re.escape(field)}:', fm_match.group(1), re.MULTILINE):
+        return text
+    # Insert after the last frontmatter key, before the closing ---
+    insert_pos = fm_match.start() + 4 + len(fm_match.group(1))
+    return text[:insert_pos] + f"\n{field}: {value}" + text[insert_pos:]
+
+
 def format_connected_section(lua_refs: list[tuple[str, list[str]]]) -> str:
     """
     Format danh sách tham chiếu Lua thành chuỗi cho prompt.

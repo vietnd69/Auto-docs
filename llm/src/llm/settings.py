@@ -67,6 +67,10 @@ MAX_CONVERSATION_TURNS: int       = _get("validator", "max_conversation_turns", 
 CONVERSATION_TOKEN_BUDGET: int    = _get("validator", "conversation_token_budget", 3000)
 OSCILLATION_THRESHOLD: int        = _get("validator", "oscillation_threshold",    50)
 
+# === Build ===
+from llm.paths import read_build_version as _read_build_version
+BUILD_VERSION: str = _read_build_version(fallback=_get("build", "version", "unknown"))
+
 # === Debug ===
 # Set MOD_DOC_DEBUG_PROMPTS=1 (or debug.prompts=1 in config.toml) to dump full prompts to .cache/debug_prompts/
 DEBUG_PROMPTS: int = _get("debug", "prompts", 0)

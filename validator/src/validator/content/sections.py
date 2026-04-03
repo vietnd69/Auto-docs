@@ -52,8 +52,19 @@ def split_md_sections(md_content: str) -> tuple[str, list[DocSection]]:
 
 
 def join_md_sections(frontmatter: str, sections: list[DocSection]) -> str:
-    """Reassemble document from frontmatter and section list."""
-    return frontmatter + "".join(s.text for s in sections)
+    """Reassemble document from frontmatter and section list.
+
+    Each section text is normalized to end with a newline before joining so that
+    adjacent section headings never merge onto the same line (e.g. when the writer
+    returns update_section content without a trailing newline).
+    """
+    parts = []
+    for s in sections:
+        text = s.text
+        if text and not text.endswith('\n'):
+            text += '\n'
+        parts.append(text)
+    return frontmatter + "".join(parts)
 
 
 def normalize_fn_headings(text: str) -> str:
@@ -458,9 +469,10 @@ def apply_typed_ops(
 
         elif op.op == "update_field" and op.function:
             preamble, fn_blocks = split_section_blocks(section.text)
+            op_fn_name = re.sub(r'\s*\(.*$', '', op.function).strip()
             for j, block in enumerate(fn_blocks):
                 bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-                if bm and bm.group(1).strip() == op.function:
+                if bm and bm.group(1).strip() == op_fn_name:
                     fn_blocks[j] = _update_field_in_text(block, op.field or "", op.value or "")
                     break
             section.text = preamble + "".join(fn_blocks)
@@ -470,9 +482,10 @@ def apply_typed_ops(
 
         elif op.op == "rewrite_function" and op.function:
             preamble, fn_blocks = split_section_blocks(section.text)
+            op_fn_name = re.sub(r'\s*\(.*$', '', op.function).strip()
             for j, block in enumerate(fn_blocks):
                 bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-                if bm and bm.group(1).strip() == op.function:
+                if bm and bm.group(1).strip() == op_fn_name:
                     fn_blocks[j] = op.content or ""
                     break
             # If function not found: no-op (loop completes without modifying)

@@ -51,6 +51,7 @@ def _ensure_events_section(doc: str) -> str:
 from rag.docs import (
     clean_model_output,
     extract_lua_references,
+    inject_frontmatter_field,
     safe_read_lua,
     compute_source_hash,
     format_connected_section,
@@ -239,6 +240,7 @@ def generate_chunk_analysis(
 def generate_merged_doc(
     prompt: str,
     md_filepath: str,
+    source_hash: str = "",
     model_name: str = "qwen3-coder-next:cloud",
     sleep_time: int = 10,
     max_retries: int = 3,
@@ -289,6 +291,9 @@ def generate_merged_doc(
             # Sanity check
             if not md_content.startswith("---"):
                 print(f"    [Cảnh báo] Output merge không bắt đầu bằng YAML frontmatter!")
+
+            if source_hash:
+                md_content = inject_frontmatter_field(md_content, "source_hash", source_hash)
 
             dir_name = os.path.dirname(md_filepath)
             if dir_name:
@@ -776,6 +781,7 @@ def process_chunked_file(
     result_filename = generate_merged_doc(
         prompt=merge_prompt,
         md_filepath=md_filepath,
+        source_hash=source_hash,
         model_name=model_name,
         sleep_time=merge_sleep,
     )
