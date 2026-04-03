@@ -17,6 +17,9 @@ cd mod-document
 uv sync
 ```
 
+> **QUAN TRỌNG** — Project sử dụng **uv workspace** với Python 3.11 (`.venv` trong project root).
+> Luôn dùng `.venv/Scripts/python` (Windows) hoặc `.venv/bin/python` (Linux/Mac) thay cho `python` trực tiếp để tránh dùng nhầm system Python.
+
 Tạo file `.env` từ template:
 
 ```bash
@@ -43,42 +46,47 @@ ACCOUNT_2=your-ollama-api-key-2
 
 ```bash
 # Sinh docs cho toàn bộ file .lua trong dst-scripts/
-uv run mod-document
+.venv/Scripts/mod-document
 
 # Sinh docs cho 1 file cụ thể (luôn ghi đè nếu đã tồn tại)
-uv run mod-document dst-scripts/components/combat.lua
+.venv/Scripts/mod-document dst-scripts/components/combat.lua
 
 # Sinh toàn bộ + ghi đè file đã có docs
-uv run mod-document -f
+.venv/Scripts/mod-document -f
 ```
 
 ### Validate docs
 
 ```bash
 # Toàn bộ docs (format + content)
-uv run python -m validator
+.venv/Scripts/python -m validator
 
 # 1 file cụ thể
-uv run python -m validator dst-api-webdocs/docs/components/combat.md
+.venv/Scripts/python -m validator dst-api-webdocs/docs/components/combat.md
 
 # Chỉ format check
-uv run python -m validator --format-only
+.venv/Scripts/python -m validator --format-only
 
 # Chỉ content check (LLM review)
-uv run python -m validator --content-only
+.venv/Scripts/python -m validator --content-only
 ```
 
 ### Auto-update từ diff report
 
+Re-render lại toàn bộ nội dung MD cho các file thay đổi theo pipeline chuẩn (render → validator):
+
 ```bash
-# Cập nhật docs dựa trên diff report (added/modified/deleted/moved)
-uv run python -m core.update.docs
+# Re-render docs cho file trong diff report (added/modified/moved)
+.venv/Scripts/python -m core.update.docs
 
 # Xem prompt, không gọi LLM
-uv run python -m core.update.docs --dry-run
+.venv/Scripts/python -m core.update.docs --dry-run
 
 # Chỉ xử lý file mới
-uv run python -m core.update.docs --filter added
+.venv/Scripts/python -m core.update.docs --filter added
+
+# Bỏ qua bước validation
+.venv/Scripts/python -m core.update.docs --no-validate
 ```
 
 ### Diff watcher
@@ -86,22 +94,22 @@ uv run python -m core.update.docs --filter added
 Phát hiện file `.lua` thay đổi giữa các lần cập nhật `dst-scripts`:
 
 ```bash
-uv run mod-watcher
+.venv/Scripts/mod-watcher
 ```
 
 ### Chạy tests
 
 ```bash
 # Toàn bộ workspace
-uv run pytest
+.venv/Scripts/pytest
 
 # Từng package
-uv run pytest core/tests/
-uv run pytest llm/tests/
-uv run pytest rag/tests/
-uv run pytest prompts/tests/
-uv run pytest validator/tests/
-uv run pytest watcher/tests/
+.venv/Scripts/pytest core/tests/
+.venv/Scripts/pytest llm/tests/
+.venv/Scripts/pytest rag/tests/
+.venv/Scripts/pytest prompts/tests/
+.venv/Scripts/pytest validator/tests/
+.venv/Scripts/pytest watcher/tests/
 ```
 
 ## Kiến trúc

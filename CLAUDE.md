@@ -20,13 +20,13 @@ When asked about code in this project, call:
 
 Project sử dụng **uv workspace** với Python 3.11 (`.venv` trong project root).
 
-**QUAN TRỌNG — luôn dùng `uv run` thay cho `python` trực tiếp:**
-- `uv sync` — cài dependencies
-- `uv run mod-document` — chạy document generation (thay cho `python main.py`)
-- `uv run pytest` — chạy tests
-- `uv run python ...` — chạy bất kỳ script Python nào
+**QUAN TRỌNG — luôn dùng `.venv` trực tiếp, KHÔNG dùng `python` hay `uv run python` trực tiếp:**
+- `uv sync` — cài dependencies (lần đầu hoặc sau khi thay đổi deps)
+- `.venv/Scripts/mod-document` — chạy document generation
+- `.venv/Scripts/pytest` — chạy tests
+- `.venv/Scripts/python -m <module>` — chạy bất kỳ module Python nào
 
-KHÔNG BAO GIỜ gọi `python` hay `python3` trực tiếp — luôn prefix bằng `uv run` để đảm bảo dùng đúng `.venv` của project (Python 3.11), tránh dùng nhầm system Python.
+KHÔNG BAO GIỜ gọi `python`, `python3`, hay `uv run python` trực tiếp — luôn dùng `.venv/Scripts/python` để đảm bảo đúng Python 3.11 của project, tránh dùng nhầm system Python.
 
 ## Project Overview
 
@@ -106,38 +106,41 @@ mod-document/
 ### Running the System
 
 ```bash
-# Sử dụng .vevn do phiên bản python khác với python hệ thống
+# QUAN TRỌNG: Dùng .venv/Scripts/python (không dùng python hay uv run python trực tiếp)
+# Project sử dụng uv workspace với Python 3.11 (.venv trong project root)
+
 # Sinh docs cho toàn bộ file .lua (bỏ qua file đã có docs)
-uv run mod-document
+.venv/Scripts/mod-document
 
 # Sinh docs cho 1 file cụ thể (luôn ghi đè)
-uv run mod-document dst-scripts/components/combat.lua
+.venv/Scripts/mod-document dst-scripts/components/combat.lua
 
 # Sinh toàn bộ + ghi đè file đã có docs
-uv run mod-document -f
+.venv/Scripts/mod-document -f
 
 # Validate docs (format + content)
-uv run python -m validator                           # Toàn bộ docs
-uv run python -m validator path/to/file.md           # 1 file
-uv run python -m validator --format-only             # Chỉ format
-uv run python -m validator --content-only            # Chỉ content
+.venv/Scripts/python -m validator                           # Toàn bộ docs
+.venv/Scripts/python -m validator path/to/file.md           # 1 file
+.venv/Scripts/python -m validator --format-only             # Chỉ format
+.venv/Scripts/python -m validator --content-only            # Chỉ content
 
-# Auto-update docs từ diff report (added/modified/deleted/moved)
-uv run python -m core.update.docs
-uv run python -m core.update.docs --dry-run          # Xem prompt, không gọi LLM
-uv run python -m core.update.docs --filter added     # Chỉ xử lý file mới
+# Auto-update docs từ diff report (re-render full pipeline)
+.venv/Scripts/python -m core.update.docs
+.venv/Scripts/python -m core.update.docs --dry-run          # Xem prompt, không gọi LLM
+.venv/Scripts/python -m core.update.docs --filter added     # Chỉ xử lý file mới
+.venv/Scripts/python -m core.update.docs --no-validate      # Bỏ qua validation
 
 # Chạy diff watcher (phát hiện thay đổi giữa các version)
-uv run mod-watcher
+.venv/Scripts/mod-watcher
 
 # Test
-uv run pytest                    # Toàn workspace
-uv run pytest core/tests/        # Từng package
-uv run pytest llm/tests/
-uv run pytest rag/tests/
-uv run pytest prompts/tests/
-uv run pytest validator/tests/
-uv run pytest watcher/tests/
+.venv/Scripts/pytest                    # Toàn workspace
+.venv/Scripts/pytest core/tests/        # Từng package
+.venv/Scripts/pytest llm/tests/
+.venv/Scripts/pytest rag/tests/
+.venv/Scripts/pytest prompts/tests/
+.venv/Scripts/pytest validator/tests/
+.venv/Scripts/pytest watcher/tests/
 ```
 
 ## Architecture Notes
