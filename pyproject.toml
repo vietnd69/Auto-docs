@@ -6,8 +6,8 @@ requires-python = ">=3.11"
 [tool.uv.workspace]
 members = ["llm", "core", "rag", "prompts", "watcher", "validator"]
 
-[tool.uv]
-dev-dependencies = ["pytest>=8.0"]
+[dependency-groups]
+dev = ["pytest>=8.0"]
 
 [tool.uv.sources]
 mod-document-llm = { workspace = true }
