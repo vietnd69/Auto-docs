@@ -114,3 +114,29 @@ class TestLoadDiffReport:
             result = load_diff_report()
         assert result is None
         assert "diff_report.json" in capsys.readouterr().out
+
+
+class TestPrependToChangelog:
+    def test_creates_file_if_not_exists(self, tmp_path):
+        from core.changelog.pipeline import prepend_to_changelog
+        path = tmp_path / "change-log.md"
+        prepend_to_changelog("## Build 2\n\nContent.", path)
+        text = path.read_text(encoding="utf-8")
+        assert "# DST API Changelog" in text
+        assert "## Build 2" in text
+
+    def test_prepends_before_existing_content(self, tmp_path):
+        from core.changelog.pipeline import prepend_to_changelog
+        path = tmp_path / "change-log.md"
+        path.write_text("# DST API Changelog\n\n## Build 1\n\nOld.", encoding="utf-8")
+        prepend_to_changelog("## Build 2\n\nNew.", path)
+        text = path.read_text(encoding="utf-8")
+        assert text.index("## Build 2") < text.index("## Build 1")
+
+    def test_header_written_only_once(self, tmp_path):
+        from core.changelog.pipeline import prepend_to_changelog
+        path = tmp_path / "change-log.md"
+        prepend_to_changelog("## Build 2\n\nContent.", path)
+        prepend_to_changelog("## Build 3\n\nNewer.", path)
+        text = path.read_text(encoding="utf-8")
+        assert text.count("# DST API Changelog") == 1
