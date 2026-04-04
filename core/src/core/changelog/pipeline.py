@@ -20,6 +20,32 @@ from llm.settings import MODEL_UPDATE
 from validator.format.autofix import autofix_file, get_mdx_errors
 
 CHANGELOG_PATH: Path = PROJECT_ROOT / "dst-api-webdocs" / "change-log.md"
+_CHANGELOG_HEADER = "# DST API Changelog\n"
+
+
+def _build_frontmatter(new_ver: str, date: str) -> str:
+    return (
+        "---\n"
+        "id: change-log\n"
+        "title: DST API Changelog\n"
+        "description: Build-by-build changelog for the DST Lua API documentation.\n"
+        "tags: [changelog]\n"
+        "sidebar_position: 1\n"
+        f"last_updated: {date}\n"
+        f"build_version: {new_ver}\n"
+        "change_status: updated\n"
+        "---"
+    )
+
+
+def _strip_frontmatter_and_header(text: str) -> str:
+    """Remove YAML frontmatter block and the # DST API Changelog header."""
+    if text.startswith("---\n"):
+        end = text.find("\n---\n", 4)
+        if end != -1:
+            text = text[end + 5:]
+    text = text.lstrip("\n")
+    return text.removeprefix(_CHANGELOG_HEADER).lstrip("\n")
 
 
 def load_diff_report() -> dict | None:
@@ -61,17 +87,16 @@ def build_changelog_entry(report: dict) -> str | None:
     return content
 
 
-def prepend_to_changelog(entry: str, changelog_path: Path) -> None:
-    header = "# DST API Changelog\n"
+def prepend_to_changelog(entry: str, changelog_path: Path, *, new_ver: str, date: str) -> None:
+    frontmatter = _build_frontmatter(new_ver, date)
     if changelog_path.exists():
         existing = changelog_path.read_text(encoding="utf-8")
-        # Strip existing header to avoid duplication
-        body = existing.removeprefix(header).lstrip("\n")
+        body = _strip_frontmatter_and_header(existing)
     else:
         changelog_path.parent.mkdir(parents=True, exist_ok=True)
         body = ""
     changelog_path.write_text(
-        f"{header}\n{entry.strip()}\n\n{body}".rstrip() + "\n",
+        f"{frontmatter}\n\n{_CHANGELOG_HEADER}\n{entry.strip()}\n\n{body}".rstrip() + "\n",
         encoding="utf-8",
     )
 
@@ -116,7 +141,7 @@ def main() -> None:
     if entry is None:
         sys.exit(1)
 
-    prepend_to_changelog(entry, CHANGELOG_PATH)
+    prepend_to_changelog(entry, CHANGELOG_PATH, new_ver=new_ver, date=report["date"])
 
     # Only check for real MDX compilation errors (validate_all returns false positives
     # for doc-format rules like required headings that don't apply to the changelog)
