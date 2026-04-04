@@ -191,3 +191,65 @@ class TestBuildChangelogEntry:
             result = build_changelog_entry(SAMPLE_REPORT)
         assert result is None
         assert capsys.readouterr().out  # some warning printed
+
+
+class TestMain:
+    def _run_main(self, tmp_path, argv, llm_content=None, report=None):
+        changelog_path = tmp_path / "change-log.md"
+        r = report or SAMPLE_REPORT
+        fake_resp = {"message": {"content": llm_content or "## Build 718694\n\n### Highlights\nNew critter."}}
+        with patch("core.changelog.pipeline.load_diff_report", return_value=r), \
+             patch("core.changelog.pipeline.ollama_chat", return_value=fake_resp), \
+             patch("core.changelog.pipeline.CHANGELOG_PATH", changelog_path), \
+             patch("sys.argv", ["mod-changelog"] + argv):
+            from core.changelog.pipeline import main
+            main()
+        return changelog_path
+
+    def test_writes_changelog_on_success(self, tmp_path):
+        path = self._run_main(tmp_path, [])
+        assert path.exists()
+        assert "## Build 718694" in path.read_text(encoding="utf-8")
+
+    def test_dry_run_does_not_write(self, tmp_path):
+        path = self._run_main(tmp_path, ["--dry-run"])
+        assert not path.exists()
+
+    def test_dry_run_prints_prompt(self, tmp_path, capsys):
+        self._run_main(tmp_path, ["--dry-run"])
+        out = capsys.readouterr().out
+        assert "714014 → 718694" in out
+
+    def test_already_logged_skips(self, tmp_path):
+        changelog_path = tmp_path / "change-log.md"
+        changelog_path.write_text(
+            "# DST API Changelog\n\n## Build 718694\n\nAlready here.\n",
+            encoding="utf-8",
+        )
+        fake_resp = {"message": {"content": "## Build 718694\n\nNew."}}
+        with patch("core.changelog.pipeline.load_diff_report", return_value=SAMPLE_REPORT), \
+             patch("core.changelog.pipeline.ollama_chat", return_value=fake_resp) as mock_chat, \
+             patch("core.changelog.pipeline.CHANGELOG_PATH", changelog_path), \
+             patch("sys.argv", ["mod-changelog"]):
+            from core.changelog.pipeline import main
+            main()
+        mock_chat.assert_not_called()
+        assert changelog_path.read_text(encoding="utf-8").count("## Build 718694") == 1
+
+    def test_missing_report_exits_1(self, tmp_path, capsys):
+        with patch("core.changelog.pipeline.load_diff_report", return_value=None), \
+             patch("sys.argv", ["mod-changelog"]):
+            from core.changelog.pipeline import main
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 1
+
+    def test_empty_llm_response_exits_1(self, tmp_path, capsys):
+        fake_resp = {"message": {"content": ""}}
+        with patch("core.changelog.pipeline.load_diff_report", return_value=SAMPLE_REPORT), \
+             patch("core.changelog.pipeline.ollama_chat", return_value=fake_resp), \
+             patch("sys.argv", ["mod-changelog"]):
+            from core.changelog.pipeline import main
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 1

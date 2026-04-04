@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 mod-document = "core.main:main"
+mod-changelog = "core.changelog.pipeline:main"
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -20,3 +21,14 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "src",
+    "../llm/src",
+    "../rag/src",
+    "../prompts/src",
+    "../validator/src",
+    "../watcher/src",
+]
+addopts = "--import-mode=importlib"
