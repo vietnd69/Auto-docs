@@ -1,3 +1,4 @@
+from contextlib import contextmanager
 from unittest.mock import patch, MagicMock
 
 from llm.client import (
@@ -27,12 +28,22 @@ def test_rate_limit_detection_negative():
     assert _is_rate_limit_error(ValueError("not rate limit")) is False
 
 
-def test_ollama_chat_forwards_think_false():
-    """think=False should be forwarded to client.chat()."""
+@contextmanager
+def _mock_chat():
+    """Mock client + router for ollama_chat tests."""
     mock_client = MagicMock()
     mock_client.chat.return_value = {"message": {"content": "ok"}}
     with patch("llm.client._make_client", return_value=mock_client), \
-         patch("llm.client.OLLAMA_API_KEYS", ["key1"]):
+         patch("llm.client.OLLAMA_API_KEYS", ["key1"]), \
+         patch("llm.client.select_key", return_value=0), \
+         patch("llm.client.record_call"), \
+         patch("llm.client.get_stats", return_value={0: {"total": 1, "recent_1h": 1}}):
+        yield mock_client
+
+
+def test_ollama_chat_forwards_think_false():
+    """think=False should be forwarded to client.chat()."""
+    with _mock_chat() as mock_client:
         from llm.client import ollama_chat
         ollama_chat(model="test", messages=[{"role": "user", "content": "hi"}], think=False)
     mock_client.chat.assert_called_once()
@@ -42,10 +53,7 @@ def test_ollama_chat_forwards_think_false():
 
 def test_ollama_chat_forwards_temperature():
     """temperature should be injected into options dict."""
-    mock_client = MagicMock()
-    mock_client.chat.return_value = {"message": {"content": "ok"}}
-    with patch("llm.client._make_client", return_value=mock_client), \
-         patch("llm.client.OLLAMA_API_KEYS", ["key1"]):
+    with _mock_chat() as mock_client:
         from llm.client import ollama_chat
         ollama_chat(model="test", messages=[{"role": "user", "content": "hi"}], temperature=0.3)
     call_kwargs = mock_client.chat.call_args
@@ -55,11 +63,8 @@ def test_ollama_chat_forwards_temperature():
 
 def test_ollama_chat_forwards_format_schema():
     """format dict should be forwarded to client.chat()."""
-    mock_client = MagicMock()
-    mock_client.chat.return_value = {"message": {"content": "{}"}}
     schema = {"type": "object", "properties": {"x": {"type": "string"}}}
-    with patch("llm.client._make_client", return_value=mock_client), \
-         patch("llm.client.OLLAMA_API_KEYS", ["key1"]):
+    with _mock_chat() as mock_client:
         from llm.client import ollama_chat
         ollama_chat(model="test", messages=[{"role": "user", "content": "hi"}], format=schema)
     call_kwargs = mock_client.chat.call_args
@@ -68,10 +73,7 @@ def test_ollama_chat_forwards_format_schema():
 
 def test_ollama_chat_defaults_think_true():
     """Default behavior: think=True when not specified."""
-    mock_client = MagicMock()
-    mock_client.chat.return_value = {"message": {"content": "ok"}}
-    with patch("llm.client._make_client", return_value=mock_client), \
-         patch("llm.client.OLLAMA_API_KEYS", ["key1"]):
+    with _mock_chat() as mock_client:
         from llm.client import ollama_chat
         ollama_chat(model="test", messages=[{"role": "user", "content": "hi"}])
     call_kwargs = mock_client.chat.call_args

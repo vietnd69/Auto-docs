@@ -103,8 +103,8 @@ def select_key(num_keys: int, exclude: set[int]) -> int:
             best_recent = recent_count
             best_total = total_count
 
-    # Fallback: nếu tất cả bị block, trả key đầu tiên
-    return best_idx if best_idx >= 0 else 0
+    # -1 = không còn key khả dụng
+    return best_idx
 
 
 def get_stats() -> dict:

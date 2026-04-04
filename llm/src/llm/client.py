@@ -40,6 +40,8 @@ def get_ollama_client() -> ollama.Client:
     if not OLLAMA_API_KEYS:
         return ollama.Client()
     idx = select_key(len(OLLAMA_API_KEYS), set())
+    if idx < 0:
+        idx = 0
     return _make_client(idx)
 
 
@@ -102,24 +104,15 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
     n = len(OLLAMA_API_KEYS)
     errors: list[str] = []
 
-    # Log keys đang bị rate limit cooldown
-    persisted_limited = get_rate_limited(n)
-    if persisted_limited:
-        stats = get_stats()
-        for li in sorted(persisted_limited):
-            remaining_m = stats.get(li, {}).get("cooldown_remaining_m", 0)
-            print(f"  [RATE LIMIT] Account {li + 1} đang cooldown (còn {remaining_m}m)")
-
     # Outer loop: retry on timeout (up to OLLAMA_TIMEOUT_RETRIES extra attempts)
     for timeout_attempt in range(OLLAMA_TIMEOUT_RETRIES + 1):
-        # Inner loop: failover across accounts on rate limit
+        # Inner loop: failover across available accounts
         tried_this_round: set[int] = set()
-        for attempt in range(n):
+        for _ in range(n):
             idx = select_key(n, tried_this_round)
+            if idx < 0:
+                break  # không còn key khả dụng
             tried_this_round.add(idx)
-            if idx in persisted_limited:
-                errors.append(f"Account {idx + 1}: cooldown 5h")
-                continue
             try:
                 client = _make_client(idx)
                 response = client.chat(model=model, messages=messages, options=opts, think=think, stream=False, **chat_extra, **kwargs)
@@ -132,8 +125,8 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
             except Exception as e:
                 if _is_rate_limit_error(e):
                     mark_rate_limited(idx)
-                    persisted_limited.add(idx)
-                    available = n - len(persisted_limited)
+                    limited = get_rate_limited(n)
+                    available = n - len(limited)
                     print(f"  [RATE LIMIT] Account {idx + 1} bị 429 → cooldown 5h ({available} còn lại)")
                     errors.append(f"Account {idx + 1}: 429")
                 elif _is_timeout_error(e):
@@ -143,15 +136,17 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                     break  # exit inner loop → outer loop retries
                 elif _is_retryable_error(e):
                     status = e.status_code  # type: ignore[attr-defined]
-                    remaining = n - attempt - 1
-                    print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → switch account ({remaining} còn lại)")
+                    print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → switch account")
                     errors.append(f"Account {idx + 1}: {status}")
                     continue
                 else:
                     raise
         else:
-            # All accounts exhausted
-            break
+            continue  # inner loop finished without break → try next timeout round
+        # inner loop broke (timeout or no keys) → check if timeout retry
+        if timeout_attempt < OLLAMA_TIMEOUT_RETRIES:
+            continue
+        break
 
     raise Exception(f"Tất cả account thất bại: {'; '.join(errors)}")
 
