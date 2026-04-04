@@ -11,6 +11,7 @@ change_status: stable
 category_type: root
 source_hash: 0f5657c9
 system_scope: network
+---
 
 # Serverlistingscreen
 
@@ -76,6 +77,7 @@ TheFrontEnd:PushScreen(screen)
 | `self.heading`, `self.content_root`, `self.server_details_additional` | Widget \| nil | nil | UI layout reference widgets |
 
 ## Main functions
+
 ### `BuildPlaystyleDefs()`
 * **Description:** Constructs a table of playstyle definitions by combining the base `PLAYSTYLE_ANY` entry with definitions retrieved from `Levels.GetPlaystyles()`.
 * **Parameters:** None.

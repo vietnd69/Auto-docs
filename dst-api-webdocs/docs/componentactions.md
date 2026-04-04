@@ -10,6 +10,7 @@ build_version: 714014
 change_status: stable
 category_type: root
 system_scope: player
+source_hash: b7084665
 ---
 
 # Componentactions
@@ -431,6 +432,7 @@ end
 
 | Property | Type | Default Value | Description |
 |----------|------|---------------|-------------|
+| None | | | No properties are defined. |
 
 ## Main functions
 
@@ -1096,9 +1098,9 @@ end
 ### `itemweigher(inst, doer, target, actions)`
 * **Description:** Inserts ACTIONS.WEIGH_ITEM if inst matches a trophy scale type and target is weighable and owned by doer.
 * **Parameters:**
-  - `inst` -- The weighing scale (must have a tropyscale_<type> tag).
+  - `inst` -- The weighing scale (must have a tropyscale_`<type>` tag).
   - `doer` -- The player using the scale.
-  - `target` -- The item to weigh (must have weighable_<type> tag and owner match).
+  - `target` -- The item to weigh (must have weighable_`<type>` tag and owner match).
   - `actions` -- Mutable table for actions.
 * **Returns:** nil
 
@@ -1164,7 +1166,7 @@ end
 * **Parameters:**
   - `inst` -- The occupier item (e.g., seat, bed) with an OCCUPANTTYPE tag.
   - `doer` -- The player trying to place the occupier.
-  - `target` -- The occupiable entity (e.g., chair with occupiable_<type> tag).
+  - `target` -- The occupiable entity (e.g., chair with occupiable_`<type>` tag).
   - `actions` -- Mutable table for actions.
 * **Returns:** nil
 
@@ -1358,7 +1360,7 @@ end
 * **Parameters:**
   - `inst` -- The repair tool or material item (e.g., worktool, health material, freshen tool, finiteuses material).
   - `doer` -- The player repairing.
-  - `target` -- The target with repairable_<material> tag (and optional work/health/freshen/finiteuses tags).
+  - `target` -- The target with repairable_`<material>` tag (and optional work/health/freshen/finiteuses tags).
   - `actions` -- Mutable table for actions.
   - `right` -- Boolean; must be true for action.
 * **Returns:** nil
