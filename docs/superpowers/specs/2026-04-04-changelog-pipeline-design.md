@@ -8,7 +8,7 @@
 
 ## Overview
 
-A standalone pipeline that reads `data/diff_report.json`, builds a high-level prompt, calls the LLM once, and prepends a new Markdown section to `changelog.md` at the project root. Each run inserts the newest build at the top of the file.
+A standalone pipeline that reads `data/diff_report.json`, builds a high-level prompt, calls the LLM once, and prepends a new Markdown section to `dst-api-webdocs/change-log.md`. Each run inserts the newest build at the top of the file.
 
 ---
 
@@ -65,7 +65,7 @@ core/src/core/changelog/
 └── prompts.py           # build_changelog_prompt()
 ```
 
-**Output file:** `changelog.md` at project root — created automatically if absent with `# DST API Changelog` header.
+**Output file:** `dst-api-webdocs/change-log.md` — created automatically if absent with `# DST API Changelog` header.
 
 **Reused from existing codebase (no rewrites):**
 - `llm.client.ollama_chat` — Ollama Cloud API call with multi-account failover (use `ollama_chat()`, not `client.chat()` directly)
@@ -120,8 +120,8 @@ OUTPUT FORMAT: Markdown section starting with ## Build {new_ver}
 |---|---|---|
 | `diff_report.json` missing | Print error, exit | 1 |
 | LLM returns empty/None | Print warning, do not write file, exit | 1 |
-| `changelog.md` not found | Create with `# DST API Changelog` header, then write | — |
-| Same build already logged | Print "Already logged", exit | 0 |
+| `dst-api-webdocs/change-log.md` not found | Create with `# DST API Changelog` header, then write | — |
+| Same build already logged (scan `change-log.md` for `## Build {new_ver}`) | Print "Already logged", exit | 0 |
 | `--dry-run` flag | Skip idempotency check, print rendered prompt, LLM NOT called, no write | 0 |
 | Ctrl+C | `shutdown.request_stop()`, exit | 1 |
 
@@ -154,6 +154,6 @@ OUTPUT FORMAT: Markdown section starting with ## Build {new_ver}
 - **Version source**: always `report["version"]["old/new"]`, never `core.config.VERSION`
 - **Path construction**: `DATA_DIR` is `str` → wrap with `Path()`; `PROJECT_ROOT` is already a `Path`
 - **`ollama_chat()`** — use the high-level wrapper, not `client.chat()` directly
-- **Idempotent** — re-running skips if `## Build {new_ver}` heading exists; dry-run always prints prompt regardless
+- **Idempotent** — re-running skips if `## Build {new_ver}` heading exists in `dst-api-webdocs/change-log.md`; dry-run always prints prompt regardless
 - **No session log** — `_TeeWriter` omitted intentionally (short operation, not worth a log file)
 - **Ctrl+C exit code**: 1 — matches `core/update/docs.py` behavior
