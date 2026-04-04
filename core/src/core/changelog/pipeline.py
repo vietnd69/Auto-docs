@@ -17,7 +17,7 @@ from core.utils import shutdown
 from llm.client import ollama_chat
 from llm.paths import DATA_DIR, PROJECT_ROOT
 from llm.settings import MODEL_UPDATE
-from validator.format.autofix import autofix_file
+from validator.format.autofix import autofix_file, get_mdx_errors
 
 CHANGELOG_PATH: Path = PROJECT_ROOT / "dst-api-webdocs" / "change-log.md"
 
@@ -118,10 +118,15 @@ def main() -> None:
 
     prepend_to_changelog(entry, CHANGELOG_PATH)
 
-    fix_result = autofix_file(str(CHANGELOG_PATH))
-    if fix_result.changes:
-        print(f"[Changelog] MDX autofix: {len(fix_result.changes)} fix(es) applied")
-    if fix_result.remaining_errors:
-        print(f"[Changelog] Cảnh báo: {len(fix_result.remaining_errors)} MDX error(s) còn lại — kiểm tra thủ công")
+    # Only check for real MDX compilation errors (validate_all returns false positives
+    # for doc-format rules like required headings that don't apply to the changelog)
+    mdx_errors_before = get_mdx_errors(str(CHANGELOG_PATH))
+    if mdx_errors_before:
+        fix_result = autofix_file(str(CHANGELOG_PATH))
+        if fix_result.changes:
+            print(f"[Changelog] MDX autofix: {len(fix_result.changes)} fix(es) applied")
+        remaining = get_mdx_errors(str(CHANGELOG_PATH))
+        if remaining:
+            print(f"[Changelog] Cảnh báo: {len(remaining)} MDX error(s) còn lại — kiểm tra thủ công")
 
     print(f"[Changelog] Done: {CHANGELOG_PATH}")
