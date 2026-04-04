@@ -117,29 +117,49 @@ class TestLoadDiffReport:
 
 
 class TestPrependToChangelog:
-    def test_creates_file_if_not_exists(self, tmp_path):
+    def _call(self, path, entry, new_ver="2", date="2026-01-01"):
         from core.changelog.pipeline import prepend_to_changelog
+        prepend_to_changelog(entry, path, new_ver=new_ver, date=date)
+
+    def test_creates_file_if_not_exists(self, tmp_path):
         path = tmp_path / "change-log.md"
-        prepend_to_changelog("## Build 2\n\nContent.", path)
+        self._call(path, "## Build 2\n\nContent.")
         text = path.read_text(encoding="utf-8")
         assert "# DST API Changelog" in text
         assert "## Build 2" in text
 
     def test_prepends_before_existing_content(self, tmp_path):
-        from core.changelog.pipeline import prepend_to_changelog
         path = tmp_path / "change-log.md"
-        path.write_text("# DST API Changelog\n\n## Build 1\n\nOld.", encoding="utf-8")
-        prepend_to_changelog("## Build 2\n\nNew.", path)
+        self._call(path, "## Build 1\n\nOld.", new_ver="1")
+        self._call(path, "## Build 2\n\nNew.", new_ver="2")
         text = path.read_text(encoding="utf-8")
         assert text.index("## Build 2") < text.index("## Build 1")
 
     def test_header_written_only_once(self, tmp_path):
-        from core.changelog.pipeline import prepend_to_changelog
         path = tmp_path / "change-log.md"
-        prepend_to_changelog("## Build 2\n\nContent.", path)
-        prepend_to_changelog("## Build 3\n\nNewer.", path)
+        self._call(path, "## Build 2\n\nContent.", new_ver="2")
+        self._call(path, "## Build 3\n\nNewer.", new_ver="3")
         text = path.read_text(encoding="utf-8")
         assert text.count("# DST API Changelog") == 1
+
+    def test_frontmatter_contains_version_and_date(self, tmp_path):
+        path = tmp_path / "change-log.md"
+        self._call(path, "## Build 718694\n\nContent.", new_ver="718694", date="2026-03-23")
+        text = path.read_text(encoding="utf-8")
+        assert text.startswith("---\n")
+        assert "build_version: 718694" in text
+        assert "last_updated: 2026-03-23" in text
+        assert "id: change-log" in text
+
+    def test_frontmatter_updated_on_second_prepend(self, tmp_path):
+        path = tmp_path / "change-log.md"
+        self._call(path, "## Build 1\n\nOld.", new_ver="1", date="2026-01-01")
+        self._call(path, "## Build 2\n\nNew.", new_ver="2", date="2026-03-23")
+        text = path.read_text(encoding="utf-8")
+        assert text.count("---") == 2          # one opening, one closing frontmatter delimiter
+        assert "build_version: 2" in text
+        assert "last_updated: 2026-03-23" in text
+        assert "build_version: 1" not in text  # old version replaced
 
 
 class TestBuildChangelogEntry:
@@ -223,7 +243,7 @@ class TestMain:
     def test_already_logged_skips(self, tmp_path):
         changelog_path = tmp_path / "change-log.md"
         changelog_path.write_text(
-            "# DST API Changelog\n\n## Build 718694\n\nAlready here.\n",
+            "---\nid: change-log\nbuild_version: 718694\n---\n\n# DST API Changelog\n\n## Build 718694\n\nAlready here.\n",
             encoding="utf-8",
         )
         fake_resp = {"message": {"content": "## Build 718694\n\nNew."}}
