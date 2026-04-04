@@ -87,6 +87,8 @@ mod-document/
 - `core/src/core/pipeline/standard.py`: Standard document generation
 - `core/src/core/pipeline/chunked.py`: Multi-stage chunked processing with hierarchical merging
 - `core/src/core/update/docs.py`: Auto-update docs based on diff report (added/modified/deleted/moved)
+- `core/src/core/changelog/pipeline.py`: Changelog generation — reads `data/diff_report.json`, calls LLM, prepends entry to `dst-api-webdocs/change-log.md`, runs MDX autofix
+- `core/src/core/changelog/prompts.py`: `build_changelog_prompt()` — formats diff report into LLM prompt
 
 **Validation (validator/):**
 - `validator/src/validator/pipeline.py`: Full pipeline orchestration (format + content), routes chunked files (≥32K tokens) to per-section loop
@@ -129,6 +131,10 @@ mod-document/
 .venv/Scripts/python -m core.update.docs --dry-run          # Xem prompt, không gọi LLM
 .venv/Scripts/python -m core.update.docs --filter added     # Chỉ xử lý file mới
 .venv/Scripts/python -m core.update.docs --no-validate      # Bỏ qua validation
+
+# Sinh changelog từ diff report (prepend vào dst-api-webdocs/change-log.md)
+.venv/Scripts/python -m core.changelog             # Gọi LLM + ghi file
+.venv/Scripts/python -m core.changelog --dry-run   # Xem prompt, không ghi file
 
 # Chạy diff watcher (phát hiện thay đổi giữa các version)
 .venv/Scripts/mod-watcher

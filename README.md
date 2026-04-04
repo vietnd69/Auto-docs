@@ -89,6 +89,18 @@ Re-render lại toàn bộ nội dung MD cho các file thay đổi theo pipeline
 .venv/Scripts/python -m core.update.docs --no-validate
 ```
 
+### Sinh changelog
+
+Đọc `data/diff_report.json`, gọi LLM viết tóm tắt, prepend vào `dst-api-webdocs/change-log.md` (có MDX autofix):
+
+```bash
+# Gọi LLM + ghi file (idempotent — bỏ qua nếu build đã logged)
+.venv/Scripts/python -m core.changelog
+
+# Xem prompt, không gọi LLM hoặc ghi file
+.venv/Scripts/python -m core.changelog --dry-run
+```
+
 ### Diff watcher
 
 Phát hiện file `.lua` thay đổi giữa các lần cập nhật `dst-scripts`:
