@@ -28,7 +28,7 @@ id: test
 title: Test
 description: A valid description
 tags: [test]
-sidebar_position: 1
+sidebar_position: 3
 last_updated: 2026-03-21
 build_version: 714014
 change_status: new
