@@ -78,16 +78,16 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
                     f"  [pipeline] Content not approved after {content_result.iterations} iterations"
                 )
 
-    special_case_accepted = bool(content_result and content_result.special_case_accepted)
-    if special_case_accepted:
-        print("  [pipeline] Jury special case accepted — heading check skipped in format validation")
+    accepted_headings = content_result.accepted_headings if content_result else set()
+    if accepted_headings:
+        print(f"  [pipeline] Jury accepted non-standard replacements for: {', '.join(sorted(accepted_headings))}")
 
     # --- Format validation ---
     if not config.skip_format:
-        errors = validate_all(md_filepath, skip_heading_check=special_case_accepted)
+        errors = validate_all(md_filepath, accepted_headings=accepted_headings)
         if errors:
             print(f"  [pipeline] {len(errors)} format errors found, running autofix")
-            format_result = autofix_file(md_filepath, skip_heading_check=special_case_accepted)
+            format_result = autofix_file(md_filepath, accepted_headings=accepted_headings)
         else:
             format_result = FixResult(changes=[], remaining_errors=[])
 

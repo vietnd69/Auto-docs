@@ -701,7 +701,7 @@ def _fix_missing_frontmatter_fields(filepath: str, text: str) -> tuple[str, list
     return text, applied
 
 
-def autofix_file(filepath: str, dry_run: bool = False, skip_heading_check: bool = False) -> FixResult:
+def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[str] | None = None) -> FixResult:
     path = Path(filepath)
     original_text = path.read_text(encoding="utf-8")
     text = original_text
@@ -865,7 +865,7 @@ def autofix_file(filepath: str, dry_run: bool = False, skip_heading_check: bool 
 
     # Get remaining errors via unified validate_all()
     from validator.format.checks import validate_all
-    remaining = validate_all(filepath, skip_heading_check=skip_heading_check) if not dry_run else []
+    remaining = validate_all(filepath, accepted_headings=accepted_headings) if not dry_run else []
     return FixResult(changes=applied, remaining_errors=remaining)
 
 

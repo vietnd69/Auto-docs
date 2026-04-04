@@ -67,6 +67,7 @@ Respond in JSON only:
 {{
     "approved": true/false,
     "need_special_case": false,
+    "special_case_standard_heading": "",
     "special_case_reason": "",
     "findings": [
         {{"issue": "specific problem found", "suggestion": "specific fix suggestion"}}
@@ -74,9 +75,14 @@ Respond in JSON only:
 }}
 ```
 
-- If accurate and complete: approved=true, need_special_case=false, empty findings.
-- If content problems exist: approved=false, list each issue in findings.
-- If special format case: approved=false, need_special_case=true, special_case_reason="explanation citing Lua evidence", findings can be empty."""
+Valid states — only these 4 are allowed:
+- approved=true,  need_special_case=false, findings=[]     → fully approved
+- approved=true,  need_special_case=true,  findings=[]     → content ok, section name disputed (jury will decide)
+- approved=false, need_special_case=false, findings=[..]   → content issues only
+- approved=false, need_special_case=true,  findings=[..]   → content issues + section name disputed
+INVARIANT: approved=false requires findings to be non-empty. Never return approved=false with findings=[].
+When need_special_case=true: special_case_standard_heading MUST be the exact standard heading being
+replaced (e.g. "## Main functions"). This tells the system which specific heading check to bypass."""
 
     user_content = f"""=== CONTEXT ===
 

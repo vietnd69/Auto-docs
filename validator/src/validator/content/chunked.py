@@ -436,7 +436,7 @@ def run_chunked_content_loop(
 
     # TODO: chunked path does not support jury (need_special_case) — the typed reviewer
     # emits Finding objects, not the ReviewResult.need_special_case field used by the standard
-    # loop. special_case_accepted will always be False for chunked files. To support jury here,
+    # loop. accepted_headings will always be empty for chunked files. To support jury here,
     # the section-level reviewer would need to signal need_special_case and run_chunked_content_loop
     # would need to aggregate and dispatch jury votes before returning.
     return ContentLoopResult(

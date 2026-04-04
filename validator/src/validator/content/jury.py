@@ -35,7 +35,7 @@ JURY_MIN_YES = 4  # minimum YES votes required to accept (out of JURY_SIZE=5)
 @dataclass
 class JuryVerdict:
     """Result of the jury vote."""
-    accepted: bool          # True if votes_yes > JURY_THRESHOLD
+    accepted: bool          # True if votes_yes >= JURY_MIN_YES
     votes_yes: int
     votes_total: int        # always JURY_SIZE
     reasons: list[str] = field(default_factory=list)

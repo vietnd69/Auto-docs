@@ -93,10 +93,31 @@ DO NOT use need_special_case for:
 - Personal preference or style differences → enforce standard names
 - When the standard name is merely imperfect but not misleading
 
-RESPONSE FORMAT when triggering:
-{
-    "approved": false,
-    "need_special_case": true,
-    "special_case_reason": "MUST follow this structure: 'The document uses [NON-STANDARD NAME] instead of the standard [STANDARD NAME]. Reason: [Lua-backed evidence with line references]. This makes [NON-STANDARD NAME] more accurate because [specific consequence if standard name were used].' Example: 'The document uses ## Internal Helper Functions instead of the standard ## Main functions. Reason: All 3 functions (lines 2, 20, 24) are declared as local function — they cannot be called from outside this file. Using ## Main functions would imply they are public API, which is incorrect.'",
-    "findings": []
-}
+VALID RESPONSE STATES — only these 4 combinations are valid:
+
+1. Content accurate, no section dispute:
+   {"approved": true, "need_special_case": false, "findings": []}
+
+2. Content accurate, section name dispute:
+   {"approved": true, "need_special_case": true,
+    "special_case_standard_heading": "## Main functions",
+    "special_case_reason": "...", "findings": []}
+
+3. Content issues only (no section dispute):
+   {"approved": false, "need_special_case": false, "findings": [{"issue": "...", "suggestion": "..."}]}
+
+4. Content issues AND section name dispute:
+   {"approved": false, "need_special_case": true,
+    "special_case_standard_heading": "## Main functions",
+    "special_case_reason": "...", "findings": [{"issue": "...", "suggestion": "..."}]}
+
+INVARIANT: approved=false requires findings to be non-empty. NEVER return approved=false with findings=[].
+DO NOT put the section name dispute in findings — section dispute belongs in special_case_reason only.
+
+special_case_standard_heading: the EXACT standard heading being replaced (e.g. "## Main functions",
+"## Properties"). This is required when need_special_case=true — it tells the system which specific
+heading check to bypass. MUST be one of the standard required headings.
+
+special_case_reason MUST follow: "The document uses [NON-STANDARD NAME] instead of the standard
+[STANDARD NAME]. Reason: [Lua-backed evidence with line references]. This makes [NON-STANDARD NAME]
+more accurate because [specific consequence if standard name were used]."

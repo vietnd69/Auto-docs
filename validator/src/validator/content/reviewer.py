@@ -31,6 +31,7 @@ class ReviewResult:
     suggestions: list[str]
     need_special_case: bool = False
     special_case_reason: str = ""
+    special_case_standard_heading: str = ""  # the standard heading being replaced, e.g. "## Main functions"
 
 
 @dataclass
@@ -55,6 +56,7 @@ def parse_review_response(raw: str) -> ReviewResult:
         data = json.loads(cleaned)
         need_special_case = bool(data.get("need_special_case", False))
         special_case_reason = str(data.get("special_case_reason", ""))
+        special_case_standard_heading = str(data.get("special_case_standard_heading", ""))
         approved = bool(data.get("approved", False))
         # New format: findings=[{"issue": ..., "suggestion": ...}]
         if "findings" in data:
@@ -68,6 +70,7 @@ def parse_review_response(raw: str) -> ReviewResult:
         return ReviewResult(
             approved=approved, issues=issues, suggestions=suggestions,
             need_special_case=need_special_case, special_case_reason=special_case_reason,
+            special_case_standard_heading=special_case_standard_heading,
         )
     except (json.JSONDecodeError, TypeError):
         return ReviewResult(
@@ -85,6 +88,7 @@ def parse_review_json(data: dict) -> ReviewResult:
     """
     need_special_case = bool(data.get("need_special_case", False))
     special_case_reason = str(data.get("special_case_reason", ""))
+    special_case_standard_heading = str(data.get("special_case_standard_heading", ""))
     approved = bool(data.get("approved", False))
     if "findings" in data:
         findings = data["findings"] or []
@@ -97,6 +101,7 @@ def parse_review_json(data: dict) -> ReviewResult:
     return ReviewResult(
         approved=approved, issues=issues, suggestions=suggestions,
         need_special_case=need_special_case, special_case_reason=special_case_reason,
+        special_case_standard_heading=special_case_standard_heading,
     )
 
 

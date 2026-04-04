@@ -338,7 +338,7 @@ def _render_file(
     if DEBUG_PROMPTS:
         _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
         ts = int(time.time())
-        debug_path = _DEBUG_DIR / f"update_{comp_name}_{ts}.log"
+        debug_path = _DEBUG_DIR / f"update_{comp_name}_{ts}.txt"
         debug_path.write_text(prompt_text, encoding="utf-8")
         print(f"  [debug] Prompt dumped → {debug_path}")
 

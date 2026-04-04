@@ -79,8 +79,13 @@ def check_frontmatter(text: str) -> list[ValidationError]:
     return errors
 
 
-def check_required_headings(text: str) -> list[ValidationError]:
-    """Validate required section headings exist in correct order."""
+def check_required_headings(text: str, accepted_headings: set[str] | None = None) -> list[ValidationError]:
+    """Validate required section headings exist in correct order.
+
+    accepted_headings: standard headings whose absence is jury-accepted (replaced by a non-standard name).
+    Only those specific headings are skipped; all others are still validated.
+    """
+    accepted_headings = accepted_headings or set()
     required_headings = [
         "## Overview",
         "## Usage example",
@@ -94,6 +99,9 @@ def check_required_headings(text: str) -> list[ValidationError]:
     last_heading = None
 
     for heading in required_headings:
+        if heading in accepted_headings:
+            # Jury accepted this heading is replaced by a non-standard name — skip check
+            continue
         match = re.search(rf'^{re.escape(heading)}\s*$', text, re.MULTILINE)
         if not match:
             errors.append(ValidationError("format", "error", f"Missing required heading: {heading}"))
@@ -148,12 +156,13 @@ def check_filler_text(text: str) -> list[ValidationError]:
     return []
 
 
-def validate_all(filepath: str, skip_heading_check: bool = False) -> list[ValidationError]:
+def validate_all(filepath: str, accepted_headings: set[str] | None = None) -> list[ValidationError]:
     """Run all format checks on a file. Returns list of ValidationError.
 
-    skip_heading_check: when True, skips check_required_headings (used after jury accepts
-    a format special case where non-standard section names are semantically justified).
+    accepted_headings: standard heading names whose absence is jury-accepted (e.g. {"## Main functions"}).
+    Only those specific heading checks are skipped; all others are validated normally.
     """
+    accepted_headings = accepted_headings or set()
     raw = Path(filepath).read_text(encoding="utf-8")
     errors: list[ValidationError] = []
 
@@ -166,9 +175,8 @@ def validate_all(filepath: str, skip_heading_check: bool = False) -> list[Valida
     # YAML structure checks
     errors.extend(check_frontmatter(raw))
 
-    # Required headings (skipped when jury has accepted a special case)
-    if not skip_heading_check:
-        errors.extend(check_required_headings(raw))
+    # Required headings (jury-accepted headings are skipped individually)
+    errors.extend(check_required_headings(raw, accepted_headings))
 
     # Duplication
     errors.extend(check_duplication(raw))

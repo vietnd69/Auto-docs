@@ -8,6 +8,7 @@ Cache-based flow:
 5. Final cache content written back to original file
 """
 
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -26,6 +27,20 @@ def _never_stop() -> bool:
     return False
 
 
+def _extract_standard_heading(review: "ReviewResult") -> str:
+    """Extract the standard heading being replaced from the review result.
+
+    Primary source: review.special_case_standard_heading (explicit field).
+    Fallback: parse special_case_reason for 'instead of the standard ## ...' pattern.
+    """
+    if review.special_case_standard_heading.strip():
+        return review.special_case_standard_heading.strip()
+    m = re.search(r'instead of the standard\s+(##\s+[^\.\n,]+)', review.special_case_reason)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
 @dataclass
 class ContentLoopConfig:
     """Configuration for the content validation loop."""
@@ -42,7 +57,7 @@ class ContentLoopResult:
     approved: bool
     iterations: int
     final_issues: list[str]
-    special_case_accepted: bool = False
+    accepted_headings: set[str] = field(default_factory=set)  # standard headings jury accepted as replaced
 
 
 def run_content_loop(
@@ -78,7 +93,8 @@ def run_content_loop(
     print(f"  [content] Cache created: {cache.cache_dir}")
 
     previous_review = None
-    jury_already_run = False  # Jury runs at most once per file to prevent repeated 5x LLM calls
+    jury_already_run = False        # Jury runs at most once per file to prevent repeated 5x LLM calls
+    accepted_headings: set[str] = set()  # standard headings jury accepted as replaced by non-standard names
     for i in range(config.max_iterations):
         if config.stop_check():
             print(f"  [content] Stopped by Ctrl+C before iteration {i + 1}")
@@ -86,6 +102,7 @@ def run_content_loop(
             Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
             return ContentLoopResult(
                 approved=False, iterations=i, final_issues=["Interrupted by user"],
+                accepted_headings=accepted_headings,
             )
 
         # Read from cache for review
@@ -98,45 +115,54 @@ def run_content_loop(
             previous_review=previous_review,
         )
 
+        # --- Step 1: Resolve need_special_case before checking content approval ---
+        # Valid reviewer states:
+        #   approved:true,  need_special_case:false, findings:[]   → fully approved
+        #   approved:true,  need_special_case:true,  findings:[]   → content ok, section name disputed
+        #   approved:false, need_special_case:false, findings:[..] → content issues only
+        #   approved:false, need_special_case:true,  findings:[..] → content issues + section name disputed
+        # INVALID: approved:false + findings:[] (enforced by reviewer prompt/skill)
+        if review.need_special_case:
+            if not jury_already_run:
+                jury_already_run = True
+                reason_preview = review.special_case_reason[:120]
+                print(f"  [content] Reviewer requests special case: {reason_preview}")
+                verdict = run_jury(
+                    cached_content, lua_source, connected_content,
+                    review.special_case_reason, config.jury_model,
+                )
+                if verdict.accepted:
+                    std_heading = _extract_standard_heading(review)
+                    if std_heading:
+                        accepted_headings.add(std_heading)
+                        print(f"  [content] Jury ACCEPTED — '{std_heading}' heading check bypassed")
+                    else:
+                        print(f"  [content] Jury ACCEPTED — (standard heading unknown, no heading bypass applied)")
+                else:
+                    # Jury rejected — inject synthetic finding so writer renames sections
+                    print(f"  [content] Jury REJECTED — enforcing standard section names")
+                    review = ReviewResult(
+                        approved=False,
+                        issues=["Jury rejected format exception. Rename non-standard sections to required headings: ## Properties, ## Main functions"],
+                        suggestions=["Rename any non-standard section headings to match the required names exactly"],
+                    )
+            elif not accepted_headings:
+                # Jury already ran and rejected — re-inject rename instruction
+                print(f"  [content] Reviewer again requests special case but jury already rejected — enforcing standard names")
+                review = ReviewResult(
+                    approved=False,
+                    issues=["Section heading does not match required names. Rename to: ## Properties, ## Main functions, etc."],
+                    suggestions=["Rename any non-standard section headings to match the required names exactly"],
+                )
+            # else: accepted_headings non-empty → jury already accepted → fall through with original review
+
+        # --- Step 2: Check content approval (after special case resolved) ---
         if review.approved:
             print(f"  [content] Approved at iteration {i + 1}")
-            # Write approved cache content to original file
             Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
-            return ContentLoopResult(approved=True, iterations=i + 1, final_issues=[])
-
-        # --- Jury path: reviewer signals a format special case ---
-        if review.need_special_case and not jury_already_run:
-            jury_already_run = True
-            reason_preview = review.special_case_reason[:120]
-            print(f"  [content] Reviewer requests special case: {reason_preview}")
-            verdict = run_jury(
-                cached_content, lua_source, connected_content,
-                review.special_case_reason, config.jury_model,
-            )
-            if verdict.accepted:
-                print(f"  [content] Jury ACCEPTED — writing document and marking special_case_accepted")
-                Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
-                return ContentLoopResult(
-                    approved=True, iterations=i + 1, final_issues=[],
-                    special_case_accepted=True,
-                )
-            # Jury rejected — synthesize a concrete issue so the writer can fix section names
-            print(f"  [content] Jury REJECTED — enforcing standard section names")
-            review = ReviewResult(
-                approved=False,
-                issues=["Jury rejected format exception. Rename non-standard sections to required headings: ## Properties, ## Main functions"],
-                suggestions=["Rename any non-standard section headings to match the required names exactly"],
-                need_special_case=False,
-            )
-            # Fall through to writer with synthesized issue
-        elif review.need_special_case:
-            # Jury already ran and rejected on a prior iteration — treat as normal rejection
-            print(f"  [content] Reviewer again requests special case but jury already rejected — enforcing standard names")
-            review = ReviewResult(
-                approved=False,
-                issues=["Section heading does not match required names. Rename to: ## Properties, ## Main functions, etc."],
-                suggestions=["Rename any non-standard section headings to match the required names exactly"],
-                need_special_case=False,
+            return ContentLoopResult(
+                approved=True, iterations=i + 1, final_issues=[],
+                accepted_headings=accepted_headings,
             )
 
         print(f"  [content] Rejected — {len(review.issues)} issue(s): {', '.join(review.issues[:2])}" +
@@ -147,6 +173,7 @@ def run_content_loop(
             Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
             return ContentLoopResult(
                 approved=False, iterations=i + 1, final_issues=review.issues,
+                accepted_headings=accepted_headings,
             )
 
         print(f"  [content] Sleeping {NORMAL_SLEEP}s before writing patches...")
@@ -164,6 +191,7 @@ def run_content_loop(
             Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
             return ContentLoopResult(
                 approved=False, iterations=i + 1, final_issues=review.issues,
+                accepted_headings=accepted_headings,
             )
 
         updated_content, failed, _ = apply_patches(cached_content, patches)
@@ -190,22 +218,24 @@ def run_content_loop(
         previous_review=previous_review,
     )
 
-    # Final review may itself signal a special case — run jury if not already run
-    if final_review.need_special_case and not jury_already_run:
-        reason_preview = final_review.special_case_reason[:120]
-        print(f"  [content] Final review requests special case: {reason_preview}")
-        verdict = run_jury(
-            final_content, lua_source, connected_content,
-            final_review.special_case_reason, config.jury_model,
-        )
-        if verdict.accepted:
-            print(f"  [content] Jury ACCEPTED on final review — marking special_case_accepted")
-            Path(md_filepath).write_text(final_content, encoding="utf-8")
-            return ContentLoopResult(
-                approved=True, iterations=config.max_iterations, final_issues=[],
-                special_case_accepted=True,
+    # Final review: resolve need_special_case same as loop (jury runs at most once total)
+    if final_review.need_special_case:
+        if not jury_already_run:
+            reason_preview = final_review.special_case_reason[:120]
+            print(f"  [content] Final review requests special case: {reason_preview}")
+            verdict = run_jury(
+                final_content, lua_source, connected_content,
+                final_review.special_case_reason, config.jury_model,
             )
-        print(f"  [content] Jury REJECTED on final review — file remains unapproved")
+            if verdict.accepted:
+                std_heading = _extract_standard_heading(final_review)
+                if std_heading:
+                    accepted_headings.add(std_heading)
+                print(f"  [content] Jury ACCEPTED on final review")
+            else:
+                print(f"  [content] Jury REJECTED on final review — file remains unapproved")
+        elif not accepted_headings:
+            print(f"  [content] Final review requests special case but jury already rejected — ignoring")
 
     status = "approved" if final_review.approved else f"rejected ({len(final_review.issues)} issue(s))"
     print(f"  [content] Final review: {status}")
@@ -217,4 +247,5 @@ def run_content_loop(
         approved=final_review.approved,
         iterations=config.max_iterations,
         final_issues=final_review.issues,
+        accepted_headings=accepted_headings,
     )
