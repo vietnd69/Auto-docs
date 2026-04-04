@@ -23,13 +23,6 @@ simulate**
 # Build artifacts
 *.egg-info/
 
-# Runtime data (auto-generated)
-file_tracker.json
-data/diff_tracker.json
-data/file_tracker.json
-data/diff_report.json
-data/diff_log.txt
-data/version_log.txt
 
 # Caches & temp
 tmp/
