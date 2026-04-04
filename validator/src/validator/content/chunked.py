@@ -224,6 +224,7 @@ def _run_typed_loop(
         text = cache.read(cache_id)
 
         findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type)
+        _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every reviewer call
         if not findings:
             return text, [], i + 1
         last_findings = findings
@@ -236,6 +237,7 @@ def _run_typed_loop(
                 print(f"  [content/chunked] Finding for '{finding.function}' not in batch — skipping")
                 continue
             op = _call_writer(target_text, lua_ctx, finding, config, file_type)
+            _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every writer call
             if op is None:
                 continue
             dummy = DocSection(heading=section_heading, text=text)
@@ -246,12 +248,11 @@ def _run_typed_loop(
             # Writer updates the cache
             cache.write(cache_id, updated[0].text)
 
-        _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
-
     # Final verification: fixes from the last iteration are applied but unreviewed.
     # One extra review confirms whether they resolved the issues.
     text = cache.read(cache_id)
     final_findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type)
+    _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after final reviewer call
     return text, [f.issue for f in final_findings], max_iters + 1
 
 
