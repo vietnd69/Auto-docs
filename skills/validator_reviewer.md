@@ -74,3 +74,29 @@ ERROR STATES — WHAT DOES NOT BELONG THERE (move to Description):
 - **Listens to:** events registered via inst:ListenForEvent(event, fn)
 - **Pushes:** events fired via inst:PushEvent(event, data)
 Omit this section entirely if the component has no events.
+
+=== SPECIAL CASE — need_special_case ===
+Use need_special_case=true ONLY when ALL three conditions are true:
+1. The content is ACCURATE — no wrong signatures, wrong types, hallucinated functions
+2. The document uses a non-standard section name
+3. The standard name would be semantically MISLEADING for this specific file
+
+WHEN TO TRIGGER:
+- File contains only `local function` declarations → "## Internal Helper Functions" is more
+  accurate than "## Main functions" (local functions are NOT accessible outside the file)
+- File mixes module-level globals with instance-level class properties → "## Global Variables"
+  + "## Class Properties" is more accurate than a single "## Properties"
+- Any case where the required heading misrepresents the actual content structure
+
+DO NOT use need_special_case for:
+- Normal content errors (wrong params, hallucinated APIs) → use findings instead
+- Personal preference or style differences → enforce standard names
+- When the standard name is merely imperfect but not misleading
+
+RESPONSE FORMAT when triggering:
+{
+    "approved": false,
+    "need_special_case": true,
+    "special_case_reason": "MUST follow this structure: 'The document uses [NON-STANDARD NAME] instead of the standard [STANDARD NAME]. Reason: [Lua-backed evidence with line references]. This makes [NON-STANDARD NAME] more accurate because [specific consequence if standard name were used].' Example: 'The document uses ## Internal Helper Functions instead of the standard ## Main functions. Reason: All 3 functions (lines 2, 20, 24) are declared as local function — they cannot be called from outside this file. Using ## Main functions would imply they are public API, which is incorrect.'",
+    "findings": []
+}

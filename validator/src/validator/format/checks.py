@@ -148,8 +148,12 @@ def check_filler_text(text: str) -> list[ValidationError]:
     return []
 
 
-def validate_all(filepath: str) -> list[ValidationError]:
-    """Run all format checks on a file. Returns list of ValidationError."""
+def validate_all(filepath: str, skip_heading_check: bool = False) -> list[ValidationError]:
+    """Run all format checks on a file. Returns list of ValidationError.
+
+    skip_heading_check: when True, skips check_required_headings (used after jury accepts
+    a format special case where non-standard section names are semantically justified).
+    """
     raw = Path(filepath).read_text(encoding="utf-8")
     errors: list[ValidationError] = []
 
@@ -162,8 +166,9 @@ def validate_all(filepath: str) -> list[ValidationError]:
     # YAML structure checks
     errors.extend(check_frontmatter(raw))
 
-    # Required headings
-    errors.extend(check_required_headings(raw))
+    # Required headings (skipped when jury has accepted a special case)
+    if not skip_heading_check:
+        errors.extend(check_required_headings(raw))
 
     # Duplication
     errors.extend(check_duplication(raw))

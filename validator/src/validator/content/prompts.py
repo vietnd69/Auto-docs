@@ -9,6 +9,7 @@ _QUALITY_RULES = load_skill("quality_rules")
 # Validator-specific skills (separate from doc generation)
 _REVIEWER_SKILL = load_skill("validator_reviewer")
 _WRITER_SKILL = load_skill("validator_writer")
+_JURY_SKILL = load_skill("validator_jury")
 
 
 def _parse_section_requirements(skill_text: str) -> dict[str, str]:
@@ -38,8 +39,8 @@ def build_reviewer_prompt(
     connected_content: str,
     previous_issues: list[str] | None = None,
     previous_suggestions: list[str] | None = None,
-) -> str:
-    """Build prompt for LLM2 (reviewer) to review documentation accuracy."""
+) -> tuple[str, str]:
+    """Build (system_prompt, user_content) for LLM2 (reviewer) to review documentation accuracy."""
     connected_block = connected_content if connected_content else "(none)"
 
     if previous_issues:
@@ -54,10 +55,30 @@ def build_reviewer_prompt(
     else:
         previous_section = ""
 
-    return f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API documentation.
+    system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API documentation.
 Your task: verify the documentation is accurate and complete against the Lua source.
 
-=== CONTEXT ===
+=== REVIEW RULES ===
+{_REVIEWER_SKILL}
+
+=== RESPONSE FORMAT ===
+Respond in JSON only:
+```json
+{{
+    "approved": true/false,
+    "need_special_case": false,
+    "special_case_reason": "",
+    "findings": [
+        {{"issue": "specific problem found", "suggestion": "specific fix suggestion"}}
+    ]
+}}
+```
+
+- If accurate and complete: approved=true, need_special_case=false, empty findings.
+- If content problems exist: approved=false, list each issue in findings.
+- If special format case: approved=false, need_special_case=true, special_case_reason="explanation citing Lua evidence", findings can be empty."""
+
+    user_content = f"""=== CONTEXT ===
 
 1. LUA SOURCE CODE (ground truth)
 ```lua
@@ -68,28 +89,9 @@ Your task: verify the documentation is accurate and complete against the Lua sou
 {connected_block}
 {previous_section}
 3. DOCUMENTATION TO REVIEW
-{md_content}
+{md_content}"""
 
-=== REVIEW CHECKLIST ===
-Check for:
-1. Function signatures and parameters match the Lua source — detect hallucination
-2. Code examples match actual API usage
-3. Descriptions are accurate and complete
-4. Connected references are mentioned correctly
-
-=== RESPONSE FORMAT ===
-Respond in JSON only:
-```json
-{{
-    "approved": true/false,
-    "findings": [
-        {{"issue": "specific problem found", "suggestion": "specific fix suggestion"}}
-    ]
-}}
-```
-
-If accurate and complete, set approved=true with empty findings.
-If there are problems, set approved=false and list each issue paired with its fix suggestion."""
+    return system_prompt, user_content
 
 
 def build_writer_prompt(
@@ -98,8 +100,8 @@ def build_writer_prompt(
     connected_content: str,
     issues: list[str],
     suggestions: list[str],
-) -> str:
-    """Build prompt for LLM1 (writer) to fix documentation based on review feedback."""
+) -> tuple[str, str]:
+    """Build (system_prompt, user_content) for LLM1 (writer) to fix documentation based on review feedback."""
     feedback_lines = []
     for i, issue in enumerate(issues, 1):
         suggestion = suggestions[i - 1] if i - 1 < len(suggestions) else ""
@@ -109,24 +111,9 @@ def build_writer_prompt(
     feedback = "\n".join(feedback_lines)
 
     connected_block = connected_content if connected_content else "(none)"
-    return f"""You are a documentation writer for Don't Starve Together (DST) Lua API documentation.
+
+    system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API documentation.
 Your task: fix the documentation based on reviewer feedback. Return ONLY targeted patches, not the entire document.
-
-=== CONTEXT ===
-
-1. LUA SOURCE CODE (ground truth)
-```lua
-{lua_source}
-```
-
-2. CONNECTED CONTENT (referenced files)
-{connected_block}
-
-3. CURRENT DOCUMENTATION
-{md_content}
-
-=== REVIEWER FEEDBACK ===
-{feedback}
 
 === PATCH FORMAT ===
 Return a JSON array of patches. Each patch replaces a specific text segment:
@@ -148,6 +135,24 @@ Rules:
 - old_text must NOT span more than one ### function block — never include two or more ### headings in the same old_text
 - To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
 - To DELETE a function: target only that function's own block, never include surrounding functions in old_text"""
+
+    user_content = f"""=== CONTEXT ===
+
+1. LUA SOURCE CODE (ground truth)
+```lua
+{lua_source}
+```
+
+2. CONNECTED CONTENT (referenced files)
+{connected_block}
+
+3. CURRENT DOCUMENTATION
+{md_content}
+
+=== REVIEWER FEEDBACK ===
+{feedback}"""
+
+    return system_prompt, user_content
 
 
 def build_section_reviewer_prompt(
@@ -269,6 +274,40 @@ To ADD a new ### function: use the last 1-2 lines of an adjacent function as anc
 
 === REVIEWER FEEDBACK ===
 {feedback}"""
+
+    return system_prompt, user_content
+
+
+def build_jury_prompt(
+    md_content: str,
+    lua_source: str,
+    connected_content: str,
+    special_case_reason: str,
+) -> tuple[str, str]:
+    """Build (system_prompt, user_content) for a single jury member voting on a format special case request."""
+    connected_block = connected_content if connected_content else "(none)"
+
+    system_prompt = f"""=== JURY VOTING INSTRUCTIONS ===
+{_JURY_SKILL}
+
+=== YOUR VOTE ===
+Based on the Lua source and the reviewer's argument above, cast your vote.
+Respond in JSON only — no other text:
+{{"vote": "yes/no", "reason": "one or two sentences citing specific Lua evidence"}}"""
+
+    user_content = f"""=== REVIEWER'S ARGUMENT ===
+{special_case_reason}
+
+=== LUA SOURCE (ground truth) ===
+```lua
+{lua_source}
+```
+
+=== CONNECTED CONTENT ===
+{connected_block}
+
+=== DOCUMENTATION UNDER REVIEW ===
+{md_content}"""
 
     return system_prompt, user_content
 

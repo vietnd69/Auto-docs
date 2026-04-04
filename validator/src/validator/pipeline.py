@@ -11,7 +11,7 @@ from validator.content.chunked import run_chunked_content_loop
 from validator.format.autofix import FixResult, autofix_file
 from validator.format.checks import validate_all, ValidationError
 from validator.utils import resolve_lua_path
-from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN
+from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY
 from validator.content.checkpoint import load_batch_checkpoint, save_batch_checkpoint
 
 
@@ -25,6 +25,7 @@ class PipelineConfig:
     content_max_iterations: int = VALIDATOR_MAX_ITERATIONS
     writer_model: str = MODEL_MAIN
     reviewer_model: str = MODEL_MAIN
+    jury_model: str = MODEL_JURY
     skip_content: bool = False
     skip_format: bool = False
     resume: bool = False
@@ -56,6 +57,7 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
                 max_iterations=config.content_max_iterations,
                 writer_model=config.writer_model,
                 reviewer_model=config.reviewer_model,
+                jury_model=config.jury_model,
                 stop_check=config.stop_check,
             )
             lua_code = safe_read_lua(lua_filepath)
@@ -76,12 +78,16 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
                     f"  [pipeline] Content not approved after {content_result.iterations} iterations"
                 )
 
+    special_case_accepted = bool(content_result and content_result.special_case_accepted)
+    if special_case_accepted:
+        print("  [pipeline] Jury special case accepted — heading check skipped in format validation")
+
     # --- Format validation ---
     if not config.skip_format:
-        errors = validate_all(md_filepath)
+        errors = validate_all(md_filepath, skip_heading_check=special_case_accepted)
         if errors:
             print(f"  [pipeline] {len(errors)} format errors found, running autofix")
-            format_result = autofix_file(md_filepath)
+            format_result = autofix_file(md_filepath, skip_heading_check=special_case_accepted)
         else:
             format_result = FixResult(changes=[], remaining_errors=[])
 

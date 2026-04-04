@@ -15,10 +15,11 @@ from pathlib import Path
 
 from rag.docs import safe_read_lua
 from validator.content.cache import CacheManager
-from validator.content.reviewer import review_document
+from validator.content.jury import run_jury
+from validator.content.reviewer import ReviewResult, review_document
 from validator.content.writer import rewrite_document, apply_patches
 from validator.utils import resolve_connected_content
-from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, NORMAL_SLEEP
+from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY, NORMAL_SLEEP
 
 
 def _never_stop() -> bool:
@@ -31,6 +32,7 @@ class ContentLoopConfig:
     max_iterations: int = VALIDATOR_LOOP_MAX_ITERATIONS
     writer_model: str = MODEL_MAIN
     reviewer_model: str = MODEL_MAIN
+    jury_model: str = MODEL_JURY
     stop_check: Callable[[], bool] = field(default=_never_stop, repr=False)
 
 
@@ -40,6 +42,7 @@ class ContentLoopResult:
     approved: bool
     iterations: int
     final_issues: list[str]
+    special_case_accepted: bool = False
 
 
 def run_content_loop(
@@ -75,6 +78,7 @@ def run_content_loop(
     print(f"  [content] Cache created: {cache.cache_dir}")
 
     previous_review = None
+    jury_already_run = False  # Jury runs at most once per file to prevent repeated 5x LLM calls
     for i in range(config.max_iterations):
         if config.stop_check():
             print(f"  [content] Stopped by Ctrl+C before iteration {i + 1}")
@@ -99,6 +103,41 @@ def run_content_loop(
             # Write approved cache content to original file
             Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
             return ContentLoopResult(approved=True, iterations=i + 1, final_issues=[])
+
+        # --- Jury path: reviewer signals a format special case ---
+        if review.need_special_case and not jury_already_run:
+            jury_already_run = True
+            reason_preview = review.special_case_reason[:120]
+            print(f"  [content] Reviewer requests special case: {reason_preview}")
+            verdict = run_jury(
+                cached_content, lua_source, connected_content,
+                review.special_case_reason, config.jury_model,
+            )
+            if verdict.accepted:
+                print(f"  [content] Jury ACCEPTED — writing document and marking special_case_accepted")
+                Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
+                return ContentLoopResult(
+                    approved=True, iterations=i + 1, final_issues=[],
+                    special_case_accepted=True,
+                )
+            # Jury rejected — synthesize a concrete issue so the writer can fix section names
+            print(f"  [content] Jury REJECTED — enforcing standard section names")
+            review = ReviewResult(
+                approved=False,
+                issues=["Jury rejected format exception. Rename non-standard sections to required headings: ## Properties, ## Main functions"],
+                suggestions=["Rename any non-standard section headings to match the required names exactly"],
+                need_special_case=False,
+            )
+            # Fall through to writer with synthesized issue
+        elif review.need_special_case:
+            # Jury already ran and rejected on a prior iteration — treat as normal rejection
+            print(f"  [content] Reviewer again requests special case but jury already rejected — enforcing standard names")
+            review = ReviewResult(
+                approved=False,
+                issues=["Section heading does not match required names. Rename to: ## Properties, ## Main functions, etc."],
+                suggestions=["Rename any non-standard section headings to match the required names exactly"],
+                need_special_case=False,
+            )
 
         print(f"  [content] Rejected — {len(review.issues)} issue(s): {', '.join(review.issues[:2])}" +
               (f" (+{len(review.issues) - 2} more)" if len(review.issues) > 2 else ""))
@@ -150,6 +189,24 @@ def run_content_loop(
         final_content, lua_source, connected_content, config.reviewer_model,
         previous_review=previous_review,
     )
+
+    # Final review may itself signal a special case — run jury if not already run
+    if final_review.need_special_case and not jury_already_run:
+        reason_preview = final_review.special_case_reason[:120]
+        print(f"  [content] Final review requests special case: {reason_preview}")
+        verdict = run_jury(
+            final_content, lua_source, connected_content,
+            final_review.special_case_reason, config.jury_model,
+        )
+        if verdict.accepted:
+            print(f"  [content] Jury ACCEPTED on final review — marking special_case_accepted")
+            Path(md_filepath).write_text(final_content, encoding="utf-8")
+            return ContentLoopResult(
+                approved=True, iterations=config.max_iterations, final_issues=[],
+                special_case_accepted=True,
+            )
+        print(f"  [content] Jury REJECTED on final review — file remains unapproved")
+
     status = "approved" if final_review.approved else f"rejected ({len(final_review.issues)} issue(s))"
     print(f"  [content] Final review: {status}")
 

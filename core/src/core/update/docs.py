@@ -11,6 +11,8 @@ import json
 import os
 import signal
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 
 import core.config as config
@@ -18,8 +20,8 @@ from core.pipeline.chunked import process_chunked_file
 from core.pipeline.chunking import needs_chunking
 from core.pipeline.standard import generate_doc
 from core.utils import shutdown
-from llm.paths import BASE_DOCS_DIR, BASE_LUA_DIR, DATA_DIR
-from llm.settings import MODEL_MAIN as MODEL_NAME
+from llm.paths import BASE_DOCS_DIR, BASE_LUA_DIR, DATA_DIR, PROJECT_ROOT
+from llm.settings import DEBUG_PROMPTS, MODEL_MAIN as MODEL_NAME
 from llm.tokens import count_tokens
 from prompts.standard import build_prompt
 from rag.content import extract_connected_content
@@ -30,6 +32,8 @@ from rag.docs import (
     safe_read_lua,
 )
 from validator.pipeline import PipelineConfig, process_file
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
 # File data-only không có function: re-render không có giá trị (chỉ liệt kê keys).
 # Threshold: nếu token Lua >= giá trị này VÀ không có function → patch frontmatter thay vì render.
@@ -331,6 +335,13 @@ def _render_file(
     if token_count >= 0:
         print(f"  [PROMPT] {token_count} tokens")
 
+    if DEBUG_PROMPTS:
+        _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time())
+        debug_path = _DEBUG_DIR / f"update_{comp_name}_{ts}.log"
+        debug_path.write_text(prompt_text, encoding="utf-8")
+        print(f"  [debug] Prompt dumped → {debug_path}")
+
     if args.dry_run:
         print("  --- PROMPT PREVIEW ---")
         print(prompt_text[:1000] + "\n...[TRUNCATED]")
@@ -409,7 +420,47 @@ def _render_file(
     return False
 
 
+class _TeeWriter:
+    """Mirrors writes to both the original stdout and a log file."""
+
+    def __init__(self, log_path: str):
+        self._stdout = sys.stdout
+        self._log = open(log_path, "w", encoding="utf-8", buffering=1)
+
+    def write(self, data: str) -> int:
+        self._stdout.write(data)
+        self._log.write(data)
+        self._log.flush()
+        return len(data)
+
+    def flush(self):
+        self._stdout.flush()
+        self._log.flush()
+
+    def close(self):
+        sys.stdout = self._stdout
+        self._log.close()
+
+    def __getattr__(self, name):
+        return getattr(self._stdout, name)
+
+
 def main():
+    logs_dir = Path(DATA_DIR) / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    log_filename = datetime.now().strftime("update_%Y-%m-%d_%H-%M-%S.log")
+    log_path = str(logs_dir / log_filename)
+    tee = _TeeWriter(log_path)
+    sys.stdout = tee
+    print(f"[Log] Session log: {log_path}")
+
+    try:
+        _main_impl()
+    finally:
+        tee.close()
+
+
+def _main_impl():
     args = parse_args()
 
     def handle_sigint(signum, frame):

@@ -159,16 +159,21 @@ def rewrite_document(
     model: str,
 ) -> list[Patch]:
     """Ask LLM1 to generate patches based on reviewer feedback."""
-    prompt = build_writer_prompt(
+    system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
-    print(f"  [content/writer] Prompt: {count_tokens(prompt):,} tokens")
+    token_count = count_tokens(system_prompt + user_content)
+    print(f"  [content/writer] Prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
-        _dump_prompt("writer", prompt)
+        _dump_prompt("writer", system_prompt + "\n\n" + user_content)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
     raw = ""
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
+        response = ollama_chat(model=model, messages=messages)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_response", raw)

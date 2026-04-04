@@ -28,3 +28,7 @@ inject_into: [section_reviewer]
 ## validator_writer
 file: validator_writer.md
 inject_into: [section_writer]
+
+## validator_jury
+file: validator_jury.md
+inject_into: [jury]

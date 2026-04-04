@@ -29,6 +29,8 @@ class ReviewResult:
     approved: bool
     issues: list[str]
     suggestions: list[str]
+    need_special_case: bool = False
+    special_case_reason: str = ""
 
 
 @dataclass
@@ -51,6 +53,8 @@ def parse_review_response(raw: str) -> ReviewResult:
 
     try:
         data = json.loads(cleaned)
+        need_special_case = bool(data.get("need_special_case", False))
+        special_case_reason = str(data.get("special_case_reason", ""))
         approved = bool(data.get("approved", False))
         # New format: findings=[{"issue": ..., "suggestion": ...}]
         if "findings" in data:
@@ -61,7 +65,10 @@ def parse_review_response(raw: str) -> ReviewResult:
             # Legacy format: separate issues/suggestions arrays
             issues = list(data.get("issues", []))
             suggestions = list(data.get("suggestions", []))
-        return ReviewResult(approved=approved, issues=issues, suggestions=suggestions)
+        return ReviewResult(
+            approved=approved, issues=issues, suggestions=suggestions,
+            need_special_case=need_special_case, special_case_reason=special_case_reason,
+        )
     except (json.JSONDecodeError, TypeError):
         return ReviewResult(
             approved=False,
@@ -76,6 +83,8 @@ def parse_review_json(data: dict) -> ReviewResult:
     Supports both the structured 'findings' format (from REVIEW_SCHEMA) and the
     legacy 'issues'/'suggestions' flat-array format.
     """
+    need_special_case = bool(data.get("need_special_case", False))
+    special_case_reason = str(data.get("special_case_reason", ""))
     approved = bool(data.get("approved", False))
     if "findings" in data:
         findings = data["findings"] or []
@@ -85,7 +94,10 @@ def parse_review_json(data: dict) -> ReviewResult:
         # Legacy format: separate issues/suggestions arrays
         issues = list(data.get("issues", []))
         suggestions = list(data.get("suggestions", []))
-    return ReviewResult(approved=approved, issues=issues, suggestions=suggestions)
+    return ReviewResult(
+        approved=approved, issues=issues, suggestions=suggestions,
+        need_special_case=need_special_case, special_case_reason=special_case_reason,
+    )
 
 
 def parse_findings_response(raw: str) -> list["Finding"]:
@@ -126,17 +138,22 @@ def review_document(
     previous_review: "ReviewResult | None" = None,
 ) -> ReviewResult:
     """Send document to LLM2 for review. Returns structured ReviewResult."""
-    prompt = build_reviewer_prompt(
+    system_prompt, user_content = build_reviewer_prompt(
         md_content, lua_source, connected_content,
         previous_issues=previous_review.issues if previous_review else None,
         previous_suggestions=previous_review.suggestions if previous_review else None,
     )
-    print(f"  [content/reviewer] Prompt: {count_tokens(prompt):,} tokens")
+    token_count = count_tokens(system_prompt + user_content)
+    print(f"  [content/reviewer] Prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
-        _dump_prompt("reviewer", prompt)
+        _dump_prompt("reviewer", system_prompt + "\n\n" + user_content)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+    ]
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=[{"role": "user", "content": prompt}])
+        response = ollama_chat(model=model, messages=messages)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_response", raw)
