@@ -27,17 +27,32 @@ def _never_stop() -> bool:
     return False
 
 
+_STANDARD_HEADINGS = [
+    "## Overview",
+    "## Usage example",
+    "## Dependencies & tags",
+    "## Properties",
+    "## Main functions",
+    "## Events & listeners",
+]
+
+
 def _extract_standard_heading(review: "ReviewResult") -> str:
     """Extract the standard heading being replaced from the review result.
 
     Primary source: review.special_case_standard_heading (explicit field).
-    Fallback: parse special_case_reason for 'instead of the standard ## ...' pattern.
+    Fallback: scan special_case_reason for any known standard heading name.
     """
     if review.special_case_standard_heading.strip():
-        return review.special_case_standard_heading.strip()
-    m = re.search(r'instead of the standard\s+(##\s+[^\.\n,]+)', review.special_case_reason)
-    if m:
-        return m.group(1).strip()
+        heading = review.special_case_standard_heading.strip()
+        # Normalize: ensure "## " prefix
+        if not heading.startswith("## "):
+            heading = f"## {heading}"
+        return heading
+    # Fallback: find any standard heading mentioned in the reason text
+    for heading in _STANDARD_HEADINGS:
+        if heading in review.special_case_reason:
+            return heading
     return ""
 
 
@@ -93,7 +108,7 @@ def run_content_loop(
     print(f"  [content] Cache created: {cache.cache_dir}")
 
     previous_review = None
-    jury_already_run = False        # Jury runs at most once per file to prevent repeated 5x LLM calls
+    jury_verdicts: dict[str, bool] = {}  # std_heading → accepted (True) or rejected (False)
     accepted_headings: set[str] = set()  # standard headings jury accepted as replaced by non-standard names
     for i in range(config.max_iterations):
         if config.stop_check():
@@ -123,38 +138,39 @@ def run_content_loop(
         #   approved:false, need_special_case:true,  findings:[..] → content issues + section name disputed
         # INVALID: approved:false + findings:[] (enforced by reviewer prompt/skill)
         if review.need_special_case:
-            if not jury_already_run:
-                jury_already_run = True
+            std_heading = _extract_standard_heading(review)
+            if not std_heading:
+                # Can't determine which heading — skip jury (would waste 5 LLM calls with no actionable result)
+                print(f"  [content] Reviewer requests special case but standard heading unknown — skipping jury")
+            elif std_heading not in jury_verdicts:
+                # New heading — run jury vote
                 reason_preview = review.special_case_reason[:120]
-                print(f"  [content] Reviewer requests special case: {reason_preview}")
+                print(f"  [content] Reviewer requests special case for '{std_heading}': {reason_preview}")
                 verdict = run_jury(
                     cached_content, lua_source, connected_content,
                     review.special_case_reason, config.jury_model,
                 )
+                jury_verdicts[std_heading] = verdict.accepted
                 if verdict.accepted:
-                    std_heading = _extract_standard_heading(review)
-                    if std_heading:
-                        accepted_headings.add(std_heading)
-                        print(f"  [content] Jury ACCEPTED — '{std_heading}' heading check bypassed")
-                    else:
-                        print(f"  [content] Jury ACCEPTED — (standard heading unknown, no heading bypass applied)")
+                    accepted_headings.add(std_heading)
+                    print(f"  [content] Jury ACCEPTED — '{std_heading}' heading check bypassed")
                 else:
                     # Jury rejected — inject synthetic finding so writer renames sections
                     print(f"  [content] Jury REJECTED — enforcing standard section names")
                     review = ReviewResult(
                         approved=False,
-                        issues=["Jury rejected format exception. Rename non-standard sections to required headings: ## Properties, ## Main functions"],
+                        issues=[f"Jury rejected format exception for '{std_heading}'. Rename non-standard sections to required headings."],
                         suggestions=["Rename any non-standard section headings to match the required names exactly"],
                     )
-            elif not accepted_headings:
-                # Jury already ran and rejected — re-inject rename instruction
-                print(f"  [content] Reviewer again requests special case but jury already rejected — enforcing standard names")
+            elif not jury_verdicts[std_heading]:
+                # Same heading already rejected — re-inject rename instruction
+                print(f"  [content] Reviewer again requests special case for '{std_heading}' but jury already rejected — enforcing standard names")
                 review = ReviewResult(
                     approved=False,
-                    issues=["Section heading does not match required names. Rename to: ## Properties, ## Main functions, etc."],
+                    issues=[f"Section heading does not match required names. Rename '{std_heading}' to the standard heading."],
                     suggestions=["Rename any non-standard section headings to match the required names exactly"],
                 )
-            # else: accepted_headings non-empty → jury already accepted → fall through with original review
+            # else: jury already accepted this heading → fall through with original review
 
         # --- Step 2: Check content approval (after special case resolved) ---
         if review.approved:
@@ -218,24 +234,36 @@ def run_content_loop(
         previous_review=previous_review,
     )
 
-    # Final review: resolve need_special_case same as loop (jury runs at most once total)
+    # Final review: resolve need_special_case same as loop (jury runs at most once per heading)
     if final_review.need_special_case:
-        if not jury_already_run:
+        std_heading = _extract_standard_heading(final_review)
+        if not std_heading:
+            print(f"  [content] Final review requests special case but standard heading unknown — skipping jury")
+        elif std_heading not in jury_verdicts:
             reason_preview = final_review.special_case_reason[:120]
-            print(f"  [content] Final review requests special case: {reason_preview}")
+            print(f"  [content] Final review requests special case for '{std_heading}': {reason_preview}")
             verdict = run_jury(
                 final_content, lua_source, connected_content,
                 final_review.special_case_reason, config.jury_model,
             )
+            jury_verdicts[std_heading] = verdict.accepted
             if verdict.accepted:
-                std_heading = _extract_standard_heading(final_review)
-                if std_heading:
-                    accepted_headings.add(std_heading)
-                print(f"  [content] Jury ACCEPTED on final review")
+                accepted_headings.add(std_heading)
+                print(f"  [content] Jury ACCEPTED on final review — '{std_heading}' heading check bypassed")
             else:
                 print(f"  [content] Jury REJECTED on final review — file remains unapproved")
-        elif not accepted_headings:
-            print(f"  [content] Final review requests special case but jury already rejected — ignoring")
+                final_review = ReviewResult(
+                    approved=False,
+                    issues=[f"Jury rejected format exception for '{std_heading}'. Rename non-standard sections to required headings."],
+                    suggestions=["Rename any non-standard section headings to match the required names exactly"],
+                )
+        elif not jury_verdicts[std_heading]:
+            print(f"  [content] Final review requests special case for '{std_heading}' but jury already rejected")
+            final_review = ReviewResult(
+                approved=False,
+                issues=[f"Section heading does not match required names. Rename '{std_heading}' to the standard heading."],
+                suggestions=["Rename any non-standard section headings to match the required names exactly"],
+            )
 
     status = "approved" if final_review.approved else f"rejected ({len(final_review.issues)} issue(s))"
     print(f"  [content] Final review: {status}")

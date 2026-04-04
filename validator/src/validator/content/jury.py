@@ -48,6 +48,7 @@ def _vote_once(messages: list[dict], model: str, vote_index: int = 0) -> tuple[b
             response = ollama_chat(model=model, messages=messages, temperature=JURY_TEMPERATURE)
         except Exception as e:
             if attempt < BAD_RESPONSE_RETRIES:
+                time.sleep(2)
                 continue
             return False, f"API error: {e}"
         raw = response["message"]["content"]
@@ -63,6 +64,7 @@ def _vote_once(messages: list[dict], model: str, vote_index: int = 0) -> tuple[b
             return vote == "yes", reason
         except (json.JSONDecodeError, TypeError):
             if attempt < BAD_RESPONSE_RETRIES:
+                time.sleep(2)
                 continue
     return False, "Failed to parse jury response"
 
