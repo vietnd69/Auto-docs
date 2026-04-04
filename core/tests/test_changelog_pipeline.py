@@ -248,6 +248,7 @@ class TestMain:
         fake_resp = {"message": {"content": ""}}
         with patch("core.changelog.pipeline.load_diff_report", return_value=SAMPLE_REPORT), \
              patch("core.changelog.pipeline.ollama_chat", return_value=fake_resp), \
+             patch("core.changelog.pipeline.CHANGELOG_PATH", tmp_path / "change-log.md"), \
              patch("sys.argv", ["mod-changelog"]):
             from core.changelog.pipeline import main
             with pytest.raises(SystemExit) as exc:
