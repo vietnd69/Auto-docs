@@ -63,6 +63,7 @@ VALIDATOR_CALL_SLEEP: int         = _get("validator", "call_sleep",             
 BAD_RESPONSE_RETRIES: int         = _get("validator", "bad_response_retries",           3)
 REVIEWER_TEMPERATURE: float       = _get("validator", "reviewer_temperature",    0.4)
 WRITER_TEMPERATURE: float         = _get("validator", "writer_temperature",       0.3)
+JURY_TEMPERATURE: float           = _get("validator", "jury_temperature",         0.7)
 WRITER_THINK: int                 = _get("validator", "writer_think",             0)
 MAX_CONVERSATION_TURNS: int       = _get("validator", "max_conversation_turns",   6)
 CONVERSATION_TOKEN_BUDGET: int    = _get("validator", "conversation_token_budget", 3000)

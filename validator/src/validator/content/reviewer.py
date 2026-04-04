@@ -163,11 +163,15 @@ def review_document(
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_response", raw)
         result = parse_review_response(raw)
-        is_bad = not raw.strip() or (result.issues and result.issues[0].startswith("Failed to parse"))
+        is_parse_error = not raw.strip() or (result.issues and result.issues[0].startswith("Failed to parse"))
+        is_invariant_violation = not result.approved and not result.issues
+        is_bad = is_parse_error or is_invariant_violation
         if not is_bad:
             return result
         remaining = BAD_RESPONSE_RETRIES - attempt
-        if remaining > 0:
+        if is_invariant_violation:
+            print(f"  [content/reviewer] INVARIANT violation: approved=false with empty findings → retrying ({remaining} left)")
+        elif remaining > 0:
             print(f"  [content/reviewer] Bad response → retrying ({remaining} left)")
         else:
             print(f"  [content/reviewer] Bad response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")

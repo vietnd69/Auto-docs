@@ -13,7 +13,7 @@ from pathlib import Path
 
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
-from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, MODEL_JURY, NORMAL_SLEEP
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, JURY_TEMPERATURE, MODEL_JURY, NORMAL_SLEEP
 from llm.tokens import count_tokens
 from validator.content.prompts import build_jury_prompt
 
@@ -45,7 +45,7 @@ def _vote_once(messages: list[dict], model: str, vote_index: int = 0) -> tuple[b
     """Call one LLM jury member. Returns (vote_yes, reason)."""
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
         try:
-            response = ollama_chat(model=model, messages=messages)
+            response = ollama_chat(model=model, messages=messages, temperature=JURY_TEMPERATURE)
         except Exception as e:
             if attempt < BAD_RESPONSE_RETRIES:
                 continue
