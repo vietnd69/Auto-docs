@@ -12,6 +12,7 @@ from validator.format.autofix import FixResult, autofix_file
 from validator.format.checks import validate_all, ValidationError
 from validator.utils import resolve_lua_path
 from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN
+from validator.content.checkpoint import load_batch_checkpoint, save_batch_checkpoint
 
 
 def _never_stop() -> bool:
@@ -26,6 +27,7 @@ class PipelineConfig:
     reviewer_model: str = MODEL_MAIN
     skip_content: bool = False
     skip_format: bool = False
+    resume: bool = False
     stop_check: Callable[[], bool] = field(default=_never_stop, repr=False)
 
 
@@ -63,7 +65,7 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
                     "running per-section validation..."
                 )
                 content_result = run_chunked_content_loop(
-                    md_filepath, lua_filepath, content_config
+                    md_filepath, lua_filepath, content_config, resume=config.resume
                 )
                 # falls through — format validation also runs for chunked files
             else:
@@ -102,21 +104,38 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
 def process_batch(target: str, config: PipelineConfig) -> list[FileResult]:
     """Process a batch of .md files through the pipeline."""
     target_path = Path(target)
+    is_batch = not target_path.is_file()
 
     if target_path.is_file():
         files = [target_path]
     else:
         files = sorted(target_path.rglob("*.md"))
 
+    # Load batch checkpoint when resuming a directory run
+    completed_files: set[str] = set()
+    if config.resume and is_batch:
+        completed_files = set(load_batch_checkpoint(target))
+        if completed_files:
+            print(f"[resume] {len(completed_files)} file(s) already processed, skipping")
+
     print(f"Processing {len(files)} file(s)...")
     results: list[FileResult] = []
 
     try:
         for i, filepath in enumerate(files, 1):
+            filepath_str = str(filepath)
+            if filepath_str in completed_files:
+                print(f"[{i}/{len(files)}] {filepath.name} -- skipped (checkpoint: already done)")
+                continue
             print(f"[{i}/{len(files)}] {filepath.name}")
             result = process_file(str(filepath), config)
             results.append(result)
             print(f"  -> {result.final_status}")
+
+            # Always save batch checkpoint after each file (available for future --resume)
+            if is_batch:
+                completed_files.add(filepath_str)
+                save_batch_checkpoint(target, list(completed_files))
     except KeyboardInterrupt:
         print(f"\n[Ctrl+C] Stopped after {len(results)}/{len(files)} files")
 

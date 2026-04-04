@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--max-iterations", type=int, default=3, help="Max content loop iterations")
     parser.add_argument("--writer-model", default="qwen3.5:cloud", help="LLM model for writer")
     parser.add_argument("--reviewer-model", default="qwen3.5:cloud", help="LLM model for reviewer")
+    parser.add_argument("--resume", action="store_true", help="Resume from checkpoint if available")
 
     args = parser.parse_args()
 
@@ -27,6 +28,7 @@ def main():
         reviewer_model=args.reviewer_model,
         skip_content=args.format_only,
         skip_format=args.content_only,
+        resume=args.resume,
     )
 
     try:

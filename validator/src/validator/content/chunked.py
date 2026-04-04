@@ -12,6 +12,7 @@ from typing import Callable
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
 from validator.content.cache import CacheManager
+from validator.content.checkpoint import load_validator_checkpoint, save_validator_checkpoint
 from llm.settings import (
     BAD_RESPONSE_RETRIES, DEBUG_PROMPTS,
     REVIEWER_TEMPERATURE, WRITER_TEMPERATURE, WRITER_THINK,
@@ -258,6 +259,7 @@ def run_chunked_content_loop(
     md_filepath: str,
     lua_filepath: str,
     config: ContentLoopConfig,
+    resume: bool = False,
 ) -> ContentLoopResult:
     """Per-section typed-ops validation loop for large files using cache.
 
@@ -292,13 +294,33 @@ def run_chunked_content_loop(
     if not sections:
         return ContentLoopResult(approved=True, iterations=0, final_issues=[])
 
-    # Create cache manager for this file
-    cache = CacheManager(md_filepath)
-    print(f"  [content/chunked] Cache created: {cache.cache_dir}")
+    # Load checkpoint if resume mode
+    checkpoint = load_validator_checkpoint(md_filepath) if resume else None
+    completed_sections: set[int] = set()
+    if checkpoint:
+        cache = CacheManager(md_filepath, cache_dir=Path(checkpoint["cache_dir"]))
+        completed_sections = set(checkpoint["completed_sections"])
+        total_iterations = checkpoint.get("total_iterations", 0)
+        all_issues = list(checkpoint.get("all_issues", []))
+        print(f"  [content/chunked] Resuming from checkpoint: {len(completed_sections)} section(s) already done")
+        print(f"  [content/chunked] Cache dir: {cache.cache_dir}")
+    else:
+        cache = CacheManager(md_filepath)
+        total_iterations = 0
+        all_issues = []
+        print(f"  [content/chunked] Cache created: {cache.cache_dir}")
+
+    # Restore section texts from cache for completed sections (resume only)
+    if checkpoint and completed_sections:
+        for _sec_idx in completed_sections:
+            if 1 <= _sec_idx <= len(sections):
+                _sec = sections[_sec_idx - 1]
+                if cache.exists(f"sec{_sec_idx}_assembled"):
+                    _sec.text = cache.read(f"sec{_sec_idx}_assembled")
+                elif cache.exists(f"sec{_sec_idx}"):
+                    _sec.text = cache.read(f"sec{_sec_idx}")
 
     file_type = _detect_file_type(lua_filepath, lua_source)
-    total_iterations = 0
-    all_issues: list[str] = []
 
     for sec_idx, section in enumerate(sections, 1):
         if config.stop_check():
@@ -310,6 +332,10 @@ def run_chunked_content_loop(
             )
         if not section.heading:
             continue  # skip preamble
+
+        if sec_idx in completed_sections:
+            print(f"  [content/chunked] Section {sec_idx}/{len(sections)} '{section.heading}' -- skipped (checkpoint: already done)")
+            continue
 
         print(f"  [content/chunked] Section {sec_idx}/{len(sections)} '{section.heading}'", end="")
 
@@ -327,6 +353,8 @@ def run_chunked_content_loop(
             if not fn_blocks:
                 print(f" -- skipped (all functions pre-filtered)")
                 section.text = preamble
+                completed_sections.add(sec_idx)
+                save_validator_checkpoint(md_filepath, cache.cache_dir, completed_sections, total_iterations, all_issues)
                 continue
 
             # Ensure required fields present before review
@@ -363,6 +391,10 @@ def run_chunked_content_loop(
                 section.text = preamble + "".join(all_updated_blocks)
                 cache.write(f"sec{sec_idx}_assembled", section.text)
 
+            # Section fully done — save checkpoint
+            completed_sections.add(sec_idx)
+            save_validator_checkpoint(md_filepath, cache.cache_dir, completed_sections, total_iterations, all_issues)
+
         else:
             fn_count = len(re.findall(r'(?m)^### ', section.text))
             label = f"{fn_count} fn(s)" if fn_count else "structure only"
@@ -370,6 +402,8 @@ def run_chunked_content_loop(
 
             if fn_count == 0 and not lua_ctx:
                 print(f"  [content/chunked] Section {sec_idx} -- skipped (no content to validate)")
+                completed_sections.add(sec_idx)
+                save_validator_checkpoint(md_filepath, cache.cache_dir, completed_sections, total_iterations, all_issues)
                 continue
 
             # Create cache for this section
@@ -383,6 +417,10 @@ def run_chunked_content_loop(
             section.text = updated_text
             total_iterations += iters
             all_issues.extend(issues)
+
+            # Section fully done — save checkpoint
+            completed_sections.add(sec_idx)
+            save_validator_checkpoint(md_filepath, cache.cache_dir, completed_sections, total_iterations, all_issues)
 
     # Final assembly: write all sections to original file
     md_path.write_text(join_md_sections(frontmatter, sections), encoding="utf-8")
