@@ -125,7 +125,7 @@ class TestPrependToChangelog:
         path = tmp_path / "change-log.md"
         self._call(path, "## Build 2\n\nContent.")
         text = path.read_text(encoding="utf-8")
-        assert "# DST API Changelog" in text
+        assert "# Scripts Changelog" in text
         assert "## Build 2" in text
 
     def test_prepends_before_existing_content(self, tmp_path):
@@ -140,7 +140,7 @@ class TestPrependToChangelog:
         self._call(path, "## Build 2\n\nContent.", new_ver="2")
         self._call(path, "## Build 3\n\nNewer.", new_ver="3")
         text = path.read_text(encoding="utf-8")
-        assert text.count("# DST API Changelog") == 1
+        assert text.count("# Scripts Changelog") == 1
 
     def test_frontmatter_contains_version_and_date(self, tmp_path):
         path = tmp_path / "change-log.md"
@@ -243,7 +243,7 @@ class TestMain:
     def test_already_logged_skips(self, tmp_path):
         changelog_path = tmp_path / "change-log.md"
         changelog_path.write_text(
-            "---\nid: change-log\nbuild_version: 718694\n---\n\n# DST API Changelog\n\n## Build 718694\n\nAlready here.\n",
+            "---\nid: change-log\nbuild_version: 718694\n---\n\n# Scripts Changelog\n\n## Build 718694\n\nAlready here.\n",
             encoding="utf-8",
         )
         fake_resp = {"message": {"content": "## Build 718694\n\nNew."}}

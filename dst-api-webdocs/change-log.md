@@ -1,6 +1,6 @@
 ---
 id: change-log
-title: DST API Changelog
+title: Scripts Changelog
 description: Build-by-build changelog for the DST Lua API documentation.
 tags: [changelog]
 sidebar_position: 3
@@ -9,7 +9,7 @@ build_version: 718694
 change_status: updated
 ---
 
-# DST API Changelog
+# Scripts Changelog
 
 ## Build 718694
 
