@@ -3,7 +3,7 @@ id: change-log
 title: DST API Changelog
 description: Build-by-build changelog for the DST Lua API documentation.
 tags: [changelog]
-sidebar_position: 1
+sidebar_position: 3
 last_updated: 2026-03-23
 build_version: 718694
 change_status: updated

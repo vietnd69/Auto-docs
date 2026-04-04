@@ -30,7 +30,7 @@ def _build_frontmatter(new_ver: str, date: str) -> str:
         "title: DST API Changelog\n"
         "description: Build-by-build changelog for the DST Lua API documentation.\n"
         "tags: [changelog]\n"
-        "sidebar_position: 1\n"
+        "sidebar_position: 3\n"
         f"last_updated: {date}\n"
         f"build_version: {new_ver}\n"
         "change_status: updated\n"
