@@ -140,3 +140,54 @@ class TestPrependToChangelog:
         prepend_to_changelog("## Build 3\n\nNewer.", path)
         text = path.read_text(encoding="utf-8")
         assert text.count("# DST API Changelog") == 1
+
+
+class TestBuildChangelogEntry:
+    def _make_fake_response(self, content: str) -> dict:
+        return {"message": {"content": content}}
+
+    def test_returns_markdown_string_on_success(self):
+        fake_resp = self._make_fake_response("## Build 718694\n\n### Highlights\nSome changes.")
+        with patch("core.changelog.pipeline.ollama_chat", return_value=fake_resp):
+            from core.changelog.pipeline import build_changelog_entry
+            result = build_changelog_entry(SAMPLE_REPORT)
+        assert result is not None
+        assert "## Build 718694" in result
+
+    def test_returns_none_on_empty_response(self, capsys):
+        fake_resp = self._make_fake_response("")
+        with patch("core.changelog.pipeline.ollama_chat", return_value=fake_resp):
+            from core.changelog.pipeline import build_changelog_entry
+            result = build_changelog_entry(SAMPLE_REPORT)
+        assert result is None
+        assert "empty" in capsys.readouterr().out.lower()
+
+    def test_calls_ollama_chat_with_think_false(self):
+        fake_resp = self._make_fake_response("## Build 718694\n\nContent.")
+        with patch("core.changelog.pipeline.ollama_chat", return_value=fake_resp) as mock_chat:
+            from core.changelog.pipeline import build_changelog_entry
+            build_changelog_entry(SAMPLE_REPORT)
+        call_kwargs = mock_chat.call_args
+        assert call_kwargs.kwargs.get("think") is False or (
+            len(call_kwargs.args) > 2 and call_kwargs.args[2] is False
+        )
+
+    def test_uses_version_from_report_not_config(self):
+        """Ensure old_ver/new_ver come from report dict, not core.config.VERSION."""
+        captured_messages = []
+        def fake_chat(model, messages, *, think=True, **kwargs):
+            captured_messages.extend(messages)
+            return {"message": {"content": "## Build 99999\n\nContent."}}
+        with patch("core.changelog.pipeline.ollama_chat", side_effect=fake_chat):
+            from core.changelog.pipeline import build_changelog_entry
+            build_changelog_entry(SAMPLE_REPORT)
+        prompt_text = captured_messages[0]["content"]
+        assert "714014 → 718694" in prompt_text
+
+    def test_returns_none_on_llm_exception(self, capsys):
+        """ollama_chat raises (network/server error) → returns None, does not propagate."""
+        with patch("core.changelog.pipeline.ollama_chat", side_effect=Exception("network error")):
+            from core.changelog.pipeline import build_changelog_entry
+            result = build_changelog_entry(SAMPLE_REPORT)
+        assert result is None
+        assert capsys.readouterr().out  # some warning printed
