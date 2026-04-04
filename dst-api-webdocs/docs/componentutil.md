@@ -188,6 +188,7 @@ end
 
 | Property | Type | Default Value | Description |
 |----------|------|---------------|-------------|
+| None | | | No properties are defined. |
 
 ## Main functions
 
@@ -657,7 +658,7 @@ end
 * **Parameters:**
   - `idname` -- Topology ID string
 * **Returns:** table: mapping of topology components to keys; returns empty table if idname is nil
-* **Error states:** Returns {task_id = 'START'} for 'START' input; layout-only IDs parsed differently.
+* **Error states:** Returns `{task_id = 'START'}` for 'START' input; layout-only IDs parsed differently.
 
 ### `GetPlayerDeathDescription(inst, viewer)`
 * **Description:** Generates a localized death description string for a player corpse using saved metadata and viewer context.
@@ -747,7 +748,7 @@ end
 * **Parameters:**
   - `mult` -- Multiplier applied to positive luck for additive bonus
 * **Returns:** function(inst, chance, luck): modified chance
-* **Error states:** Returns original chance if luck <= 0.
+* **Error states:** Returns original chance if `luck <= 0.`
 
 ### `CommonChanceUnluckMultAndLuckHyperbolic(reciprocal, mult)`
 * **Description:** Returns a function that multiplies chance by a hyperbolic expression for positive luck, or by (1+|luck|*mult) for negative luck.
@@ -764,7 +765,7 @@ end
   - `reciprocal` -- Reciprocal constant
   - `subtract` -- Offset subtracted from luck before computation
 * **Returns:** function(inst, chance, luck): modified chance
-* **Error states:** Returns original chance if luck <= 0.
+* **Error states:** Returns original chance if `luck <= 0.`
 
 ### `CommonChanceUnluckHyperbolicAndLuckMult(reciprocal, mult)`
 * **Description:** Returns a function that uses a hyperbolic penalty for negative luck and linear growth for positive luck.
@@ -797,7 +798,7 @@ end
 * **Parameters:**
   - `reciprocal` -- Reciprocal constant for hyperbolic formula
 * **Returns:** function(inst, chance, luck): modified chance
-* **Error states:** Returns original chance if luck <= 0.
+* **Error states:** Returns original chance if `luck <= 0.`
 
 ### `GetEntityLuck(inst)`
 * **Description:** Retrieves the effective luck value of an entity by calling GetLuck() on its luckuser component, or 0 if no luckuser exists.

@@ -3007,7 +3007,7 @@ local my_action = Action({
 
 ### `ACTIONS.YOTB_UNLOCKSKIN.fn(act)`
 * **Description:** Unlocks a skin using the Y
-</output>
+`<`/output>
 
 ## Events & listeners
 This file is not event-driven.
