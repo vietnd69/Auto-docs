@@ -97,3 +97,20 @@ class TestBuildChangelogPrompt:
     def test_output_format_instruction_present(self):
         prompt = self._call()
         assert "## Build 718694" in prompt
+
+
+class TestLoadDiffReport:
+    def test_returns_dict_when_file_exists(self, tmp_path):
+        report_path = tmp_path / "diff_report.json"
+        report_path.write_text(json.dumps(SAMPLE_REPORT), encoding="utf-8")
+        with patch("core.changelog.pipeline.DATA_DIR", str(tmp_path)):
+            from core.changelog.pipeline import load_diff_report
+            result = load_diff_report()
+        assert result == SAMPLE_REPORT
+
+    def test_returns_none_when_file_missing(self, tmp_path, capsys):
+        with patch("core.changelog.pipeline.DATA_DIR", str(tmp_path)):
+            from core.changelog.pipeline import load_diff_report
+            result = load_diff_report()
+        assert result is None
+        assert "diff_report.json" in capsys.readouterr().out
