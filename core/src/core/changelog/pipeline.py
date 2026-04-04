@@ -20,14 +20,14 @@ from llm.settings import MODEL_UPDATE
 from validator.format.autofix import autofix_file, get_mdx_errors
 
 CHANGELOG_PATH: Path = PROJECT_ROOT / "dst-api-webdocs" / "change-log.md"
-_CHANGELOG_HEADER = "# DST API Changelog\n"
+_CHANGELOG_HEADER = "# Scripts Changelog\n"
 
 
 def _build_frontmatter(new_ver: str, date: str) -> str:
     return (
         "---\n"
         "id: change-log\n"
-        "title: DST API Changelog\n"
+        "title: Scripts Changelog\n"
         "description: Build-by-build changelog for the DST Lua API documentation.\n"
         "tags: [changelog]\n"
         "sidebar_position: 3\n"
@@ -39,7 +39,7 @@ def _build_frontmatter(new_ver: str, date: str) -> str:
 
 
 def _strip_frontmatter_and_header(text: str) -> str:
-    """Remove YAML frontmatter block and the # DST API Changelog header."""
+    """Remove YAML frontmatter block and the # Scripts Changelog header."""
     if text.startswith("---\n"):
         end = text.find("\n---\n", 4)
         if end != -1:
