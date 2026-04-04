@@ -54,49 +54,6 @@ def get_mdx_errors(filepath: str) -> list[dict]:
     return errors
 
 
-import unicodedata
-import emoji
-
-
-def remove_pure_emojis(text: str) -> tuple[str, int]:
-    """Xóa emoji thực thụ, giữ lại unicode symbols cơ bản (như ↔)."""
-    found = emoji.emoji_list(text)
-    if not found:
-        return text, 0
-
-    # Range regex cho emoji thực sự (Dingbats, Emoticons, Symbols, etc.)
-    # Loại bỏ các ký tự như ↔ (U+2194)
-    # Tương đương với EMOJI_PATTERN cũ
-    EMOJI_RANGES = [
-        (0x2600, 0x27BF),   # Misc Symbols, Dingbats
-        (0x1F300, 0x1F9FF), # Emoticons, Symbols & Pictographs
-        (0xFE00, 0xFE0F),   # Variation Selectors
-        (0x1FA00, 0x1FAFF), # Symbols & Pictographs Extended-A
-    ]
-
-    to_remove = []
-    for e in found:
-        char = e['emoji']
-        cp = ord(char[0]) # Lấy code point đầu tiên
-
-        is_real_emoji = any(start <= cp <= end for start, end in EMOJI_RANGES)
-
-        # Nếu là composite emoji (có Zero Width Joiner hoặc Variation Selector) -> remove luôn
-        if len(char) > 1:
-            is_real_emoji = True
-
-        if is_real_emoji:
-            to_remove.append((e['match_start'], e['match_end']))
-
-    if not to_remove:
-        return text, 0
-
-    # Xóa từ dưới lên
-    new_text = list(text)
-    for start, end in reversed(to_remove):
-        new_text[start:end] = []
-
-    return "".join(new_text), len(to_remove)
 
 def fix_frontmatter_delimiters(text: str) -> tuple[str, bool]:
     """Tự động thêm --- ở đầu/cuối block YAML nếu bị thiếu."""
@@ -763,12 +720,6 @@ def autofix_file(filepath: str, dry_run: bool = False) -> FixResult:
     if recovered_hash is not None:
         text = new_text
         applied.append(f"Đã thêm source_hash: {recovered_hash} (khôi phục từ file Lua).")
-
-    # Xoá pure emojis trước
-    new_text, emoji_count = remove_pure_emojis(text)
-    if emoji_count > 0:
-        text = new_text
-        applied.append(f"Đã xoá {emoji_count} emoji.")
 
     # Fix --- delimiter
     new_text, changed_delim = fix_frontmatter_delimiters(text)

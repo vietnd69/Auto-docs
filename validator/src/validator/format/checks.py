@@ -4,7 +4,6 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import emoji
 import frontmatter
 
 
@@ -138,17 +137,6 @@ def check_duplication(text: str) -> list[ValidationError]:
     return errors
 
 
-def check_emoji(text: str) -> list[ValidationError]:
-    """Check for emoji characters in document."""
-    found_emojis = emoji.emoji_list(text)
-    if found_emojis:
-        details = ", ".join([f"'{e['emoji']}' at {e['match_start']}" for e in found_emojis])
-        return [ValidationError(
-            "format", "warning",
-            f"Chứa emoji hoặc unicode symbol: {details}"
-        )]
-    return []
-
 
 def check_filler_text(text: str) -> list[ValidationError]:
     """Check for filler text like '(End of documentation)'."""
@@ -164,9 +152,6 @@ def validate_all(filepath: str) -> list[ValidationError]:
     """Run all format checks on a file. Returns list of ValidationError."""
     raw = Path(filepath).read_text(encoding="utf-8")
     errors: list[ValidationError] = []
-
-    # Emoji check
-    errors.extend(check_emoji(raw))
 
     # Frontmatter parse check
     try:
