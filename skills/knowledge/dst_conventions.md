@@ -1,4 +1,8 @@
-# Skill: dst_conventions
+---
+name: dst_conventions
+description: DST engine conventions — ECS, events, tags, network replication, stategraphs, brains, prefabs, scheduler
+inject_into: [analyst, analyst_chunk, analyst_merge, analyst_intermediate, analyst_merge_legacy, reviewer_full, reviewer_typed]
+---
 
 ENTITY COMPONENT SYSTEM (ECS):
 - Components attach to entities: `inst:AddComponent("name")` / access via `inst.components.name`.

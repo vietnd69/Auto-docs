@@ -1,4 +1,8 @@
-# Skill: function_format
+---
+name: function_format
+description: Function documentation format spec, dependency section format, and few-shot contrast examples
+inject_into: [analyst, analyst_merge, analyst_merge_legacy]
+---
 
 === FUNCTION FORMAT ===
 Use EXACTLY this structure for every entry in ## Main functions:

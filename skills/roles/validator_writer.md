@@ -1,4 +1,8 @@
-# Skill: validator_writer
+---
+name: validator_writer
+description: Patch format rules, anchoring examples, and common repeated patterns for documentation fixes
+inject_into: [writer_full, writer_typed]
+---
 
 === FORMAT RULES — NEVER VIOLATE ===
 - NEVER rename or reformat ### headings (lines starting with "### `")

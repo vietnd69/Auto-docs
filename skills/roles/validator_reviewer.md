@@ -1,4 +1,8 @@
-# Skill: validator_reviewer
+---
+name: validator_reviewer
+description: Content accuracy review checklist, section requirements, special case logic for documentation validation
+inject_into: [reviewer_full, reviewer_typed]
+---
 
 === REVIEWER CHECKLIST ===
 Check CONTENT ACCURACY ONLY:
