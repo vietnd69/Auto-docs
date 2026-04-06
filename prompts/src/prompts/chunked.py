@@ -15,16 +15,9 @@ import json
 
 from prompts.standard import build_prompt as build_single_prompt  # noqa: F401
 from prompts.pre_synthesis import PreSynthesisResult
-from prompts.skills_loader import load_skill
-
-# Skill content loaded once at module import — injected into f-string prompts below.
-# IMPORTANT: _FUNCTION_FORMAT_SPEC must keep this exact name — test_chunk_prompts.py
-# imports it directly: `from chunked_prompt import ..., _FUNCTION_FORMAT_SPEC`
-_FUNCTION_FORMAT_SPEC = load_skill("function_format")   # replaces inline constant; name preserved for test compat
-_DST_CONV             = load_skill("dst_conventions")
+from prompts.skills_loader import combine_skills
 
 
-# TODO(format-consistency): apply _FUNCTION_FORMAT_SPEC here when legacy path is retired
 def build_intermediate_merge_prompt(
     comp_name: str,
     display_filepath: str,
@@ -62,6 +55,9 @@ This output will be used as input for a final merge step — information lost he
 - Do NOT include greetings, sign-offs, or meta-commentary.
 - Wrap `<`, `>`, `<=`, `>=`, `{{`, `}}` in backticks.
 - IMPORTANT: Never repeat the same line or bullet point more than once. If you find yourself repeating, stop and move to the next item.
+
+=== SKILLS ===
+{combine_skills("analyst_intermediate")}
 
 === OUTPUT FORMAT ===
 Use EXACTLY this structure — do not add, remove, or rename sections:
@@ -135,8 +131,8 @@ Your task is to extract ALL functions, properties, events, dependencies, and tag
 4. CONNECTED FILES — EXTRACTED SOURCE CODE
    {connected_content if connected_content else "No function source code available. Base your analysis solely on the target file's own code."}
 
-5. DST CODING CONVENTIONS
-{_DST_CONV}
+=== SKILLS ===
+{combine_skills("analyst_chunk")}
 
 === OUTPUT FORMAT ===
 
@@ -272,8 +268,8 @@ Your task is to format this data into a well-organized Markdown document and wri
 4. CONNECTED FILES — EXTRACTED SOURCE CODE
    {connected_content if connected_content else "No function source code available."}
 
-5. DST CODING CONVENTIONS
-{_DST_CONV}
+=== SKILLS ===
+{combine_skills("analyst_merge")}
 
 === PARTIAL DESCRIPTIONS (one per chunk) ===
 Synthesize these into a single description sentence for the YAML frontmatter.
@@ -318,8 +314,6 @@ YOUR TASKS:
 6. Format `## Events & listeners` — render the EVENTS JSON as bullet lists.
 7. Format `## Dependencies & tags` using EXACTLY the DEPENDENCY SECTION FORMAT defined in the FORMAT SPECIFICATION section below, including External dependencies from EXTERNAL DEPENDENCIES JSON (omit External dependencies bullet if empty).
 
-=== FORMAT SPECIFICATION ===
-{_FUNCTION_FORMAT_SPEC}
 ---
 id: {comp_name}
 title: {comp_title}
@@ -374,7 +368,6 @@ system_scope: <REVIEW hint {presynthesis.system_scope} — set the most accurate
 # ── Legacy merge prompt (kept for hierarchical/rolling backward compat) ──
 
 
-# TODO(format-consistency): apply _FUNCTION_FORMAT_SPEC here when legacy path is retired
 def _build_merge_prompt_legacy(
     comp_name: str,
     comp_title: str,
@@ -423,8 +416,8 @@ Below are the analysis results from each portion. Your task is to MERGE them int
 4. CONNECTED FILES — EXTRACTED SOURCE CODE
    {connected_content if connected_content else "No function source code available."}
 
-5. DST CODING CONVENTIONS
-{_DST_CONV}
+=== SKILLS ===
+{combine_skills("analyst_merge_legacy")}
 
 === CHUNK ANALYSIS RESULTS ===
 {merged_chunks}
