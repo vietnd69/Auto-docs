@@ -40,3 +40,7 @@ Use the Connected Files context to understand external API signatures.
 - Track all events (ListenForEvent, PushEvent)
 - Track all tags (AddTag, RemoveTag, HasTag)
 - Track all component dependencies (inst.components.X)
+
+### Step 5 — Write Output
+
+Use `format_rules`, `writing_guide`, and the appropriate few-shot example (`few_shot` for components, `few_shot_data` for data config files) as output templates.

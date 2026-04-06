@@ -1,7 +1,7 @@
 ---
 name: function_format
 description: Function documentation format spec, dependency section format, and few-shot contrast examples
-inject_into: [analyst, analyst_merge, analyst_merge_legacy]
+inject_into: [analyst, analyst_merge, analyst_merge_legacy, reviewer_full, reviewer_typed]
 ---
 
 ## Function Format
