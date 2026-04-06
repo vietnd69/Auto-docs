@@ -4,7 +4,8 @@ description: Content accuracy review checklist, section requirements, special ca
 inject_into: [reviewer_full, reviewer_typed]
 ---
 
-=== REVIEWER CHECKLIST ===
+## Checklist
+
 Check CONTENT ACCURACY ONLY:
 1. Function signatures and params match Lua source exactly — no hallucinated names/types
 2. Descriptions are accurate (not vague/wrong about what the function actually does)
@@ -16,13 +17,15 @@ Do NOT flag formatting, bullet style, or structural notation issues — only fla
 
 STRUCTURAL GUARD: Do NOT rename or remove ### headings in your review suggestions unless the function is hallucinated (not in the Lua source).
 
-=== SECTION ## Overview ===
+## Section: Overview
+
 [Component] 2-5 sentences: what this component does + its role in ECS.
 Mention key relationships with other components.
 [Data config] 2-5 sentences: what static data this file defines, how it is structured,
 and how other systems access it via require(). Do NOT reference ECS or AddComponent.
 
-=== SECTION ## Usage example ===
+## Section: Usage example
+
 5-15 lines of realistic Lua using actual function names from this file.
 [Component] Show CreateEntity(), AddComponent(), then call 2-3 primary functions.
 [Data config] Show require() followed by table index access (e.g. Table[1]).
@@ -33,13 +36,15 @@ Example: if the file is `brains/crittersbrain.lua` and the class is `CritterBrai
 the correct path is require("brains/crittersbrain") — NOT require("brains/critterbrain").
 Do NOT flag a require path as wrong solely because it differs from the class name.
 
-=== SECTION ## Dependencies & tags ===
+## Section: Dependencies & tags
+
 Must contain EXACTLY these labels (in order):
 **External dependencies:** — list each `name` -- usage, or omit if none
 **Components used:** — list each `component_name` -- methods/properties accessed
 **Tags:** — list each `tag_name` -- add/remove/check, or 'None' if no game tags
 
-=== SECTION ## Properties ===
+## Section: Properties
+
 Table with columns: Property | Type | Default Value | Description.
 If no properties exist, the table MUST include a None data row:
 | None | | | No properties are defined. |
@@ -47,7 +52,8 @@ Do NOT leave the table with header + separator only and no data rows — that is
 Do NOT invent properties not in the constructor.
 Data config files: document the top-level container + each record field.
 
-=== SECTION ## Main functions ===
+## Section: Main functions
+
 Each entry uses a ### heading with function name.
 Keep ALL functions — never drop trivial getters/setters.
 
@@ -74,12 +80,14 @@ ERROR STATES — WHAT DOES NOT BELONG THERE (move to Description):
   GOOD: "Errors if inst is nil (no nil guard before member access)" — actual crash path
   GOOD: "Returns nil if required component missing (inventory, luckuser)" — missing dependency
 
-=== SECTION ## Events & listeners ===
+## Section: Events & listeners
+
 - **Listens to:** events registered via inst:ListenForEvent(event, fn)
 - **Pushes:** events fired via inst:PushEvent(event, data)
 Omit this section entirely if the component has no events.
 
-=== SPECIAL CASE — need_special_case ===
+## Special Case: need_special_case
+
 Use need_special_case=true ONLY when ALL three conditions are true:
 1. The content is ACCURATE — no wrong signatures, wrong types, hallucinated functions
 2. The document uses a non-standard section name
@@ -97,7 +105,9 @@ DO NOT use need_special_case for:
 - Personal preference or style differences → enforce standard names
 - When the standard name is merely imperfect but not misleading
 
-VALID RESPONSE STATES — only these 4 combinations are valid:
+## Valid Response States
+
+Only these 4 combinations are valid:
 
 1. Content accurate, no section dispute:
    {"approved": true, "need_special_case": false, "findings": []}
