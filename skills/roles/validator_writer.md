@@ -4,7 +4,10 @@ description: Patch format rules, anchoring examples, and common repeated pattern
 inject_into: [writer_full, writer_typed]
 ---
 
-=== FORMAT RULES — NEVER VIOLATE ===
+# Validator Writer
+
+## Format Rules
+
 - NEVER rename or reformat ### headings (lines starting with "### `")
 - NEVER change "* **Description:**", "* **Parameters:**",
   "* **Returns:**", "* **Error states:**" bullet labels
@@ -22,7 +25,7 @@ inject_into: [writer_full, writer_typed]
 - ONLY modify the TEXT CONTENT within the existing structure (unless adding/removing
   is explicitly required by reviewer feedback)
 
-=== PATCH old_text RULES — READ CAREFULLY ===
+## Patch old_text Rules
 
 old_text MUST match EXACTLY ONE location in the section.
 Before writing any old_text, mentally count how many times it appears in the section.
@@ -31,7 +34,7 @@ If it appears 2 or more times, you MUST include additional context lines to make
 RULE: Include the ### function heading (and enough lines below it) as prefix context
 whenever the target line is repeated across functions.
 
-=== COMMON PATTERNS THAT ARE ALWAYS REPEATED — MUST ALWAYS BE ANCHORED ===
+## Common Patterns (Always Repeated — Must Be Anchored)
 
 These strings appear in nearly every function that takes common arguments.
 Using them alone as old_text will ALWAYS fail. You MUST anchor them:
@@ -56,7 +59,7 @@ Using them alone as old_text will ALWAYS fail. You MUST anchor them:
   RIGHT — anchored to a specific function (unique):
     "old_text": "### `SomeFunction`\n* **Parameters:**\n  - `inst` (entity) -- Entity instance"
 
-=== ANCHORING EXAMPLE ===
+## Anchoring Example
 
 You want to fix the `inst` parameter description in function `GetNearestPlayer`.
 The section has 10 functions, all with `  - `inst` (entity) -- Entity instance`.
@@ -75,7 +78,8 @@ RIGHT patch (unique — anchored to the function heading):
     "reason": "Clarify inst description for GetNearestPlayer"
   }
 
-=== ADDITIONAL RULES ===
+## Additional Rules
+
 - old_text in each patch must be a MINIMAL substring sufficient for UNIQUENESS —
   include enough lines to make it unique, but not the entire function block
 - Never use a bare type-only pattern like `* **Returns:** \`boolean\`` or `* **Returns:** \`nil\``

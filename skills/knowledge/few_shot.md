@@ -4,9 +4,11 @@ description: Component file few-shot example — expected output format for comp
 inject_into: [analyst]
 ---
 
-=== FEW-SHOT EXAMPLE ===
+## Few-Shot Example: Component File
+
 Below is a short example of the expected output format for a simple component. Use this as a reference for structure and tone — do NOT copy the content.
 
+```md
 ---
 id: samplecomp
 title: SampleComp
@@ -62,4 +64,4 @@ inst.components.samplecomp:Activate()
 ## Events & listeners
 - **Listens to:** `onhitother` - refreshes the buff timer on hit.
 - **Pushes:** `buff_expired` - fired when the timer reaches zero.
-(End of component example)
+```

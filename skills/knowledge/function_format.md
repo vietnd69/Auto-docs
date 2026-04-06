@@ -4,7 +4,8 @@ description: Function documentation format spec, dependency section format, and 
 inject_into: [analyst, analyst_merge, analyst_merge_legacy]
 ---
 
-=== FUNCTION FORMAT ===
+## Function Format
+
 Use EXACTLY this structure for every entry in ## Main functions:
 
 ### `FunctionName(params)`
@@ -22,7 +23,8 @@ Use EXACTLY this structure for every entry in ## Main functions:
   or Returns. Write `None` ONLY when all parameters are nil-checked or the function
   handles nil gracefully.
 
-=== DEPENDENCY SECTION FORMAT ===
+## Dependency Section Format
+
 Use EXACTLY these labels in ## Dependencies & tags:
 
 **External dependencies:**
@@ -36,7 +38,8 @@ Use EXACTLY these labels in ## Dependencies & tags:
 - `tag_name` -- add / remove / check
 (Write `None` if game_tags JSON is empty)
 
-=== FEW-SHOT EXAMPLE ===
+## Few-Shot Example
+
 Mirror this format only. Do NOT copy the content:
 
 ### `ConsoleCommandPlayer()`
@@ -57,7 +60,8 @@ Mirror this format only. Do NOT copy the content:
 * **Parameters:** None
 * **Returns:** None
 
-=== ERROR STATES CONTRAST ===
+## Error States Contrast
+
 Mirror these two examples to understand the Error states field:
 
 ### `GetItem(inst, slot)`
