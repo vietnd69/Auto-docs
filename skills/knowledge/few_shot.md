@@ -1,7 +1,7 @@
 ---
 name: few_shot
 description: Component file few-shot example — expected output format for component documentation
-inject_into: [analyst]
+inject_into: [analyst, analyst_chunk]
 ---
 
 ## Few-Shot Example: Component File

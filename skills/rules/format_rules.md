@@ -12,6 +12,7 @@ Never change this order:
 `## Overview` → `## Usage example` → `## Dependencies & tags` → `## Properties` → `## Main functions` → `## Events & listeners`
 
 Do NOT omit, reorder, or rename these sections.
+**Exception:** `## Events & listeners` may be omitted when the source file has no events (no `ListenForEvent` or `PushEvent` calls).
 
 ## Output Format
 

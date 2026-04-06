@@ -17,8 +17,9 @@ inject_into: [analyst, analyst_chunk, analyst_merge, analyst_intermediate, analy
 
 Determine before writing any section:
 - DATA CONFIG FILE: no Class() constructor, no self.inst, returns a plain table/array.
+  HOW TO DETECT: source file has NO `Class()` constructor, no `self.inst`, and returns
+  a plain table/array at top level → DATA CONFIG FILE.
   → MUST apply ALL [Data config] rules. Do NOT use [Component] patterns.
-  → Consult the HOW TO DETECT note at the top of the data config few-shot example.
 - COMPONENT FILE: has Class(function(self, ...) ... end) constructor.
   → MUST apply ALL [Component] rules. Do NOT use [Data config] patterns.
 
