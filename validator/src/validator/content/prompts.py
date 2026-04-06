@@ -1,12 +1,11 @@
 """Prompt templates for content validation writer and reviewer."""
 
 import re
-from prompts.skills_loader import load_skill
+from prompts.skills_loader import load_skill, combine_skills
 
-# Doc-writing skills reused by validator
-_QUALITY_RULES = load_skill("quality_rules")
-
-# Validator-specific skills (separate from doc generation)
+# Module-level constants -- used by dead code functions (build_section_reviewer_prompt,
+# build_section_writer_prompt). These functions are NOT refactored in this restructure.
+_QUALITY_RULES = load_skill("content_rules")   # was "quality_rules" -- split in restructure
 _REVIEWER_SKILL = load_skill("validator_reviewer")
 _WRITER_SKILL = load_skill("validator_writer")
 _JURY_SKILL = load_skill("validator_jury")
@@ -58,8 +57,8 @@ def build_reviewer_prompt(
     system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API documentation.
 Your task: verify the documentation is accurate and complete against the Lua source.
 
-=== REVIEW RULES ===
-{_REVIEWER_SKILL}
+=== SKILLS ===
+{combine_skills("reviewer_full")}
 
 === RESPONSE FORMAT ===
 Respond in JSON only:
@@ -120,6 +119,9 @@ def build_writer_prompt(
 
     system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API documentation.
 Your task: fix the documentation based on reviewer feedback. Return ONLY targeted patches, not the entire document.
+
+=== SKILLS ===
+{combine_skills("writer_full")}
 
 === PATCH FORMAT ===
 Return a JSON array of patches. Each patch replaces a specific text segment:
@@ -293,8 +295,8 @@ def build_jury_prompt(
     """Build (system_prompt, user_content) for a single jury member voting on a format special case request."""
     connected_block = connected_content if connected_content else "(none)"
 
-    system_prompt = f"""=== JURY VOTING INSTRUCTIONS ===
-{_JURY_SKILL}
+    system_prompt = f"""=== SKILLS ===
+{combine_skills("jury")}
 
 === YOUR VOTE ===
 Based on the Lua source and the reviewer's argument above, cast your vote.
@@ -384,7 +386,9 @@ File type: {file_type} ({file_desc})
 {lua_block}
 {batch_scope_note}
 === SECTION REQUIREMENTS ===
-{section_ctx}{_REVIEWER_SKILL}
+{section_ctx}
+=== SKILLS ===
+{combine_skills("reviewer_typed")}
 
 === ALLOWED rule_id VALUES ===
 {rule_ids_str}
@@ -427,8 +431,8 @@ def build_typed_writer_prompt(
     system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API docs.
 Fix ONE specific issue by returning ONE typed operation. Return JSON only.
 
-=== FORMAT RULES ===
-{_WRITER_SKILL}
+=== SKILLS ===
+{combine_skills("writer_typed")}
 
 === OPERATION TYPES ===
 - update_section:   replace the full section text (Overview, Usage example rewrites)
