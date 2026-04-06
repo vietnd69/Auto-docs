@@ -137,6 +137,100 @@ def run_load_skills_for_tests():
         check("load_skills_for all 3 targets work", ok)
 
 
+# ── combine_skills tests (new API, uses _registry_override) ──────────────────
+
+def run_combine_skills_tests():
+    from prompts.skills_loader import combine_skills, _clear_cache
+
+    # Build a mock registry for testing (no filesystem needed)
+    mock_registry = {
+        "analyst": {
+            "name": "analyst",
+            "inject_into": ["analyst", "analyst_chunk"],
+            "content": "role content",
+            "group": 0,
+            "path": "roles/analyst.md",
+        },
+        "dst_conventions": {
+            "name": "dst_conventions",
+            "inject_into": ["analyst", "analyst_chunk"],
+            "content": "knowledge content",
+            "group": 1,
+            "path": "knowledge/dst_conventions.md",
+        },
+        "function_format": {
+            "name": "function_format",
+            "inject_into": ["analyst"],
+            "content": "format content",
+            "group": 1,
+            "path": "knowledge/function_format.md",
+        },
+        "content_rules": {
+            "name": "content_rules",
+            "inject_into": ["analyst", "analyst_chunk"],
+            "content": "rules content",
+            "group": 2,
+            "path": "rules/content_rules.md",
+        },
+        "format_rules": {
+            "name": "format_rules",
+            "inject_into": ["analyst"],
+            "content": "format rules content",
+            "group": 2,
+            "path": "rules/format_rules.md",
+        },
+    }
+
+    # T9: combine_skills returns concatenated content in group order
+    result = combine_skills("analyst", _registry_override=mock_registry)
+    check("combine_skills group order: role -> knowledge -> rules",
+          result.startswith("=== SKILL: analyst ==="),
+          f"got: {result[:60]!r}")
+
+    # T10: within-group alphabetical ordering
+    check("combine_skills alphabetical within knowledge group",
+          result.index("dst_conventions") < result.index("function_format"),
+          "dst_conventions should come before function_format")
+
+    check("combine_skills alphabetical within rules group",
+          result.index("content_rules") < result.index("format_rules"),
+          "content_rules should come before format_rules")
+
+    # T11: exclude parameter works
+    result_excl = combine_skills("analyst", exclude=["function_format"], _registry_override=mock_registry)
+    check("combine_skills exclude removes skill",
+          "function_format" not in result_excl and "dst_conventions" in result_excl,
+          f"got: {result_excl[:80]!r}")
+
+    # T12: unknown target returns empty string (not error)
+    result_empty = combine_skills("nonexistent_target", _registry_override=mock_registry)
+    check("combine_skills unknown target returns empty string",
+          result_empty == "",
+          f"got: {result_empty!r}")
+
+    # T13: exclude with unknown name is silently ignored
+    result_unk = combine_skills("analyst", exclude=["no_such_skill"], _registry_override=mock_registry)
+    check("combine_skills exclude unknown name silently ignored",
+          "analyst" in result_unk,
+          "should still return results")
+
+    # T14: separator format is correct
+    check("combine_skills separator format",
+          "=== SKILL: analyst ===" in result and "=== SKILL: dst_conventions ===" in result,
+          "separator markers missing")
+
+    # T15: content is included after separator
+    idx = result.index("=== SKILL: analyst ===")
+    after_sep = result[idx:idx+40]
+    check("combine_skills content after separator",
+          "role content" in after_sep,
+          f"got: {after_sep!r}")
+
+    # T16: _clear_cache resets module state
+    _clear_cache()
+    check("_clear_cache runs without error", True)
+
+
 # ── entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -144,5 +238,7 @@ if __name__ == "__main__":
     run_load_skill_tests()
     print("\n=== load_skills_for tests ===")
     run_load_skills_for_tests()
+    print("\n=== combine_skills tests ===")
+    run_combine_skills_tests()
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)
