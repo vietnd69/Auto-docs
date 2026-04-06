@@ -1,4 +1,8 @@
-# Skill: few_shot
+---
+name: few_shot
+description: Component file few-shot example — expected output format for component documentation
+inject_into: [analyst]
+---
 
 === FEW-SHOT EXAMPLE ===
 Below is a short example of the expected output format for a simple component. Use this as a reference for structure and tone — do NOT copy the content.
@@ -53,7 +57,7 @@ inst.components.samplecomp:Activate()
 *   **Description:** Starts the buff timer and adds the `buffed` tag.
 *   **Parameters:** None.
 *   **Returns:** Nothing.
-*   **Error states:** Returns early with no effect if `duration` is `<= 0`.
+*   **Error states:** Errors if `self.inst` is nil when `Activate()` calls `self.inst:AddTag()` — no nil guard present.
 
 ## Events & listeners
 - **Listens to:** `onhitother` - refreshes the buff timer on hit.

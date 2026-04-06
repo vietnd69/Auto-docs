@@ -1,4 +1,8 @@
-# Skill: validator_jury
+---
+name: validator_jury
+description: Jury voting instructions for section heading dispute resolution
+inject_into: [jury]
+---
 
 === JURY ROLE ===
 You are a jury member in a documentation quality system for Don't Starve Together (DST) Lua API docs.

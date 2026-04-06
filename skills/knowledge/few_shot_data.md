@@ -1,4 +1,8 @@
-# Skill: few_shot_data
+---
+name: few_shot_data
+description: Data config file few-shot example — expected output format for data configuration documentation
+inject_into: [analyst, analyst_merge]
+---
 
 === FEW-SHOT EXAMPLE (DATA CONFIG FILE) ===
 HOW TO DETECT: source file has NO Class() constructor, no self.inst,
