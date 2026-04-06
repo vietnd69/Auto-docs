@@ -1,119 +1,14 @@
 """
-skills_loader — parse docs_SKILL.md index and load skill markdown files.
+skills_loader — YAML frontmatter registry and combine_skills API.
 
 API:
-    load_skill(name, *, index_path="docs_SKILL.md") -> str
-    load_skills_for(target, *, index_path="docs_SKILL.md") -> dict[str, str]
+    combine_skills(target, *, exclude=None) -> str
+    load_skill(name) -> str
+    load_skills_for(target, *, exclude=None) -> dict[str, str]
 """
+import logging as _logging
 from pathlib import Path
 from pathlib import Path as _Path
-import os as _os
-
-_DEFAULT_INDEX = str(_Path(__file__).parents[3] / "skills" / "docs_SKILL.md")
-
-
-def _parse_index(index_path: str) -> dict[str, dict]:
-    """
-    Parse docs_SKILL.md and return {skill_name: {"file": str, "inject_into": list}}.
-
-    Format expected:
-        ---
-        version: 1
-        ---
-
-        ## skill_name
-        file: path/to/skill.md
-        inject_into: [target1, target2]
-    """
-    import yaml
-
-    path = Path(index_path)
-    text = path.read_text(encoding="utf-8")
-
-    # Split on newline + "## " to separate preamble from skill sections.
-    # parts[0] = YAML preamble; parts[1:] = one section per skill.
-    parts = text.split("\n## ")
-
-    skills: dict[str, dict] = {}
-    for part in parts[1:]:
-        lines = [ln.strip() for ln in part.strip().splitlines()]
-        if not lines:
-            continue
-        name = lines[0]
-        entry: dict = {}
-        for line in lines[1:]:
-            if line.startswith("file:"):
-                entry["file"] = line[len("file:"):].strip()
-            elif line.startswith("inject_into:"):
-                raw = line[len("inject_into:"):].strip()
-                raw_list = yaml.safe_load(raw) or []
-                if not isinstance(raw_list, list):
-                    raw_list = [raw_list]
-                entry["inject_into"] = raw_list
-
-        if "file" not in entry:
-            raise ValueError(f"Skill '{name}' in index missing 'file:' field")
-
-        skills[name] = entry
-
-    return skills
-
-
-def load_skill(name: str, *, index_path: str = _DEFAULT_INDEX) -> str:
-    """Load a single skill by name. Returns raw markdown content (utf-8).
-
-    Raises:
-        KeyError: if name not in index.
-        FileNotFoundError: if the skill .md file does not exist.
-        ValueError: if the index entry is malformed (missing file: field).
-    """
-    skills = _parse_index(index_path)
-    if name not in skills:
-        raise KeyError(f"Skill '{name}' not found in {index_path}")
-
-    root = Path(index_path).parent
-    file_path = root / skills[name]["file"]
-
-    if not file_path.exists():
-        raise FileNotFoundError(
-            f"Skill file '{skills[name]['file']}' not found (resolved to {file_path})"
-        )
-
-    content = file_path.read_text(encoding="utf-8")
-    # Strip the "# Skill: ..." metadata header if present
-    lines = content.split("\n", 1)
-    if lines[0].startswith("# Skill:"):
-        content = lines[1].lstrip("\n") if len(lines) > 1 else ""
-    return content
-
-
-def load_skills_for(target: str, *, index_path: str = _DEFAULT_INDEX) -> dict[str, str]:
-    """Return {name: content} for all skills whose inject_into includes target.
-
-    Returns an empty dict if no skills match (not an error).
-    """
-    skills = _parse_index(index_path)
-    root = Path(index_path).parent
-    result = {}
-    for name, entry in skills.items():
-        if target in entry.get("inject_into", []):
-            file_path = root / entry["file"]
-            if not file_path.exists():
-                raise FileNotFoundError(
-                    f"Skill file '{entry['file']}' not found (resolved to {file_path})"
-                )
-            content = file_path.read_text(encoding="utf-8")
-            # Strip the "# Skill: ..." metadata header if present
-            lines = content.split("\n", 1)
-            if lines[0].startswith("# Skill:"):
-                content = lines[1].lstrip("\n") if len(lines) > 1 else ""
-            result[name] = content
-    return result
-
-
-# ── New API (Phase 1) ────────────────────────────────────────────────────────
-
-import logging as _logging
 
 _log = _logging.getLogger(__name__)
 _SKILLS_DIR = _Path(__file__).parents[3] / "skills"
@@ -166,7 +61,7 @@ def _parse_frontmatter(path: Path) -> dict:
     }
 
 
-def _build_registry_new() -> dict[str, dict]:
+def _build_registry() -> dict[str, dict]:
     """Scan skills/ subdirectories and build {name: entry} registry."""
     registry: dict[str, dict] = {}
     for subdir in ("roles", "knowledge", "rules"):
@@ -184,39 +79,13 @@ def _build_registry_new() -> dict[str, dict]:
     return registry
 
 
-def _build_registry_legacy() -> dict[str, dict]:
-    """Bridge: build registry from old-format docs_SKILL.md."""
-    index_path = str(_SKILLS_DIR / "docs_SKILL.md")
-    index = _parse_index(index_path)
-    root = _SKILLS_DIR
-    registry: dict[str, dict] = {}
-    for name, entry in index.items():
-        file_path = root / entry["file"]
-        content = file_path.read_text(encoding="utf-8")
-        lines = content.split("\n", 1)
-        if lines[0].startswith("# Skill:"):
-            content = lines[1].lstrip("\n") if len(lines) > 1 else ""
-        registry[name] = {
-            "name": name,
-            "description": "",
-            "inject_into": entry.get("inject_into", []),
-            "content": content,
-            "group": 1,  # default: knowledge group
-            "path": str(file_path),
-        }
-    return registry
-
-
 def _get_registry(*, _override: dict | None = None) -> dict[str, dict]:
     """Return the skill registry, building on first call."""
     if _override is not None:
         return _override
     global _registry
     if _registry is None:
-        if (_SKILLS_DIR / "roles").is_dir():
-            _registry = _build_registry_new()
-        else:
-            _registry = _build_registry_legacy()
+        _registry = _build_registry()
     return _registry
 
 
@@ -224,6 +93,30 @@ def _clear_cache() -> None:
     """Reset module-level registry cache. Call in test teardown."""
     global _registry
     _registry = None
+
+
+def load_skill(name: str, *, _registry_override: dict | None = None) -> str:
+    """Load single skill by name. Raises KeyError if not found."""
+    reg = _get_registry(_override=_registry_override)
+    if name not in reg:
+        raise KeyError(f"Skill '{name}' not found in registry")
+    return reg[name]["content"]
+
+
+def load_skills_for(
+    target: str,
+    *,
+    exclude: list[str] | None = None,
+    _registry_override: dict | None = None,
+) -> dict[str, str]:
+    """Return {name: content} for all skills matching target."""
+    reg = _get_registry(_override=_registry_override)
+    exclude_set = set(exclude) if exclude else set()
+    return {
+        name: entry["content"]
+        for name, entry in reg.items()
+        if target in entry["inject_into"] and name not in exclude_set
+    }
 
 
 def combine_skills(
@@ -234,7 +127,7 @@ def combine_skills(
 ) -> str:
     """Concatenate all skills matching target into a single string.
 
-    Order: role (group 0) → knowledge (group 1) → rules (group 2).
+    Order: role (group 0) -> knowledge (group 1) -> rules (group 2).
     Within each group, sorted alphabetically by name.
     Separator: ``=== SKILL: {name} ===\\n`` prefix per block.
     """
@@ -248,7 +141,7 @@ def combine_skills(
 
     if not matches:
         _log.warning(
-            "combine_skills(%r) matched 0 skills — possible typo in target name",
+            "combine_skills(%r) matched 0 skills -- possible typo in target name",
             target,
         )
         return ""
