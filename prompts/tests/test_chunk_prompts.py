@@ -6,7 +6,7 @@ Run: python test_chunk_prompts.py
 import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
-from prompts.chunked import build_chunk_prompt, build_merge_prompt, _FUNCTION_FORMAT_SPEC
+from prompts.chunked import build_chunk_prompt, build_merge_prompt
 from prompts.pre_synthesis import PreSynthesisResult
 
 passed = 0
@@ -70,22 +70,6 @@ check("chunk prompt: extraction rule mentions require()",
      "require not mentioned in extraction rules")
 
 
-# -- _FUNCTION_FORMAT_SPEC --
-print("\n-- _FUNCTION_FORMAT_SPEC --")
-
-check("format spec: 'External dependencies' bullet present",
-     "External dependencies" in _FUNCTION_FORMAT_SPEC,
-     "External dependencies section missing from format spec")
-
-check("format spec: still has 'Components used'",
-     "Components used" in _FUNCTION_FORMAT_SPEC,
-     "Components used section missing")
-
-check("format spec: still has 'Tags'",
-     "Tags" in _FUNCTION_FORMAT_SPEC,
-     "Tags section missing")
-
-
 # -- build_merge_prompt --
 print("\n-- build_merge_prompt() --")
 
@@ -96,6 +80,21 @@ merge_prompt = build_merge_prompt(
     today_date="2026-03-14", version="714014",
     category_type="root",
 )
+
+# -- format spec included via skills --
+print("\n-- format spec in merge prompt --")
+
+check("merge prompt: 'External dependencies' present via skills",
+     "External dependencies" in merge_prompt,
+     "External dependencies section missing from skills injection")
+
+check("merge prompt: 'Components used' present via skills",
+     "Components used" in merge_prompt,
+     "Components used section missing from skills injection")
+
+check("merge prompt: 'Tags' label present via skills",
+     "Tags" in merge_prompt,
+     "Tags section missing from skills injection")
 
 check("merge prompt: old 'copy them exactly' instruction removed",
      "Copy them exactly" not in merge_prompt,
