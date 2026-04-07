@@ -10,13 +10,23 @@ import argparse
 import json
 import signal
 import sys
+import time
 from pathlib import Path
 
 from core.changelog.prompts import build_changelog_prompt
 from core.utils import shutdown
 from llm.client import ollama_chat
 from llm.paths import DATA_DIR, PROJECT_ROOT
-from llm.settings import MODEL_UPDATE
+from llm.settings import DEBUG_PROMPTS, MODEL_UPDATE
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_debug(label: str, content: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = _DEBUG_DIR / f"{label}_{int(time.time())}.txt"
+    path.write_text(content, encoding="utf-8")
+    print(f"  [debug] {label} → {path.name}")
 from validator.format.autofix import autofix_file, get_mdx_errors
 
 CHANGELOG_PATH: Path = PROJECT_ROOT / "dst-api-webdocs" / "change-log.md"
@@ -70,6 +80,9 @@ def build_changelog_entry(report: dict) -> str | None:
         changes=changes,
     )
 
+    if DEBUG_PROMPTS:
+        _dump_debug("changelog_prompt", prompt)
+
     try:
         response = ollama_chat(
             MODEL_UPDATE,
@@ -81,6 +94,8 @@ def build_changelog_entry(report: dict) -> str | None:
         return None
 
     content = response["message"]["content"].strip()
+    if DEBUG_PROMPTS:
+        _dump_debug("changelog_response", content)
     if not content:
         print("[Changelog] Cảnh báo: LLM trả về empty response.")
         return None

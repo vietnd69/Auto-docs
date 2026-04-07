@@ -446,7 +446,7 @@ class _TeeWriter:
 
 
 def main():
-    logs_dir = Path(DATA_DIR) / "logs"
+    logs_dir = PROJECT_ROOT / ".cache" / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_filename = datetime.now().strftime("update_%Y-%m-%d_%H-%M-%S.log")
     log_path = str(logs_dir / log_filename)
