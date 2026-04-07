@@ -40,8 +40,11 @@ inst.components.samplecomp:Activate()
 ```
 
 ## Dependencies & tags
-**Components used:** `combat`
-**Tags:** Adds `buffed`; checks `debuffed`.
+**Components used:**
+- `combat` -- modifies outgoing damage via buff multiplier
+**Tags:**
+- `buffed` -- added on Activate(), removed on expiry
+- `debuffed` -- checked before applying buff
 
 ## Properties
 | Property | Type | Default Value | Description |

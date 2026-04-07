@@ -1,7 +1,7 @@
 ---
 name: few_shot_data
 description: Data config file few-shot example — expected output format for data configuration documentation
-inject_into: [analyst, analyst_merge]
+inject_into: [analyst, analyst_chunk, analyst_merge]
 ---
 
 ## Few-Shot Example: Data Config File
