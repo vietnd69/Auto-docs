@@ -7,7 +7,7 @@ from pathlib import Path
 import core.config as config
 from core.utils import shutdown
 from llm.settings import MODEL_MAIN as MODEL_NAME
-from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR, DATA_DIR
+from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR, PROJECT_ROOT
 from rag.content import extract_connected_content
 from rag.docs import (
     extract_lua_references,
@@ -51,8 +51,8 @@ class _TeeWriter:
 
 
 def main():
-    # === SESSION LOG — mirror all stdout to data/logs/run_<timestamp>.log ===
-    logs_dir = Path(DATA_DIR) / "logs"
+    # === SESSION LOG — mirror all stdout to .cache/logs/run_<timestamp>.log ===
+    logs_dir = PROJECT_ROOT / ".cache" / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_filename = datetime.now().strftime("run_%Y-%m-%d_%H-%M-%S.log")
     log_path = str(logs_dir / log_filename)

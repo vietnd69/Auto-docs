@@ -1,7 +1,19 @@
 import os
 import time
+from pathlib import Path
 from llm import client as config
+from llm.paths import PROJECT_ROOT
+from llm.settings import DEBUG_PROMPTS
 from rag.docs import clean_model_output, inject_frontmatter_field
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_debug(label: str, content: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = _DEBUG_DIR / f"{label}_{int(time.time())}.txt"
+    path.write_text(content, encoding="utf-8")
+    print(f"  [debug] {label} → {path.name}")
 
 
 def generate_doc(
@@ -35,12 +47,17 @@ def generate_doc(
             if attempt > 1:
                 print(f"  [Retry {attempt}/{max_retries}] {md_filename}...")
 
+            if DEBUG_PROMPTS:
+                _dump_debug(f"standard_prompt_{md_filename}", prompt)
+
             response = config.ollama_chat(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
             )
 
             md_content = response["message"]["content"]
+            if DEBUG_PROMPTS:
+                _dump_debug(f"standard_response_{md_filename}", md_content)
 
             # Làm sạch output (thinking block + code fence)
             md_content = clean_model_output(md_content)

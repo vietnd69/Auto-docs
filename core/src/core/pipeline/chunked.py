@@ -18,9 +18,20 @@ import time
 import json
 from pathlib import Path
 from llm import client as config
+from llm.paths import PROJECT_ROOT
+from llm.settings import DEBUG_PROMPTS
 from core.utils import shutdown
 
 from core.config import CHECKPOINT_DIR
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_debug(label: str, content: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = _DEBUG_DIR / f"{label}_{int(time.time())}.txt"
+    path.write_text(content, encoding="utf-8")
+    print(f"  [debug] {label} → {path.name}")
 
 
 def _detect_context_mode(content: str) -> str:
@@ -211,12 +222,17 @@ def generate_chunk_analysis(
     try:
         print(f"    [{label} {chunk_index}/{total_chunks}] Đang xử lý...")
 
+        if DEBUG_PROMPTS:
+            _dump_debug(f"chunk_{label.lower()}{chunk_index}_prompt", prompt)
+
         response = config.ollama_chat(
             model=model_name,
             messages=[{"role": "user", "content": prompt}],
         )
 
         result = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_debug(f"chunk_{label.lower()}{chunk_index}_response", result)
         result = clean_model_output(result)
 
         if not result:
@@ -270,12 +286,17 @@ def generate_merged_doc(
             else:
                 print(f"    [Merge retry {attempt}/{max_retries}] Đang thử lại...")
 
+            if DEBUG_PROMPTS and attempt == 1:
+                _dump_debug(f"merge_prompt_{md_filename}", prompt)
+
             response = config.ollama_chat(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
             )
 
             md_content = response["message"]["content"]
+            if DEBUG_PROMPTS:
+                _dump_debug(f"merge_response_{md_filename}", md_content)
             md_content = clean_model_output(md_content)
 
             # Guard: model trả về rỗng (chỉ có thinking block hoặc lỗi)
