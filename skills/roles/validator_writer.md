@@ -6,7 +6,36 @@ inject_into: [writer_full, writer_typed]
 
 # Validator Writer
 
-## Format Rules
+## Input Contract
+
+The writer receives a reviewer response. Before generating any patches:
+
+1. **If `approved: true` AND `need_special_case: false`** → Output an empty patch list `[]`. Do NOT generate any patches.
+2. **If `approved: true` AND `need_special_case: true`** → Output an empty patch list `[]`. Do NOT patch the disputed section — wait for jury resolution before any changes.
+3. **If `approved: false`** → Generate patches for each entry in `findings` only. Do NOT patch sections not mentioned in findings.
+4. **If `need_special_case: true` AND `approved: false`** → Generate patches for each entry in `findings` only. Do NOT patch sections not mentioned in findings.
+
+## Patch Output Schema
+
+Output a JSON array of patch objects. Each patch MUST have exactly these fields:
+```json
+[
+  {
+    "old_text": "exact substring to find in the document (unique match)",
+    "new_text": "replacement text",
+    "reason": "one sentence explaining what is being fixed"
+  }
+]
+```
+- `old_text`: must match EXACTLY ONE location in the document (see Patch old_text Rules below)
+- `new_text`: the corrected replacement; must preserve all surrounding structure not being changed
+- `reason`: cites the reviewer finding it addresses
+
+## Patch Ordering Rule
+
+Patches MUST be ordered top-to-bottom by their position in the document.
+The first patch targets the earliest-appearing text; the last patch targets the latest.
+This ensures sequential application does not corrupt earlier anchors.
 
 - NEVER rename or reformat ### headings (lines starting with "### `")
 - NEVER change "* **Description:**", "* **Parameters:**",
@@ -20,8 +49,9 @@ inject_into: [writer_full, writer_typed]
 - NEVER convert bullet lists to numbered lists or tables
 - Do NOT add or remove ### function entries UNLESS reviewer feedback explicitly says
   a function is missing or should be removed
-- When adding a missing function entry, use the last line of the preceding ### block
-  as old_text anchor, then append the new entry after it
+- When adding a missing function entry:
+  - If there is a preceding ### block: use the last line of that block as old_text anchor, then append the new entry after it.
+  - If the function should be the FIRST entry in the section (no preceding ### block): use the section heading line (e.g. `## Main functions`) as the old_text anchor and insert the new entry immediately after it.
 - ONLY modify the TEXT CONTENT within the existing structure (unless adding/removing
   is explicitly required by reviewer feedback)
 
