@@ -10,8 +10,13 @@ Check CONTENT ACCURACY ONLY:
 1. Function signatures and params match Lua source exactly — no hallucinated names/types
 2. Descriptions are accurate (not vague/wrong about what the function actually does)
 3. Usage example uses real function names and correct call patterns
-4. Section contains required content (see requirements below)
-5. No invented properties, events, or dependencies not present in Lua source
+4. All required sections are present — flag as a finding if any required section is missing entirely
+5. Section contains required content (see requirements below)
+6. No invented properties, events, or dependencies not present in Lua source
+
+MISSING SECTION RULE: If a required section (## Overview, ## Usage example, ## Dependencies & tags,
+## Properties, ## Main functions) is completely absent from the document, flag it as a finding:
+{"issue": "Required section '## X' is missing entirely.", "suggestion": "Add the missing section following the standard format."}
 
 Do NOT flag formatting, bullet style, or structural notation issues — only flag content errors (wrong/missing/hallucinated information).
 
@@ -39,9 +44,12 @@ Do NOT flag a require path as wrong solely because it differs from the class nam
 ## Section: Dependencies & tags
 
 Must contain EXACTLY these labels (in order):
-**External dependencies:** — list each `name` -- usage, or omit if none
-**Components used:** — list each `component_name` -- methods/properties accessed
-**Tags:** — list each `tag_name` -- add/remove/check, or 'None' if no game tags
+**External dependencies:** — list each `name` -- usage. Omit this label entirely if there are no external dependencies.
+**Components used:** — list each `component_name` -- methods/properties accessed. Write `None identified` if none.
+**Tags:** — list each `tag_name` -- add/remove/check. Write `None` if no game tags.
+
+NOTE: "EXACTLY these labels" means the two mandatory labels (**Components used:** and **Tags:**) must
+always be present. **External dependencies:** is the only label that may be omitted when empty.
 
 ## Section: Properties
 
@@ -114,7 +122,7 @@ Only these 4 combinations are valid:
 
 2. Content accurate, section name dispute:
    {"approved": true, "need_special_case": true,
-    "special_case_standard_heading": "## Main functions",
+    "special_case_standard_heading": "## Main functions",  // example only — use the actual disputed heading
     "special_case_reason": "...", "findings": []}
 
 3. Content issues only (no section dispute):
@@ -122,7 +130,7 @@ Only these 4 combinations are valid:
 
 4. Content issues AND section name dispute:
    {"approved": false, "need_special_case": true,
-    "special_case_standard_heading": "## Main functions",
+    "special_case_standard_heading": "## Main functions",  // example only — use the actual disputed heading
     "special_case_reason": "...", "findings": [{"issue": "...", "suggestion": "..."}]}
 
 INVARIANT: approved=false requires findings to be non-empty. NEVER return approved=false with findings=[].
