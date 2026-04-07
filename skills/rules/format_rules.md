@@ -1,7 +1,7 @@
 ---
 name: format_rules
 description: MDX compatibility, section order, YAML frontmatter, heading rules for generated documentation
-inject_into: [analyst, analyst_merge, analyst_merge_legacy]
+inject_into: [analyst, analyst_chunk, analyst_merge, analyst_merge_legacy]
 ---
 
 # Format Rules

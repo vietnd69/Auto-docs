@@ -1,7 +1,7 @@
 ---
 name: writing_guide
 description: How to write each documentation section — overview, usage examples, constructor rule, section-specific guidance
-inject_into: [analyst, analyst_merge, analyst_merge_legacy]
+inject_into: [analyst, analyst_chunk, analyst_merge, analyst_merge_legacy]
 ---
 
 # Writing Guide
@@ -30,6 +30,8 @@ inject_into: [analyst, analyst_merge, analyst_merge_legacy]
 
 ## Dependencies & Tags Section
 
+Use EXACTLY these labels (see function_format skill for full format spec):
+- **External dependencies:** List `require()` imports and external module usage. Omit this label entirely if there are none.
 - **Components used:** List components accessed via `inst.components.X` or added via `inst:AddComponent("X")`.
 - **Tags:** List any tags this component adds, removes, or checks (e.g., `inst:AddTag("tag")`).
 - If none are apparent, write "None identified."
@@ -38,7 +40,7 @@ inject_into: [analyst, analyst_merge, analyst_merge_legacy]
 
 - Create a Markdown table of key public variables/properties initialized in the constructor.
 - Columns: `Property` | `Type` (infer if possible) | `Default Value` | `Description`.
-- If no suitable properties, write "No public properties" instead of inventing content.
+- If no properties exist, the table MUST include a None data row: `| None | | | No properties are defined. |` — do NOT write "No public properties" as prose.
 
 ## Main Functions Section
 
