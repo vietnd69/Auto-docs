@@ -1,60 +1,18 @@
-=== Update: 714014 -> 718694 ===
-Date: 2026-03-23 18:53
+=== Update: 718694 -> 719586 ===
+Date: 2026-04-11 01:31
 
-[ADDED] 2 files:
-  - prefabs/w_radio.lua
-  - stategraphs/SGcritter_bulbin.lua
+[ADDED] 0 files:
+  (none)
 
-[MODIFIED] 49 files:
-  - brains/crittersbrain.lua (+2 lines, -0 lines)
-  - strings.lua (+6 lines, -0 lines)
-  - languages/chinese_t.po (+339 lines, -4 lines)
-  - speech_waxwell.lua (+3 lines, -0 lines)
-  - widgets/redux/craftingmenu_pinslot.lua (+22 lines, -0 lines)
-  - recipes.lua (+26 lines, -0 lines)
-  - util/sourcemodifierlist.lua (+3 lines, -3 lines)
-  - speech_walter.lua (+3 lines, -0 lines)
-  - speech_wolfgang.lua (+3 lines, -0 lines)
-  - languages/chinese_s.po (+339 lines, -4 lines)
-  - speech_wickerbottom.lua (+3 lines, -0 lines)
-  - speech_willow.lua (+3 lines, -0 lines)
-  - speech_wortox.lua (+3 lines, -0 lines)
-  - speech_wathgrithr.lua (+3 lines, -0 lines)
-  - prefabskins.lua (+22 lines, -0 lines)
-  - widgets/redux/craftingmenu_widget.lua (+1 lines, -0 lines)
-  - prefabs/hermitcrab.lua (+3 lines, -3 lines)
-  - speech_wendy.lua (+3 lines, -0 lines)
-  - speech_wormwood.lua (+3 lines, -0 lines)
-  - speech_warly.lua (+3 lines, -0 lines)
-  - misc_items.lua (+23 lines, -0 lines)
-  - prefabs/skinprefabs.lua (+102 lines, -0 lines)
-  - prefablist.lua (+1 lines, -0 lines)
-  - item_blacklist.lua (+8 lines, -0 lines)
-  - networkclientrpc.lua (+1 lines, -2 lines)
-  - skins_defs_data.lua (+28 lines, -3 lines)
-  - components/builder.lua (+37 lines, -5 lines)
-  - stategraphs/SGcritter_common.lua (+14 lines, -10 lines)
-  - skin_gifts.lua (+11 lines, -0 lines)
-  - speech_webber.lua (+3 lines, -0 lines)
-  - components/builder_replica.lua (+20 lines, -5 lines)
-  - mathutil.lua (+4 lines, -14 lines)
-  - widgets/redux/craftingmenu_hud.lua (+21 lines, -4 lines)
-  - speech_wurt.lua (+3 lines, -0 lines)
-  - prefabs/critters.lua (+30 lines, -7 lines)
-  - prefabskin.lua (+24 lines, -0 lines)
-  - languages/strings.pot (+335 lines, -0 lines)
-  - prefabs/reskin_tool.lua (+1 lines, -0 lines)
-  - recipes_filter.lua (+2 lines, -0 lines)
-  - skin_assets.lua (+24 lines, -0 lines)
-  - skin_strings.lua (+28 lines, -0 lines)
-  - speech_woodie.lua (+3 lines, -0 lines)
-  - speech_wx78.lua (+3 lines, -0 lines)
-  - components/upgrademoduleowner.lua (+8 lines, -6 lines)
-  - constants.lua (+5 lines, -0 lines)
-  - recipe.lua (+7 lines, -1 lines)
-  - speech_winona.lua (+3 lines, -0 lines)
-  - speech_wilson.lua (+3 lines, -0 lines)
-  - speech_wanda.lua (+3 lines, -0 lines)
+[MODIFIED] 8 files:
+  - prefabskins.lua (+1 lines, -0 lines)
+  - skins_defs_data.lua (+7 lines, -3 lines)
+  - prefabs/skinprefabs.lua (+11 lines, -0 lines)
+  - languages/chinese_s.po (+10 lines, -0 lines)
+  - skin_strings.lua (+2 lines, -0 lines)
+  - languages/chinese_t.po (+10 lines, -0 lines)
+  - languages/strings.pot (+10 lines, -0 lines)
+  - skin_assets.lua (+2 lines, -0 lines)
 
 [DELETED] 0 files:
   (none)
@@ -62,4 +20,4 @@ Date: 2026-03-23 18:53
 [MOVED] 0 files:
   (none)
 
-Total: 51 changes
+Total: 8 changes
