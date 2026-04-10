@@ -543,6 +543,7 @@ def process_chunked_file(
     chunk_sleep: int = 10,
     merge_sleep: int = 20,
     sidebar_position: int = 10,
+    fresh_start: bool = False,
 ) -> str | None:
     """
     Pipeline đầy đủ cho file Lua dài với Checkpoint và Hierarchical Merge.
@@ -551,6 +552,7 @@ def process_chunked_file(
         full_refs: Refs của toàn bộ file Lua, dùng làm fallback trong
                    extract_connected_for_chunk() cho các chunk không có local refs.
                    Nếu None: smart fallback không hoạt động (graceful degrade).
+        fresh_start: Nếu True, xóa checkpoint cũ trước khi chạy (không resume).
     """
     # Bước 1: Strip dữ liệu số hàng loạt (tile data)
     stripped_code = strip_bulk_data(lua_code)
@@ -584,6 +586,9 @@ def process_chunked_file(
     print(f"  [CHUNKED] Chia thành {total_chunks} chunks")
 
     # ── CHECKPOINT RESUME ──
+    if fresh_start:
+        clear_checkpoint(comp_name)
+        clear_merge_checkpoint(comp_name)
     resume = load_checkpoint(comp_name)
     if resume:
         chunk_results, resume_from, pending_retries = resume
