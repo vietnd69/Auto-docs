@@ -38,6 +38,7 @@ MODEL_JURY: str     = _get("model", "jury",     "qwen3.5:cloud")
 
 # === Tokens ===
 PROMPT_TOKEN_LIMIT: int      = _get("tokens", "prompt_limit",     16000)
+CHUNK_PROMPT_TOKEN_LIMIT: int = _get("tokens", "chunk_prompt_limit", 20000)  # per-chunk budget (larger than trigger)
 MERGE_TOKEN_LIMIT: int       = _get("tokens", "merge_limit",      20000)
 CONTEXT_RESERVE: int         = _get("tokens", "context_reserve",  7000)
 STUB_FULL_THRESHOLD: int     = _get("tokens", "stub_threshold",   400)
