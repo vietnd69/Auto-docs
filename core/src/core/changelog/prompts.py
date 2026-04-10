@@ -55,9 +55,21 @@ OUTPUT FORMAT:
 
 <Closing paragraph summarizing the overall impact — length proportional to the scope of changes>
 
+### Added
+- <file path>   (omit this section entirely if no files were added)
+
+### Modified
+- <file path>   (omit this section entirely if no files were modified)
+
+### Deleted
+- <file path>   (omit this section entirely if no files were deleted)
+
+### Moved
+- <old path> → <new path>   (omit this section entirely if no files were moved)
+
 RULES:
 - Subject: imperative mood, no period
 - Bullets: start with a verb, be specific about what changed and why it matters
-- Do not list every file — focus on patterns and themes
 - Do not speculate beyond what file names and diff stats suggest
+- File lists must be complete — include every file from CHANGED FILES above
 """
