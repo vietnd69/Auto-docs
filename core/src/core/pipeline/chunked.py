@@ -82,6 +82,7 @@ from core.pipeline.chunking import (
     MERGE_TOKEN_LIMIT,
     CONTEXT_RESERVE,
 )
+from llm.settings import CHUNK_PROMPT_TOKEN_LIMIT
 from prompts.chunked import (
     build_chunk_prompt,
     build_merge_prompt,
@@ -563,6 +564,8 @@ def process_chunked_file(
         print(f"  [STRIP] Đã loại bỏ {saved:,} ký tự tile/map data ({saved*100//original_chars}% file)")
 
     # Bước 2: Tính token budget động (không có connected — CONTEXT_RESERVE trừ bên trong)
+    # Dùng CHUNK_PROMPT_TOKEN_LIMIT thay vì PROMPT_TOKEN_LIMIT để per-chunk budget đủ lớn.
+    # PROMPT_TOKEN_LIMIT chỉ dùng để trigger chunking, không phải giới hạn kích thước chunk.
     token_budget = calc_token_budget(
         comp_name=comp_name,
         comp_title=comp_title,
@@ -574,6 +577,7 @@ def process_chunked_file(
         today_date=today_date,
         version=version,
         category_type=category_type,
+        prompt_token_limit=CHUNK_PROMPT_TOKEN_LIMIT,
     )
 
     # Bước 3: Chia chunks theo token budget
