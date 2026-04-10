@@ -372,6 +372,7 @@ def _render_file(
                 model_name=MODEL_NAME,
                 chunk_sleep=10,
                 merge_sleep=20,
+                fresh_start=True,
             )
         else:
             result = generate_doc(
