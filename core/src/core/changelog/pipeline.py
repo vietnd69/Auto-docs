@@ -17,7 +17,7 @@ from core.changelog.prompts import build_changelog_prompt
 from core.utils import shutdown
 from llm.client import ollama_chat
 from llm.paths import DATA_DIR, PROJECT_ROOT
-from llm.settings import DEBUG_PROMPTS, MODEL_UPDATE
+from llm.settings import DEBUG_PROMPTS, MODEL_UPDATE, BAD_RESPONSE_RETRIES
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -83,21 +83,31 @@ def build_changelog_entry(report: dict) -> str | None:
     if DEBUG_PROMPTS:
         _dump_debug("changelog_prompt", prompt)
 
-    try:
-        response = ollama_chat(
-            MODEL_UPDATE,
-            [{"role": "user", "content": prompt}],
-            think=False,
-        )
-    except Exception as e:
-        print(f"[Changelog] Cảnh báo: LLM call thất bại — {e}")
-        return None
+    messages = [{"role": "user", "content": prompt}]
+    content = ""
+    for attempt in range(1, BAD_RESPONSE_RETRIES + 2):
+        try:
+            response = ollama_chat(MODEL_UPDATE, messages, think=False)
+        except Exception as e:
+            remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+            if remaining > 0:
+                print(f"[Changelog] LLM call thất bại — {e} → retry ({remaining} left)")
+                continue
+            print(f"[Changelog] LLM call thất bại sau {attempt} lần — {e}")
+            return None
 
-    content = response["message"]["content"].strip()
-    if DEBUG_PROMPTS:
-        _dump_debug("changelog_response", content)
+        content = response["message"]["content"].strip()
+        if DEBUG_PROMPTS:
+            _dump_debug("changelog_response", content)
+        if content:
+            break
+        remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+        if remaining > 0:
+            print(f"[Changelog] LLM trả về empty response → retry ({remaining} left)")
+        else:
+            print(f"[Changelog] LLM trả về empty response sau {attempt} lần — giving up")
+
     if not content:
-        print("[Changelog] Cảnh báo: LLM trả về empty response.")
         return None
     return content
 
