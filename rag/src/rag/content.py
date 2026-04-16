@@ -12,6 +12,7 @@ from pathlib import Path
 
 from llm.client import ollama_chat, COMPRESSION_MODEL
 from llm.paths import BASE_LUA_DIR, COMPRESSION_CACHE_DIR
+from llm.settings import BAD_RESPONSE_RETRIES
 from llm.tokens import count_tokens, STUB_FULL_THRESHOLD
 from rag.docs import extract_lua_references, format_connected_section, clean_model_output
 
@@ -378,30 +379,39 @@ RULES:
 SOURCE:
 {full_content}"""
 
-    try:
-        response = ollama_chat(
-            model=_model,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        result = response["message"]["content"]
-        result = clean_model_output(result)
+    messages = [{"role": "user", "content": prompt}]
+    for attempt in range(1, BAD_RESPONSE_RETRIES + 2):
+        try:
+            response = ollama_chat(model=_model, messages=messages)
+        except Exception as e:
+            remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+            if remaining > 0:
+                print(f"  [COMPRESS] LLM call thất bại: {e} → retry ({remaining} left)")
+                continue
+            print(f"  [COMPRESS] LLM call thất bại sau {attempt} lần: {e}")
+            return None
 
+        result = clean_model_output(response["message"]["content"])
         if not result:
-            print("  [COMPRESS] Model trả về rỗng sau khi clean")
+            remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+            if remaining > 0:
+                print(f"  [COMPRESS] Model trả về rỗng → retry ({remaining} left)")
+                continue
+            print("  [COMPRESS] Model trả về rỗng sau nhiều lần thử")
             return None
 
-        # Sanity check: output phải chứa ít nhất 1 COMPRESSED marker
         if "-- COMPRESSED:" not in result:
-            print("  [COMPRESS] Output không đúng format, fallback về signatures")
+            remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+            if remaining > 0:
+                print(f"  [COMPRESS] Output không đúng format → retry ({remaining} left)")
+                continue
+            print("  [COMPRESS] Output không đúng format sau nhiều lần thử, fallback về signatures")
             return None
 
-        # Lưu cache trước khi trả về
         _save_compression_cache(cache_key, result)
         return result
 
-    except Exception as e:
-        print(f"  [COMPRESS] LLM call thất bại: {e}")
-        return None
+    return None
 
 
 def _compress_module_stub(lua_code: str, ref_path: str) -> str | None:

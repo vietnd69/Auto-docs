@@ -172,22 +172,27 @@ def rewrite_document(
         {"role": "user", "content": user_content},
     ]
     raw = ""
+    patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
         response = ollama_chat(model=model, messages=messages)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_response", raw)
-        if raw.strip():
-            break
         remaining = BAD_RESPONSE_RETRIES - attempt
-        if remaining > 0:
-            print(f"  [content/writer] Empty response → retrying ({remaining} left)")
-        else:
+        if not raw.strip():
+            if remaining > 0:
+                print(f"  [content/writer] Empty response → retrying ({remaining} left)")
+                continue
             print(f"  [content/writer] Empty response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
+            break
+        patches = parse_writer_response(raw)
+        if patches:
+            break
+        if remaining > 0:
+            print(f"  [content/writer] No patches parsed → retrying ({remaining} left) — raw: {raw[:80]!r}")
+        else:
+            print(f"  [content/writer] No patches parsed after {BAD_RESPONSE_RETRIES + 1} attempts — raw: {raw[:120]!r}")
 
-    patches = parse_writer_response(raw)
-    if not patches:
-        print(f"  [content/writer] No patches parsed — raw response truncated: {raw[:120]!r}")
-    else:
+    if patches:
         print(f"  [content/writer] {len(patches)} patch(es) generated")
     return patches

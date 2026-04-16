@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from llm import client as config
 from llm.paths import PROJECT_ROOT
-from llm.settings import DEBUG_PROMPTS
+from llm.settings import DEBUG_PROMPTS, BAD_RESPONSE_RETRIES
 from core.utils import shutdown
 
 from core.config import CHECKPOINT_DIR
@@ -220,38 +220,48 @@ def generate_chunk_analysis(
         sleep_time: Nghỉ giữa các lần gọi (giây).
         label: Nhãn hiển thị ("Chunk", "Group", "Rolling").
     """
-    try:
-        print(f"    [{label} {chunk_index}/{total_chunks}] Đang xử lý...")
+    print(f"    [{label} {chunk_index}/{total_chunks}] Đang xử lý...")
 
-        if DEBUG_PROMPTS:
-            _dump_debug(f"chunk_{label.lower()}{chunk_index}_prompt", prompt)
+    if DEBUG_PROMPTS:
+        _dump_debug(f"chunk_{label.lower()}{chunk_index}_prompt", prompt)
 
-        response = config.ollama_chat(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-        )
+    for attempt in range(1, BAD_RESPONSE_RETRIES + 2):
+        try:
+            response = config.ollama_chat(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            result = response["message"]["content"]
+            if DEBUG_PROMPTS:
+                _dump_debug(f"chunk_{label.lower()}{chunk_index}_response", result)
+            result = clean_model_output(result)
 
-        result = response["message"]["content"]
-        if DEBUG_PROMPTS:
-            _dump_debug(f"chunk_{label.lower()}{chunk_index}_response", result)
-        result = clean_model_output(result)
+            if not result:
+                remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+                if remaining > 0:
+                    print(f"    [{label} {chunk_index}/{total_chunks}] Model trả về rỗng → retry ({remaining} left)")
+                    continue
+                print(f"    [{label} {chunk_index}/{total_chunks}] Thất bại — model trả về rỗng sau {attempt} lần")
+                return None
 
-        if not result:
-            print(f"    [{label} {chunk_index}/{total_chunks}] Thất bại — model trả về rỗng")
-            return None
+            lines_count = result.count("\n") + 1
+            print(f"    [{label} {chunk_index}/{total_chunks}] Xong — {lines_count} dòng kết quả")
 
-        lines_count = result.count("\n") + 1
-        print(f"    [{label} {chunk_index}/{total_chunks}] Xong — {lines_count} dòng kết quả")
+            if sleep_time > 0 and not shutdown.stop_requested:
+                print(f"    Đang nghỉ {sleep_time} giây...")
+                shutdown.interruptible_sleep(sleep_time)
 
-        if sleep_time > 0 and not shutdown.stop_requested:
-            print(f"    Đang nghỉ {sleep_time} giây...")
-            shutdown.interruptible_sleep(sleep_time)
+            return result
 
-        return result
+        except Exception as e:
+            remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+            if remaining > 0:
+                print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} → retry ({remaining} left)")
+            else:
+                print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} — giving up")
+                return None
 
-    except Exception as e:
-        print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e}")
-        return None
+    return None
 
 
 def generate_merged_doc(
