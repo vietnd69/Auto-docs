@@ -157,8 +157,12 @@ def rewrite_document(
     connected_content: str,
     review_feedback: ReviewResult,
     model: str,
-) -> list[Patch]:
-    """Ask LLM1 to generate patches based on reviewer feedback."""
+) -> tuple[list[Patch], str]:
+    """Ask LLM1 to generate patches based on reviewer feedback.
+
+    Returns (patches, raw_response). raw_response is needed by callers that
+    want to do a multi-turn correction when patches fail to apply.
+    """
     system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
@@ -195,4 +199,92 @@ def rewrite_document(
 
     if patches:
         print(f"  [content/writer] {len(patches)} patch(es) generated")
+    return patches, raw
+
+
+def _build_assistant_rejection_turn(
+    previous_raw: str,
+    failed_patches: list[Patch],
+    failure_reasons: list[str],
+) -> str:
+    """Build the assistant-role message for the correction turn.
+
+    Frames the previous response alongside the system rejection result so the LLM
+    understands — from its own perspective — why each patch was invalid before
+    receiving the follow-up correction request.
+    """
+    rejection_lines = "\n".join(
+        f"  {i + 1}. [{p.reason!r}] — {reason}\n"
+        f"     old_text I sent: {p.old_text[:200]!r}"
+        for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons))
+    )
+    return (
+        f"I submitted the following patches:\n\n"
+        f"{previous_raw}\n\n"
+        f"[SYSTEM VALIDATION: REJECTED]\n"
+        f"{len(failed_patches)} patch(es) could not be applied:\n\n"
+        f"{rejection_lines}\n\n"
+        f"My old_text values did not match the document verbatim. "
+        f"I will re-read the document carefully and resubmit with exact text:\n\n"
+    )
+
+
+def correct_failed_patches(
+    md_content: str,
+    lua_source: str,
+    connected_content: str,
+    review_feedback: ReviewResult,
+    failed_patches: list[Patch],
+    failure_reasons: list[str],
+    previous_raw: str,
+    model: str,
+) -> list[Patch]:
+    """Multi-turn correction: replay failed patches with system rejection context.
+
+    The assistant turn includes both the previous (invalid) patches AND the system
+    rejection reason per patch, so the LLM understands its own mistake before being
+    asked to resubmit. The follow-up user turn simply requests corrected patches.
+    """
+    system_prompt, user_content = build_writer_prompt(
+        md_content, lua_source, connected_content,
+        review_feedback.issues, review_feedback.suggestions,
+    )
+    assistant_turn = _build_assistant_rejection_turn(previous_raw, failed_patches, failure_reasons)
+    # Assistant prefill: end the assistant turn mid-sentence so the model continues
+    # generating from that point — no separate user correction message needed.
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": assistant_turn},
+    ]
+    token_count = count_tokens(system_prompt + user_content + assistant_turn)
+    print(f"  [content/writer] Correction prompt: {token_count:,} tokens")
+    if DEBUG_PROMPTS:
+        _dump_prompt("writer_correction", "\n\n".join(m["content"] for m in messages))
+
+    raw = ""
+    patches: list[Patch] = []
+    for attempt in range(BAD_RESPONSE_RETRIES + 1):
+        response = ollama_chat(model=model, messages=messages)
+        raw = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_prompt("writer_correction_response", raw)
+        remaining = BAD_RESPONSE_RETRIES - attempt
+        if not raw.strip():
+            if remaining > 0:
+                print(f"  [content/writer] Correction empty → retrying ({remaining} left)")
+                continue
+            break
+        patches = parse_writer_response(raw)
+        if patches:
+            break
+        if remaining > 0:
+            print(f"  [content/writer] Correction no patches → retrying ({remaining} left)")
+        else:
+            print(f"  [content/writer] Correction no patches after {BAD_RESPONSE_RETRIES + 1} attempts")
+
+    if patches:
+        print(f"  [content/writer] Correction: {len(patches)} patch(es) generated")
+    else:
+        print(f"  [content/writer] Correction returned no patches")
     return patches
