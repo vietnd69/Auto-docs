@@ -48,6 +48,14 @@ from validator.content.writer import TypedOp, parse_typed_op_json
 _DATA_CONFIG_DIRS = {"map", "languages", "util"}
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
+_STRUCTURAL_HEADINGS = {
+    "## Dependencies & tags",
+    "## Properties",
+    "## Main functions",
+    "## Events & listeners",
+}
+_NARRATIVE_HEADINGS = {"## Overview", "## Usage example"}
+
 
 def _sleep(stop_check: Callable[[], bool], seconds: int) -> None:
     for _ in range(seconds):
@@ -98,11 +106,13 @@ def _call_reviewer(
     section_heading: str,
     config: ContentLoopConfig,
     file_type: str,
+    reviewed_context: str = "",
 ) -> list[Finding]:
     """Call the reviewer LLM and return structured findings."""
     rule_ids = _RULE_IDS_BY_SECTION.get(section_heading)
     system_prompt, user_content = build_typed_reviewer_prompt(
-        text, lua_ctx, section_heading, rule_ids=rule_ids, file_type=file_type
+        text, lua_ctx, section_heading, rule_ids=rule_ids, file_type=file_type,
+        reviewed_context=reviewed_context,
     )
     messages = [
         {"role": "system", "content": system_prompt},
@@ -138,13 +148,20 @@ def _call_reviewer(
 def _extract_target_text(text: str, finding: Finding) -> str | None:
     """Extract the specific text snippet that a finding targets.
 
-    For function-level findings: returns the fn_block for finding.function,
-    or None if the function is not present in this batch (cross-batch hallucination).
+    For function-level findings in ## Main functions: returns the fn_block for
+    finding.function, or None if not present (cross-batch hallucination → skip).
+    For non-function sections (## Usage example, etc.) with no ### blocks:
+    finding.function is a contextual reference, not a heading → use full section text.
     For section-level findings (no function): returns the full section text.
     """
     if finding.function:
         _, fn_blocks = split_section_blocks(text)
-        # Strip params from reviewer output: "Foo(x, y)" → "Foo" to match heading regex
+        if not fn_blocks:
+            # Section has no ### headings (e.g. ## Usage example) — finding.function
+            # is a contextual reference to a function mentioned in the text, not a
+            # heading. Fall back to full section text so the writer can fix it.
+            return text
+        # ## Main functions: match by heading, return None for cross-batch hallucinations
         fn_name = re.sub(r'\s*\(.*$', '', finding.function).strip()
         for block in fn_blocks:
             m = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
@@ -201,6 +218,7 @@ def _run_typed_loop(
     intentionally_removed: set[str],
     config: ContentLoopConfig,
     file_type: str,
+    reviewed_context: str = "",
 ) -> tuple[str, list[str], int]:
     """Review + fix loop for one section or batch using cache.
 
@@ -223,12 +241,13 @@ def _run_typed_loop(
         # Read current content from cache
         text = cache.read(cache_id)
 
-        findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type)
+        findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type, reviewed_context)
         _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every reviewer call
         if not findings:
             return text, [], i + 1
         last_findings = findings
 
+        any_actionable = False
         for finding in findings:
             # Re-read from cache each time (writer may have updated it)
             text = cache.read(cache_id)
@@ -236,6 +255,7 @@ def _run_typed_loop(
             if target_text is None:
                 print(f"  [content/chunked] Finding for '{finding.function}' not in batch — skipping")
                 continue
+            any_actionable = True
             op = _call_writer(target_text, lua_ctx, finding, config, file_type)
             _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every writer call
             if op is None:
@@ -248,10 +268,15 @@ def _run_typed_loop(
             # Writer updates the cache
             cache.write(cache_id, updated[0].text)
 
+        if not any_actionable:
+            # All findings were cross-batch hallucinations — no writes made, reviewer
+            # would see identical content next iteration. Treat batch as approved.
+            return cache.read(cache_id), [], i + 1
+
     # Final verification: fixes from the last iteration are applied but unreviewed.
     # One extra review confirms whether they resolved the issues.
     text = cache.read(cache_id)
-    final_findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type)
+    final_findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type, reviewed_context)
     _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after final reviewer call
     return text, [f.issue for f in final_findings], max_iters + 1
 
@@ -323,7 +348,21 @@ def run_chunked_content_loop(
 
     file_type = _detect_file_type(lua_filepath, lua_source)
 
-    for sec_idx, section in enumerate(sections, 1):
+    # Group sections: structural first, narrative last (preserve doc order within each group)
+    structural_idxs = [(i, s) for i, s in enumerate(sections, 1) if s.heading in _STRUCTURAL_HEADINGS]
+    narrative_idxs  = [(i, s) for i, s in enumerate(sections, 1) if s.heading in _NARRATIVE_HEADINGS]
+    other_idxs      = [(i, s) for i, s in enumerate(sections, 1)
+                       if s.heading and s.heading not in _STRUCTURAL_HEADINGS and s.heading not in _NARRATIVE_HEADINGS]
+    # preamble sections (no heading) are skipped inside the loop already
+
+    ordered_pairs = structural_idxs + other_idxs + narrative_idxs
+
+    reviewed_context = ""
+    for sec_idx, section in ordered_pairs:
+        # Compute reviewed_context lazily, just before first narrative section
+        if not reviewed_context and section.heading in _NARRATIVE_HEADINGS:
+            reviewed_context = "\n\n".join(s.text for _, s in structural_idxs if s.text.strip())
+
         if config.stop_check():
             # Write current state from cache/sections to original file
             md_path.write_text(join_md_sections(frontmatter, sections), encoding="utf-8")
@@ -414,6 +453,7 @@ def run_chunked_content_loop(
             updated_text, issues, iters = _run_typed_loop(
                 cache, sec_cache_id, lua_ctx, section.heading,
                 intentionally_removed=set(), config=config, file_type=file_type,
+                reviewed_context=reviewed_context if section.heading in _NARRATIVE_HEADINGS else "",
             )
             section.text = updated_text
             total_iterations += iters

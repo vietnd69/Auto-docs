@@ -350,6 +350,7 @@ def build_typed_reviewer_prompt(
     section_heading: str = "",
     rule_ids: list[str] | None = None,
     file_type: str = "component",
+    reviewed_context: str = "",
 ) -> tuple[str, str]:
     """Reviewer prompt that emits typed Finding objects.
 
@@ -411,7 +412,14 @@ approved=true with empty findings if accurate. One Finding per (function, field)
 
 IMPORTANT: Report ALL issues you find in this single pass. Do not limit or defer findings — every content error must appear now, not in a later round."""
 
-    user_content = f"=== SECTION TO REVIEW ===\n{section_text}"
+    if reviewed_context:
+        user_content = (
+            f"=== REVIEWED SECTIONS (already validated against Lua source) ===\n"
+            f"{reviewed_context}\n\n"
+            f"=== SECTION TO REVIEW ===\n{section_text}"
+        )
+    else:
+        user_content = f"=== SECTION TO REVIEW ===\n{section_text}"
     return system_prompt, user_content
 
 
