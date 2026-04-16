@@ -11,6 +11,7 @@ from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
 from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
 from validator.content.prompts import build_reviewer_prompt
+from validator.content.schemas import REVIEW_SCHEMA
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -158,7 +159,7 @@ def review_document(
     ]
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages)
+        response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_response", raw)

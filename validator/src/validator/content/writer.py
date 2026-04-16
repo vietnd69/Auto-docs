@@ -19,6 +19,7 @@ from llm.tokens import count_tokens
 from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
 from validator.content.prompts import build_writer_prompt
 from validator.content.reviewer import ReviewResult
+from validator.content.schemas import PATCHES_SCHEMA
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -85,29 +86,51 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
     return content, failed, ambiguous
 
 
+def _parse_patch_list(data: object) -> list[Patch]:
+    """Convert a parsed JSON list into Patch objects. Returns [] if data is not a valid list."""
+    if not isinstance(data, list):
+        return []
+    return [
+        Patch(
+            old_text=str(item.get("old_text", "")),
+            new_text=str(item.get("new_text", "")),
+            reason=str(item.get("reason", "")),
+        )
+        for item in data
+        if isinstance(item, dict) and item.get("old_text")
+    ]
+
+
 def parse_writer_response(raw: str) -> list[Patch]:
-    """Parse LLM1 response into list of Patch objects."""
-    # Strip markdown code fence if present
+    """Parse LLM1 response into list of Patch objects.
+
+    Handles three cases:
+    - Direct JSON array (ideal)
+    - JSON array inside a markdown code fence
+    - JSON array preceded by explanatory text (assistant prefill continuation)
+    """
+    # Strip markdown code fence and think blocks
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-    # Remove <think>...</think> blocks (Qwen model)
     cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
 
+    # Primary: direct parse
     try:
-        data = json.loads(cleaned)
-        if not isinstance(data, list):
-            return []
-        return [
-            Patch(
-                old_text=str(item.get("old_text", "")),
-                new_text=str(item.get("new_text", "")),
-                reason=str(item.get("reason", "")),
-            )
-            for item in data
-            if isinstance(item, dict) and item.get("old_text")
-        ]
+        return _parse_patch_list(json.loads(cleaned))
     except (json.JSONDecodeError, TypeError):
-        return []
+        pass
+
+    # Fallback: extract first JSON array from anywhere in the response.
+    # Model may prefix the array with explanatory text (e.g. after assistant prefill).
+    start = cleaned.find('[')
+    end = cleaned.rfind(']')
+    if start != -1 and end > start:
+        try:
+            return _parse_patch_list(json.loads(cleaned[start:end + 1]))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return []
 
 
 def parse_writer_json(data: list) -> list[Patch]:
@@ -178,7 +201,7 @@ def rewrite_document(
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_response", raw)
@@ -265,7 +288,7 @@ def correct_failed_patches(
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_correction_response", raw)
