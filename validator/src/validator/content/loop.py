@@ -18,7 +18,7 @@ from rag.docs import safe_read_lua
 from validator.content.cache import CacheManager
 from validator.content.jury import run_jury
 from validator.content.reviewer import ReviewResult, review_document
-from validator.content.writer import rewrite_document, apply_patches
+from validator.content.writer import rewrite_document, correct_failed_patches, apply_patches
 from validator.utils import resolve_connected_content
 from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY, NORMAL_SLEEP
 
@@ -73,6 +73,28 @@ class ContentLoopResult:
     iterations: int
     final_issues: list[str]
     accepted_headings: set[str] = field(default_factory=set)  # standard headings jury accepted as replaced
+
+
+def _collect_failed_patches(
+    content: str,
+    patches: list,
+) -> tuple[list, list[str]]:
+    """Identify patches that failed to apply and describe why.
+
+    Returns (failed_patches, failure_reasons) — parallel lists.
+    Only includes patches where old_text was not found or was ambiguous.
+    """
+    failed: list = []
+    reasons: list[str] = []
+    for p in patches:
+        count = content.count(p.old_text)
+        if count == 0:
+            failed.append(p)
+            reasons.append("old_text not found in document")
+        elif count > 1:
+            failed.append(p)
+            reasons.append(f"old_text appears {count} times (ambiguous — must be unique)")
+    return failed, reasons
 
 
 def run_content_loop(
@@ -197,7 +219,7 @@ def run_content_loop(
 
         print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches...")
         # LLM1 fix — works on cached content
-        patches = rewrite_document(
+        patches, raw = rewrite_document(
             cached_content, lua_source, connected_content, review, config.writer_model,
         )
 
@@ -215,7 +237,23 @@ def run_content_loop(
         print(f"  [content] Applied {applied}/{len(patches)} patches" +
               (f" ({failed} failed)" if failed else ""))
 
-        # Fallback warning if too many patches failed
+        # Multi-turn correction: when patches fail, tell writer which old_text didn't match
+        if failed > 0:
+            failed_patches, failure_reasons = _collect_failed_patches(cached_content, patches)
+            if failed_patches:
+                print(f"  [content] Sleeping {NORMAL_SLEEP}s before correction...")
+                time.sleep(NORMAL_SLEEP)
+                print(f"  [content] Requesting correction for {len(failed_patches)} failed patch(es)...")
+                correction = correct_failed_patches(
+                    cached_content, lua_source, connected_content,
+                    review, failed_patches, failure_reasons, raw, config.writer_model,
+                )
+                if correction:
+                    updated_content, corr_failed, _ = apply_patches(updated_content, correction)
+                    corr_applied = len(correction) - corr_failed
+                    print(f"  [content] Correction applied {corr_applied}/{len(correction)} patches")
+
+        # Fallback warning if still majority failed after correction
         if patches and failed > len(patches) / 2:
             print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
 

@@ -11,10 +11,19 @@ import time
 from pathlib import Path
 
 from llm.client import ollama_chat, COMPRESSION_MODEL
-from llm.paths import BASE_LUA_DIR, COMPRESSION_CACHE_DIR
-from llm.settings import BAD_RESPONSE_RETRIES
+from llm.paths import BASE_LUA_DIR, COMPRESSION_CACHE_DIR, PROJECT_ROOT
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
 from llm.tokens import count_tokens, STUB_FULL_THRESHOLD
 from rag.docs import extract_lua_references, format_connected_section, clean_model_output
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_debug(label: str, content: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = _DEBUG_DIR / f"{label}_{int(time.time())}.txt"
+    path.write_text(content, encoding="utf-8")
+    print(f"  [debug] {label} → {path.name}")
 
 
 def _resolve_lua_path(ref_path: str) -> str | None:
@@ -379,6 +388,8 @@ RULES:
 SOURCE:
 {full_content}"""
 
+    if DEBUG_PROMPTS:
+        _dump_debug("compress_prompt", prompt)
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(1, BAD_RESPONSE_RETRIES + 2):
         try:
@@ -391,7 +402,10 @@ SOURCE:
             print(f"  [COMPRESS] LLM call thất bại sau {attempt} lần: {e}")
             return None
 
-        result = clean_model_output(response["message"]["content"])
+        raw = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_debug(f"compress_response_attempt{attempt}", raw)
+        result = clean_model_output(raw)
         if not result:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
@@ -438,6 +452,8 @@ Rules: Never invent. Output only the summary, no preamble.
 SOURCE:
 {lua_code}"""
 
+    if DEBUG_PROMPTS:
+        _dump_debug(f"stub_prompt_{Path(ref_path).stem}", prompt)
     max_retries = 3
     for attempt in range(1, max_retries + 1):
         try:
@@ -446,6 +462,8 @@ SOURCE:
                 messages=[{"role": "user", "content": prompt}],
             )
             raw = response["message"]["content"]
+            if DEBUG_PROMPTS:
+                _dump_debug(f"stub_response_{Path(ref_path).stem}_attempt{attempt}", raw)
             raw = clean_model_output(raw)
         except Exception as e:
             print(f"  [STUB] LLM call failed for {ref_path}: {e}")
