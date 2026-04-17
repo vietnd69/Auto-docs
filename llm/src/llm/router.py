@@ -34,16 +34,29 @@ def _prune(timestamps: list[float], cutoff: float) -> list[float]:
     return [t for t in timestamps if t >= cutoff]
 
 
-def record_call(key_index: int) -> None:
-    """Ghi nhận 1 API call thành công cho key."""
+def _prune_token_log(token_log: list[dict], cutoff: float) -> list[dict]:
+    return [entry for entry in token_log if entry.get("ts", 0) >= cutoff]
+
+
+def _tokens_in_window(token_log: list[dict], cutoff: float) -> int:
+    return sum(entry.get("count", 0) for entry in token_log if entry.get("ts", 0) >= cutoff)
+
+
+def record_call(key_index: int, tokens: int) -> None:
+    """Ghi nhận 1 API call thành công cho key, kèm số tokens."""
     cache = _load_cache()
     key = str(key_index)
     if key not in cache:
-        cache[key] = {"total": 0, "recent": []}
+        cache[key] = {"total": 0, "recent": [], "token_log": [], "total_tokens": 0}
     cache[key]["total"] += 1
+    cache[key].setdefault("token_log", [])
+    cache[key].setdefault("total_tokens", 0)
     now = time.time()
     cache[key]["recent"].append(now)
     cache[key]["recent"] = _prune(cache[key]["recent"], now - WINDOW_SECONDS)
+    cache[key]["token_log"].append({"ts": now, "count": tokens})
+    cache[key]["token_log"] = _prune_token_log(cache[key]["token_log"], now - WINDOW_SECONDS)
+    cache[key]["total_tokens"] += tokens
     _save_cache(cache)
 
 
@@ -72,13 +85,13 @@ def get_rate_limited(num_keys: int) -> set[int]:
 
 def select_key(num_keys: int, exclude: set[int]) -> int:
     """
-    Chọn key ít tải nhất.
+    Chọn key ít tải nhất (theo token weight).
 
     Tự động loại key đang bị rate limit (cooldown 5h từ cache).
     Param exclude: các key cần bỏ qua thêm (vd: đã thử trong round hiện tại).
 
-    Thuật toán: key có ít call nhất trong rolling window (1h).
-    Nếu bằng nhau → chọn key có ít total calls nhất.
+    Thuật toán: key có ít tokens nhất trong rolling window (1h).
+    Nếu bằng nhau → chọn key có ít total_tokens nhất (cumulative).
     """
     cache = _load_cache()
     now = time.time()
@@ -86,22 +99,22 @@ def select_key(num_keys: int, exclude: set[int]) -> int:
     blocked = exclude | get_rate_limited(num_keys)
 
     best_idx = -1
-    best_recent = float("inf")
-    best_total = float("inf")
+    best_tokens_1h = float("inf")
+    best_total_tokens = float("inf")
 
     for i in range(num_keys):
         if i in blocked:
             continue
-        entry = cache.get(str(i), {"total": 0, "recent": []})
-        recent_count = len(_prune(entry.get("recent", []), cutoff))
-        total_count = entry.get("total", 0)
+        entry = cache.get(str(i), {})
+        tokens_1h = _tokens_in_window(entry.get("token_log", []), cutoff)
+        total_tokens = entry.get("total_tokens", 0)
 
-        if recent_count < best_recent or (
-            recent_count == best_recent and total_count < best_total
+        if tokens_1h < best_tokens_1h or (
+            tokens_1h == best_tokens_1h and total_tokens < best_total_tokens
         ):
             best_idx = i
-            best_recent = recent_count
-            best_total = total_count
+            best_tokens_1h = tokens_1h
+            best_total_tokens = total_tokens
 
     # -1 = không còn key khả dụng
     return best_idx
@@ -126,5 +139,7 @@ def get_stats() -> dict:
             "recent_1h": len(recent),
             "rate_limited": remaining is not None,
             "cooldown_remaining_m": round(remaining / 60) if remaining else 0,
+            "tokens_1h": _tokens_in_window(entry.get("token_log", []), cutoff),
+            "total_tokens": entry.get("total_tokens", 0),
         }
     return stats
