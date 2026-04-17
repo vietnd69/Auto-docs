@@ -10,6 +10,7 @@ from validator.content.loop import ContentLoopConfig, ContentLoopResult, run_con
 from validator.content.chunked import run_chunked_content_loop
 from validator.format.autofix import FixResult, autofix_file
 from validator.format.checks import validate_all, ValidationError
+from validator.format.section_filler import rewrite_document
 from validator.utils import resolve_lua_path
 from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY
 from validator.content.checkpoint import load_batch_checkpoint, save_batch_checkpoint
@@ -100,6 +101,56 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
             if accepted_headings:
                 print(f"  [pipeline] Format OK{jury_note}")
             format_result = FixResult(changes=[], remaining_errors=[])
+
+        # --- Handle missing required headings: LLM rewrite → content re-validation ---
+        if not config.skip_content and format_result.remaining_errors:
+            missing_headings = [
+                e.message.replace("Missing required heading: ", "").strip()
+                for e in format_result.remaining_errors
+                if e.category == "format" and e.message.startswith("Missing required heading: ")
+            ]
+            if missing_headings:
+                fill_lua_path = resolve_lua_path(md_filepath)
+                if fill_lua_path:
+                    success = rewrite_document(md_filepath, missing_headings, fill_lua_path)
+                    if success:
+                        # Re-run content validator on rewritten document
+                        print(f"  [pipeline] Re-validating rewritten document...")
+                        rewrite_content_result = run_content_loop(
+                            md_filepath, fill_lua_path,
+                            ContentLoopConfig(
+                                max_iterations=config.content_max_iterations,
+                                writer_model=config.writer_model,
+                                reviewer_model=config.reviewer_model,
+                                jury_model=config.jury_model,
+                                stop_check=config.stop_check,
+                            ),
+                        )
+                        if rewrite_content_result and not rewrite_content_result.approved:
+                            print(
+                                f"  [pipeline] Content re-validation not approved "
+                                f"({rewrite_content_result.iterations} iterations)"
+                            )
+                        # Re-check format after rewrite
+                        new_remaining = validate_all(md_filepath, accepted_headings=accepted_headings)
+                        format_result = FixResult(
+                            changes=format_result.changes + [
+                                f"Rewrote document to add missing: {', '.join(missing_headings)}"
+                            ],
+                            remaining_errors=new_remaining,
+                        )
+                        if new_remaining:
+                            print(f"  [pipeline] {len(new_remaining)} error(s) remain after rewrite:")
+                            for e in new_remaining:
+                                loc = f" (line {e.line})" if e.line else ""
+                                print(f"  [pipeline]   [{e.category}] {e.message}{loc}")
+                        else:
+                            print(f"  [pipeline] All format errors resolved after rewrite")
+                else:
+                    print(
+                        f"  [pipeline] No Lua source found, cannot rewrite for: "
+                        f"{', '.join(missing_headings)}"
+                    )
 
     # --- Determine final status ---
     if content_result and not content_result.approved:

@@ -225,30 +225,26 @@ def rewrite_document(
     return patches, raw
 
 
-def _build_assistant_rejection_turn(
-    previous_raw: str,
+def _build_correction_user_message(
     failed_patches: list[Patch],
     failure_reasons: list[str],
 ) -> str:
-    """Build the assistant-role message for the correction turn.
+    """Build the follow-up user message for the correction turn.
 
-    Frames the previous response alongside the system rejection result so the LLM
-    understands — from its own perspective — why each patch was invalid before
-    receiving the follow-up correction request.
+    Lists each failed patch with its reason so the model knows exactly which
+    old_text values didn't match and can resubmit with corrected values.
     """
     rejection_lines = "\n".join(
-        f"  {i + 1}. [{p.reason!r}] — {reason}\n"
-        f"     old_text I sent: {p.old_text[:200]!r}"
+        f"  {i + 1}. Reason: {reason}\n"
+        f"     old_text submitted: {p.old_text[:200]!r}"
         for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons))
     )
     return (
-        f"I submitted the following patches:\n\n"
-        f"{previous_raw}\n\n"
         f"[SYSTEM VALIDATION: REJECTED]\n"
         f"{len(failed_patches)} patch(es) could not be applied:\n\n"
         f"{rejection_lines}\n\n"
-        f"My old_text values did not match the document verbatim. "
-        f"I will re-read the document carefully and resubmit with exact text:\n\n"
+        f"Your old_text values did not match the document verbatim. "
+        f"Re-read the document carefully and return corrected patches with exact matching text."
     )
 
 
@@ -262,23 +258,24 @@ def correct_failed_patches(
     previous_raw: str,
     model: str,
 ) -> list[Patch]:
-    """Multi-turn correction: replay failed patches with system rejection context.
+    """Multi-turn correction: send failed patch details as a follow-up user message.
 
-    The assistant turn includes both the previous (invalid) patches AND the system
-    rejection reason per patch, so the LLM understands its own mistake before being
-    asked to resubmit. The follow-up user turn simply requests corrected patches.
+    Uses a proper multi-turn structure (user → assistant → user) so that
+    structured output (format=PATCHES_SCHEMA) works correctly — assistant prefill
+    is incompatible with Ollama's JSON schema mode.
     """
     system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
-    assistant_turn = _build_assistant_rejection_turn(previous_raw, failed_patches, failure_reasons)
-    # Assistant prefill: end the assistant turn mid-sentence so the model continues
-    # generating from that point — no separate user correction message needed.
+    correction_message = _build_correction_user_message(failed_patches, failure_reasons)
+    # Multi-turn: user → assistant (previous raw JSON) → user (correction request)
+    # previous_raw is a complete JSON array, compatible with structured output.
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
-        {"role": "assistant", "content": assistant_turn},
+        {"role": "assistant", "content": previous_raw},
+        {"role": "user", "content": correction_message},
     ]
     token_count = count_tokens(system_prompt + user_content + assistant_turn)
     print(f"  [content/writer] Correction prompt: {token_count:,} tokens")
