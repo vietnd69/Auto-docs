@@ -131,11 +131,12 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                     response = _fut.result(timeout=_wall)
                 except _futures.TimeoutError:
                     raise httpx.ReadTimeout(f"wall-clock timeout {_wall:.0f}s")
-                record_call(idx)
+                tokens = (getattr(response, "prompt_eval_count", None) or 0) + (getattr(response, "eval_count", None) or 0)
+                record_call(idx, tokens)
                 stats = get_stats()
-                recent = stats.get(idx, {}).get("recent_1h", 0)
                 total = stats.get(idx, {}).get("total", 0)
-                print(f"  [ROUTER] Account {idx + 1} | call #{total} (1h: {recent})")
+                tokens_1h = stats.get(idx, {}).get("tokens_1h", 0)
+                print(f"  [ROUTER] Account {idx + 1} | call #{total} | tokens_1h: {tokens_1h:,} (+{tokens:,})")
                 return response
             except Exception as e:
                 if _is_rate_limit_error(e):
