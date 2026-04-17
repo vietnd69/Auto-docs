@@ -2,11 +2,21 @@
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from llm.settings import MDX_NODE_TIMEOUT
 from validator.format.checks import ValidationError
+
+
+def _print(msg: str) -> None:
+    """Print safely on narrow Windows terminals (e.g. CP1252) by replacing unencodable chars."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        enc = sys.stdout.encoding or "utf-8"
+        print(msg.encode(enc, errors="replace").decode(enc, errors="replace"))
 
 @dataclass
 class FixResult:
@@ -385,9 +395,11 @@ def fix_reference_errors(text: str, identifier: str) -> tuple[str, int]:
     count = 0
     in_code_block = False
 
-    # Pattern: tìm {…} chứa identifier, không nằm trong backtick
+    # Pattern: tìm {…} chứa identifier, không nằm trong backtick.
+    # Cho phép một cấp lồng {} bên trong (ví dụ: { staticdecorations = {} }).
+    _inner = r'(?:[^{}`\n]|\{[^{}`\n]*\})'
     brace_pattern = re.compile(
-        r'(?<!`)\{([^{}`\n]*\b' + re.escape(identifier) + r'\b[^{}`\n]*)\}(?!`)'
+        r'(?<!`)' + r'\{(' + _inner + r'*\b' + re.escape(identifier) + r'\b' + _inner + r'*)\}(?!`)'
     )
 
     for idx, line in enumerate(lines):
@@ -840,12 +852,12 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
                     lines = new_text.splitlines(keepends=True)
                     msg = f"Đã wrap {ref_count} bare {{...{err['identifier']}...}} expression(s) bằng backtick."
                     applied.append(msg)
-                    print(f"  [autofix] {msg}")
                     if not dry_run:
                         path.write_text(new_text, encoding="utf-8")
                     text = new_text
+                    _print(f"  [autofix] {msg}")
                 else:
-                    print(f"  [autofix/mdx] Cannot fix ReferenceError: '{err['identifier']}' not found in any {{...}} expression")
+                    _print(f"  [autofix/mdx] Cannot fix ReferenceError: '{err['identifier']}' not found in any {{...}} expression")
                 continue
 
             # Unclosed expected tag: `<tag>`
@@ -859,17 +871,17 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
                         lines[line_no] = fixed
                         msg = f"Line {line_no+1}: Wrapped unclosed tag `<{tag}>` in backticks."
                         applied.append(msg)
-                        print(f"  [autofix] {msg}")
                         if not dry_run:
                             path.write_text("".join(lines), encoding="utf-8")
+                        _print(f"  [autofix] {msg}")
                     else:
-                        print(f"  [autofix/mdx] Cannot fix unclosed tag <{tag}> at line {line_no+1}: pattern not found")
+                        _print(f"  [autofix/mdx] Cannot fix unclosed tag <{tag}> at line {line_no+1}: pattern not found")
                 else:
-                    print(f"  [autofix/mdx] Cannot fix unclosed tag <{tag}>: line {err['line']} out of range")
+                    _print(f"  [autofix/mdx] Cannot fix unclosed tag <{tag}>: line {err['line']} out of range")
                 continue
 
             if line_no >= len(lines) or line_no < 0:
-                print(f"  [autofix/mdx] Cannot fix line {err['line']}: out of range (file has {len(lines)} lines)")
+                _print(f"  [autofix/mdx] Cannot fix line {err['line']}: out of range (file has {len(lines)} lines)")
                 continue
 
             original = lines[line_no]
@@ -882,12 +894,12 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
                     f"           -> {fixed.strip()!r}"
                 )
                 applied.append(msg)
-                print(f"  [autofix] {msg}")
                 # Ghi file ngay để vòng sau validate lại
                 if not dry_run:
                     path.write_text("".join(lines), encoding="utf-8")
+                _print(f"  [autofix] {msg}")
             else:
-                print(f"  [autofix/mdx] Cannot fix line {err['line']}: no operator match at col {err['col']}")
+                _print(f"  [autofix/mdx] Cannot fix line {err['line']}: no operator match at col {err['col']}")
     else:
         # for-else: loop exhausted all 10 passes without break
         print(f"  [autofix/mdx] Gave up after 10 passes, {len(last_mdx_errors)} MDX error(s) unfixed:")
