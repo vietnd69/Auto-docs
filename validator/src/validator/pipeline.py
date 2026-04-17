@@ -84,18 +84,21 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
 
     # --- Format validation ---
     if not config.skip_format:
+        jury_note = f" [jury: {', '.join(sorted(accepted_headings))}]" if accepted_headings else ""
         errors = validate_all(md_filepath, accepted_headings=accepted_headings)
         if errors:
-            print(f"  [pipeline] {len(errors)} format errors found, running autofix")
+            print(f"  [pipeline] {len(errors)} format errors found, running autofix{jury_note}")
             format_result = autofix_file(md_filepath, accepted_headings=accepted_headings)
             if format_result.remaining_errors:
-                print(f"  [pipeline] Autofix: {len(format_result.changes)} fix(es), {len(format_result.remaining_errors)} error(s) remain")
+                print(f"  [pipeline] Autofix: {len(format_result.changes)} fix(es), {len(format_result.remaining_errors)} error(s) remain{jury_note}")
                 for e in format_result.remaining_errors:
                     loc = f" (line {e.line})" if e.line else ""
                     print(f"  [pipeline]   [{e.category}] {e.message}{loc}")
             else:
-                print(f"  [pipeline] Autofix OK ({len(format_result.changes)} fix(es) applied)")
+                print(f"  [pipeline] Autofix OK ({len(format_result.changes)} fix(es) applied){jury_note}")
         else:
+            if accepted_headings:
+                print(f"  [pipeline] Format OK{jury_note}")
             format_result = FixResult(changes=[], remaining_errors=[])
 
     # --- Determine final status ---
