@@ -88,6 +88,13 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
         if errors:
             print(f"  [pipeline] {len(errors)} format errors found, running autofix")
             format_result = autofix_file(md_filepath, accepted_headings=accepted_headings)
+            if format_result.remaining_errors:
+                print(f"  [pipeline] Autofix: {len(format_result.changes)} fix(es), {len(format_result.remaining_errors)} error(s) remain")
+                for e in format_result.remaining_errors:
+                    loc = f" (line {e.line})" if e.line else ""
+                    print(f"  [pipeline]   [{e.category}] {e.message}{loc}")
+            else:
+                print(f"  [pipeline] Autofix OK ({len(format_result.changes)} fix(es) applied)")
         else:
             format_result = FixResult(changes=[], remaining_errors=[])
 

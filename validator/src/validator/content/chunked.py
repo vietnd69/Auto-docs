@@ -4,6 +4,7 @@ Typed-ops pipeline: deterministic pre-filter -> typed LLM review -> typed ops ap
 No guards. No free-text patches. Convergence = findings == [].
 """
 
+import json
 import re
 import time
 from pathlib import Path
@@ -107,17 +108,53 @@ def _call_reviewer(
     config: ContentLoopConfig,
     file_type: str,
     reviewed_context: str = "",
+    oscillation_history: "list[Finding] | None" = None,
 ) -> list[Finding]:
-    """Call the reviewer LLM and return structured findings."""
+    """Call the reviewer LLM and return structured findings.
+
+    When oscillation_history is provided (findings that were previously reported
+    and fixed but keep re-appearing), a 4-turn conversation is built:
+      [system, user(review_request), assistant(previous_findings), user(re-check)]
+    This gives the model explicit context that those issues were already acted on,
+    reducing the chance it hallucinates the same finding again.
+    """
     rule_ids = _RULE_IDS_BY_SECTION.get(section_heading)
     system_prompt, user_content = build_typed_reviewer_prompt(
         text, lua_ctx, section_heading, rule_ids=rule_ids, file_type=file_type,
         reviewed_context=reviewed_context,
     )
-    messages = [
+    messages: list[dict] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
+
+    if oscillation_history:
+        prev_resp = {
+            "approved": False,
+            "findings": [
+                {
+                    "section": f.section,
+                    "function": f.function,
+                    "field": f.field,
+                    "rule_id": f.rule_id,
+                    "issue": f.issue,
+                }
+                for f in oscillation_history
+            ],
+        }
+        messages.append({
+            "role": "assistant",
+            "content": json.dumps(prev_resp, ensure_ascii=False),
+        })
+        messages.append({
+            "role": "user",
+            "content": (
+                "The writer has applied fixes for each finding above. "
+                "Review the current document carefully — verify each previous issue "
+                "is genuinely still present before re-reporting it."
+            ),
+        })
+
     token_count = count_tokens(system_prompt + user_content)
     print(f"  [content/chunked] Reviewer prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
@@ -236,18 +273,38 @@ def _run_typed_loop(
     cache.write(cache_id, text)
 
     last_findings: list[Finding] = []
+    # Per-(function, field) pair: ordered list of findings that were actioned (fix applied).
+    # Used to inject oscillation context into subsequent reviewer calls.
+    # Strategy:
+    #   - Count == 0: first time → call reviewer + writer normally
+    #   - Count == 1: pair re-appears → inject assistant role with prior finding so the
+    #                 model can self-correct ("I said X before, writer fixed it, re-check")
+    #   - Count >= 2: pair persists despite injection → block to prevent infinite loop
+    actioned_pairs: dict[tuple[str | None, str | None], list[Finding]] = {}
 
     for i in range(max_iters):
         # Read current content from cache
         text = cache.read(cache_id)
 
-        findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type, reviewed_context)
+        # Build oscillation context from all previously actioned findings so the
+        # reviewer knows which issues were already fixed and should not be re-reported.
+        oscillation_history: list[Finding] | None = None
+        flat_history = [f for hist in actioned_pairs.values() for f in hist]
+        if flat_history:
+            oscillation_history = flat_history
+
+        findings = _call_reviewer(
+            text, lua_ctx, section_heading, config, file_type, reviewed_context,
+            oscillation_history=oscillation_history,
+        )
         _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every reviewer call
         if not findings:
             return text, [], i + 1
         last_findings = findings
 
         any_actionable = False
+        in_batch_count = 0
+        oscillating_count = 0
         for finding in findings:
             # Re-read from cache each time (writer may have updated it)
             text = cache.read(cache_id)
@@ -256,6 +313,20 @@ def _run_typed_loop(
                 print(f"  [content/chunked] Finding for '{finding.function}' not in batch — skipping")
                 continue
             any_actionable = True
+            in_batch_count += 1
+
+            pair = (finding.function, finding.field)
+            history = actioned_pairs.get(pair, [])
+            if len(history) >= 2:
+                # Injected assistant context twice; reviewer still oscillates → block.
+                print(
+                    f"  [content/chunked] Oscillation blocked for "
+                    f"'{finding.function}/{finding.rule_id}' "
+                    f"(context injected {len(history)}x, no convergence)"
+                )
+                oscillating_count += 1
+                continue
+
             op = _call_writer(target_text, lua_ctx, finding, config, file_type)
             _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every writer call
             if op is None:
@@ -265,12 +336,24 @@ def _run_typed_loop(
                 [dummy], [op], frontmatter="",
                 intentionally_removed=intentionally_removed,
             )
+            new_text = updated[0].text
+            # Only record as actioned when the fix actually changed the document.
+            if new_text != text:
+                if pair not in actioned_pairs:
+                    actioned_pairs[pair] = []
+                actioned_pairs[pair].append(finding)
             # Writer updates the cache
-            cache.write(cache_id, updated[0].text)
+            cache.write(cache_id, new_text)
 
         if not any_actionable:
             # All findings were cross-batch hallucinations — no writes made, reviewer
             # would see identical content next iteration. Treat batch as approved.
+            return cache.read(cache_id), [], i + 1
+
+        if in_batch_count > 0 and in_batch_count == oscillating_count:
+            # Every in-batch finding has been blocked (injected context did not help).
+            # No further progress is possible; treat the batch as converged.
+            print(f"  [content/chunked] All remaining findings blocked after context injection — treating as approved")
             return cache.read(cache_id), [], i + 1
 
     # Final verification: fixes from the last iteration are applied but unreviewed.
