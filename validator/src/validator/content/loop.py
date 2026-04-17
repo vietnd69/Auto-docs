@@ -269,7 +269,11 @@ def run_content_loop(
                     issues=[already_rej_issue],
                     suggestions=[already_rej_suggestion],
                 )
-            # else: jury already accepted this heading → fall through with original review
+            else:
+                # Jury already accepted this heading — log it and fall through
+                reason_preview = review.special_case_reason[:120]
+                print(f"  [content] Reviewer again requests special case for '{std_heading}' (different reason) — jury already accepted, bypassing heading check")
+                print(f"  [content] New reason: {reason_preview}")
 
         # --- Step 2: Check content approval (after special case resolved) ---
         if review.approved:
