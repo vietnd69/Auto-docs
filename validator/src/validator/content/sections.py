@@ -465,7 +465,9 @@ def apply_typed_ops(
         section = result[idx]
 
         if op.op == "update_section":
-            section.text = op.content or ""
+            if not op.content:
+                continue  # null/empty content — no-op to avoid wiping the section
+            section.text = op.content
 
         elif op.op == "update_field" and op.function:
             preamble, fn_blocks = split_section_blocks(section.text)
@@ -481,12 +483,14 @@ def apply_typed_ops(
             section.text = _update_field_in_text(section.text, op.field or "", op.value or "")
 
         elif op.op == "rewrite_function" and op.function:
+            if not op.content:
+                continue  # null/empty content — no-op to avoid wiping the function block
             preamble, fn_blocks = split_section_blocks(section.text)
             op_fn_name = re.sub(r'\s*\(.*$', '', op.function).strip()
             for j, block in enumerate(fn_blocks):
                 bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
                 if bm and bm.group(1).strip() == op_fn_name:
-                    fn_blocks[j] = op.content or ""
+                    fn_blocks[j] = op.content
                     break
             # If function not found: no-op (loop completes without modifying)
             section.text = preamble + "".join(fn_blocks)
