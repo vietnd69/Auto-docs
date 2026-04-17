@@ -142,21 +142,45 @@ def review_document(
     connected_content: str,
     model: str,
     previous_review: "ReviewResult | None" = None,
+    prior_turns: "list[dict] | None" = None,
 ) -> ReviewResult:
-    """Send document to LLM2 for review. Returns structured ReviewResult."""
+    """Send document to LLM2 for review. Returns structured ReviewResult.
+
+    prior_turns: optional list of {"role": ..., "content": ...} dicts injected as
+    conversation history before the current review request. Used to pass jury rejection
+    context so the reviewer doesn't re-request special cases that were already denied.
+    Structure expected: [..., assistant(prior_review_json), user(jury_verdict), ...]
+    The last turn must be a user message — it is merged with the current review request.
+    """
     system_prompt, user_content = build_reviewer_prompt(
         md_content, lua_source, connected_content,
         previous_issues=previous_review.issues if previous_review else None,
         previous_suggestions=previous_review.suggestions if previous_review else None,
     )
     token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/reviewer] Prompt: {token_count:,} tokens")
+    prior_info = f" + {len(prior_turns)} prior turn(s)" if prior_turns else ""
+    print(f"  [content/reviewer] Prompt: {token_count:,} tokens{prior_info}")
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    if prior_turns:
+        # Build multi-turn history so the reviewer "recalls" prior special-case attempts
+        # and the jury verdicts that followed. Structure:
+        #   system → user(doc) → [assistant(prior) → user(verdict)]* → user(verdict_n + current doc)
+        messages.append({"role": "user", "content": user_content})
+        messages.extend(prior_turns[:-1])
+        last = prior_turns[-1]
+        messages.append({
+            "role": last["role"],
+            "content": last["content"] + "\n\nNow re-review the updated document:\n\n" + user_content,
+        })
+    else:
+        messages.append({"role": "user", "content": user_content})
+
     if DEBUG_PROMPTS:
-        _dump_prompt("reviewer", system_prompt + "\n\n" + user_content)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+        full_dump = "\n\n".join(
+            f"=== [{m['role'].upper()}] ===\n{m['content']}" for m in messages
+        )
+        _dump_prompt("reviewer", full_dump)
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
         response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA)

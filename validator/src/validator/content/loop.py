@@ -8,6 +8,7 @@ Cache-based flow:
 5. Final cache content written back to original file
 """
 
+import json
 import re
 import time
 from collections.abc import Callable
@@ -131,6 +132,7 @@ def run_content_loop(
 
     previous_review = None
     jury_verdicts: dict[str, bool] = {}  # std_heading → accepted (True) or rejected (False)
+    jury_context_turns: list[dict] = []  # assistant+user turn pairs injected into reviewer after jury rejects
     accepted_headings: set[str] = set()  # standard headings jury accepted as replaced by non-standard names
     for i in range(config.max_iterations):
         if config.stop_check():
@@ -150,6 +152,7 @@ def run_content_loop(
         review = review_document(
             cached_content, lua_source, connected_content, config.reviewer_model,
             previous_review=previous_review,
+            prior_turns=jury_context_turns or None,
         )
 
         # --- Step 1: Resolve need_special_case before checking content approval ---
@@ -179,6 +182,30 @@ def run_content_loop(
                 else:
                     # Jury rejected — inject synthetic finding so writer renames sections
                     print(f"  [content] Jury REJECTED — enforcing standard section names")
+                    # Reconstruct the reviewer's prior response as an assistant turn so the
+                    # reviewer won't re-request the same special case in future iterations.
+                    prior_assistant = json.dumps({
+                        "approved": review.approved,
+                        "need_special_case": True,
+                        "special_case_standard_heading": std_heading,
+                        "special_case_reason": review.special_case_reason,
+                        "findings": [
+                            {"issue": iss, "suggestion": sug}
+                            for iss, sug in zip(review.issues, review.suggestions or [])
+                        ],
+                    }, ensure_ascii=False)
+                    jury_context_turns.extend([
+                        {"role": "assistant", "content": prior_assistant},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"[JURY VERDICT — BINDING] Your special case request for '{std_heading}' "
+                                f"was reviewed by 5 independent judges and REJECTED (majority voted NO). "
+                                f"You MUST NOT set need_special_case=true for '{std_heading}' in any future response. "
+                                f"The document must use the standard heading name."
+                            ),
+                        },
+                    ])
                     review = ReviewResult(
                         approved=False,
                         issues=[f"Jury rejected format exception for '{std_heading}'. Rename non-standard sections to required headings."],
@@ -270,6 +297,7 @@ def run_content_loop(
     final_review = review_document(
         final_content, lua_source, connected_content, config.reviewer_model,
         previous_review=previous_review,
+        prior_turns=jury_context_turns or None,
     )
 
     # Final review: resolve need_special_case same as loop (jury runs at most once per heading)
