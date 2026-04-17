@@ -277,7 +277,7 @@ def correct_failed_patches(
         {"role": "assistant", "content": previous_raw},
         {"role": "user", "content": correction_message},
     ]
-    token_count = count_tokens(system_prompt + user_content + assistant_turn)
+    token_count = count_tokens(system_prompt + user_content + previous_raw + correction_message)
     print(f"  [content/writer] Correction prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
         _dump_prompt("writer_correction", "\n\n".join(m["content"] for m in messages))
