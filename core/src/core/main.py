@@ -239,6 +239,7 @@ def _main_impl():
                     prompt=prompt_text,
                     md_filepath=md_filepath,
                     source_hash=source_hash,
+                    lua_filepath=filepath,
                     model_name=MODEL_NAME,
                     sleep_time=20,
                 )

@@ -392,6 +392,7 @@ def _render_file(
                 prompt=prompt_text,
                 md_filepath=md_filepath,
                 source_hash=source_hash,
+                lua_filepath=lua_abs_path,
                 model_name=MODEL_NAME,
                 sleep_time=20,
             )
