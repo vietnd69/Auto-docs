@@ -1,5 +1,6 @@
 # llm/src/llm/client.py
 import os
+import concurrent.futures as _futures
 from pathlib import Path
 from dotenv import load_dotenv
 import httpx
@@ -113,9 +114,23 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
             if idx < 0:
                 break  # không còn key khả dụng
             tried_this_round.add(idx)
+            print(f"  [TRY] Account {idx + 1}...")
             try:
                 client = _make_client(idx)
-                response = client.chat(model=model, messages=messages, options=opts, think=think, stream=False, **chat_extra, **kwargs)
+                # Wall-clock timeout: httpx read-timeout resets on each streamed token,
+                # so a degraded server can stall forever. A thread-based hard limit prevents this.
+                _wall = OLLAMA_TIMEOUT * 3
+                _pool = _futures.ThreadPoolExecutor(max_workers=1)
+                _fut = _pool.submit(
+                    client.chat,
+                    model=model, messages=messages, options=opts,
+                    think=think, stream=False, **chat_extra, **kwargs,
+                )
+                _pool.shutdown(wait=False)
+                try:
+                    response = _fut.result(timeout=_wall)
+                except _futures.TimeoutError:
+                    raise httpx.ReadTimeout(f"wall-clock timeout {_wall:.0f}s")
                 record_call(idx)
                 stats = get_stats()
                 recent = stats.get(idx, {}).get("recent_1h", 0)
