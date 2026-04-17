@@ -38,6 +38,12 @@ _STANDARD_HEADINGS = [
 ]
 
 
+def _find_nonstandard_headings(content: str) -> list[str]:
+    """Return ## headings in content that are not in _STANDARD_HEADINGS."""
+    found = re.findall(r'^## .+$', content, re.MULTILINE)
+    return [h.strip() for h in found if h.strip() not in _STANDARD_HEADINGS]
+
+
 def _extract_standard_heading(review: "ReviewResult") -> str:
     """Extract the standard heading being replaced from the review result.
 
@@ -206,18 +212,62 @@ def run_content_loop(
                             ),
                         },
                     ])
+                    non_std = _find_nonstandard_headings(cached_content)
+                    if non_std:
+                        targets = " and ".join(f"'{h}'" for h in non_std)
+                        rename_issue = (
+                            f"Jury rejected format exception for '{std_heading}'. "
+                            f"Rename {targets} to '{std_heading}'. "
+                            f"Change ONLY the heading line — never delete the section or its content."
+                        )
+                        rename_suggestion = (
+                            f"Patch: old_text = '{non_std[0]}', new_text = '{std_heading}'. "
+                            f"Never set new_text to empty string when renaming a section."
+                        )
+                    else:
+                        rename_issue = (
+                            f"Jury rejected format exception for '{std_heading}'. "
+                            f"Rename the non-standard section heading to '{std_heading}'. "
+                            f"Change ONLY the heading line — never delete the section or its content."
+                        )
+                        rename_suggestion = (
+                            f"Change the heading line to '{std_heading}'. "
+                            f"Never set new_text to empty string when renaming a section."
+                        )
                     review = ReviewResult(
                         approved=False,
-                        issues=[f"Jury rejected format exception for '{std_heading}'. Rename non-standard sections to required headings."],
-                        suggestions=["Rename any non-standard section headings to match the required names exactly"],
+                        issues=[rename_issue],
+                        suggestions=[rename_suggestion],
                     )
             elif not jury_verdicts[std_heading]:
                 # Same heading already rejected — re-inject rename instruction
                 print(f"  [content] Reviewer again requests special case for '{std_heading}' but jury already rejected — enforcing standard names")
+                non_std = _find_nonstandard_headings(cached_content)
+                if non_std:
+                    targets = " and ".join(f"'{h}'" for h in non_std)
+                    already_rej_issue = (
+                        f"Section heading does not match required names. "
+                        f"Rename {targets} to '{std_heading}'. "
+                        f"Change ONLY the heading line — never delete the section or its content."
+                    )
+                    already_rej_suggestion = (
+                        f"Patch: old_text = '{non_std[0]}', new_text = '{std_heading}'. "
+                        f"Never set new_text to empty string when renaming a section."
+                    )
+                else:
+                    already_rej_issue = (
+                        f"Section heading does not match required names. "
+                        f"Rename the non-standard section heading to '{std_heading}'. "
+                        f"Change ONLY the heading line — never delete the section or its content."
+                    )
+                    already_rej_suggestion = (
+                        f"Change the heading line to '{std_heading}'. "
+                        f"Never set new_text to empty string when renaming a section."
+                    )
                 review = ReviewResult(
                     approved=False,
-                    issues=[f"Section heading does not match required names. Rename '{std_heading}' to the standard heading."],
-                    suggestions=["Rename any non-standard section headings to match the required names exactly"],
+                    issues=[already_rej_issue],
+                    suggestions=[already_rej_suggestion],
                 )
             # else: jury already accepted this heading → fall through with original review
 

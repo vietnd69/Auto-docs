@@ -142,7 +142,8 @@ Rules:
 - Preserve markdown formatting and structure
 - old_text must NOT span more than one ### function block — never include two or more ### headings in the same old_text
 - To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
-- To DELETE a function: target only that function's own block, never include surrounding functions in old_text"""
+- To DELETE a function: target only that function's own block, never include surrounding functions in old_text
+- NEVER delete a ## section — never use empty new_text for a ## heading or its content. To rename a ## heading: old_text = the heading line only (e.g. "## OldName"), new_text = the new heading line (e.g. "## NewName")"""
 
     user_content = f"""=== CONTEXT ===
 
