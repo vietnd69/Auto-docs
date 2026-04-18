@@ -182,6 +182,29 @@ def _call_reviewer(
     return []
 
 
+def _canonical_fn_name(raw: str) -> str:
+    """Return canonical function name for batch-membership matching.
+
+    Strips trailing (params) when a state-name group also exists, preserving
+    the state name so stategraph handlers match precisely:
+      "onupdate (attack_recoil)(inst)" → "onupdate (attack_recoil)"
+      "onenter (idle)"                 → "onenter (idle)"
+      "GetState(inst)"                 → "GetState"
+    """
+    groups = re.findall(r'\([^)]*\)', raw)
+    if len(groups) >= 2:
+        # Two paren groups: state + params → strip last (params)
+        return raw[:raw.rfind('(')].rstrip()
+    if len(groups) == 1:
+        idx = raw.rfind('(')
+        # Space before '(' → state name like "(idle)" → keep
+        # Directly attached → params like "(inst)" → strip
+        if idx > 0 and raw[idx - 1] == ' ':
+            return raw.strip()
+        return raw[:idx].rstrip()
+    return raw.strip()
+
+
 def _extract_target_text(text: str, finding: Finding) -> str | None:
     """Extract the specific text snippet that a finding targets.
 
@@ -198,11 +221,15 @@ def _extract_target_text(text: str, finding: Finding) -> str | None:
             # is a contextual reference to a function mentioned in the text, not a
             # heading. Fall back to full section text so the writer can fix it.
             return text
-        # ## Main functions: match by heading, return None for cross-batch hallucinations
-        fn_name = re.sub(r'\s*\(.*$', '', finding.function).strip()
+        # ## Main functions: match by heading, return None for cross-batch hallucinations.
+        # Use _canonical_fn_name on both sides so stategraph handlers like
+        # "onupdate (idle)" and "onupdate (attack_recoil)" don't false-match.
+        fn_name = _canonical_fn_name(finding.function)
         for block in fn_blocks:
-            m = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-            if m and m.group(1).strip() == fn_name:
+            heading_line = block.split("\n", 1)[0]
+            # Extract full content between backticks (e.g. "onupdate (idle)")
+            m = re.match(r'^### `([^`\n]+)`', heading_line) or re.match(r'^### `?([^`\n]+)', heading_line)
+            if m and _canonical_fn_name(m.group(1)) == fn_name:
                 return block
         return None  # function not in this batch — skip instead of using full text
     return text
