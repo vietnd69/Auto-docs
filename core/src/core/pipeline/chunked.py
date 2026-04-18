@@ -88,8 +88,14 @@ from prompts.chunked import (
     build_merge_prompt,
     build_intermediate_merge_prompt,
     _build_merge_prompt_legacy,
+    build_deps_props_prompt,
+    build_functions_batch_prompt,
+    build_events_prompt,
+    build_prose_prompt,
 )
 from prompts.pre_synthesis import pre_synthesize
+
+_MULTIPASS_FUNC_THRESHOLD = 100
 
 # ── Checkpoint System ──────────────────────────────────────────
 
@@ -352,6 +358,173 @@ def generate_merged_doc(
 
     print(f"    [Lỗi] Merge thất bại cho {md_filename} sau {max_retries} lần thử")
     return None
+
+
+def multipass_merge(
+    comp_name: str,
+    comp_title: str,
+    display_filepath: str,
+    presynthesis,                # PreSynthesisResult
+    source_hash: str,
+    md_filepath: str,
+    *,
+    file_tree: str = "",
+    connected_section: str = "",
+    connected_content: str = "",
+    today_date: str = "",
+    version: str = "",
+    category_type: str = "",
+    sidebar_position: int = 10,
+    model_name: str = "qwen3-coder-next:cloud",
+    sleep_time: int = 10,
+    max_retries: int = 3,
+    retry_delay: int = 30,
+    functions_batch_size: int = 150,
+) -> str | None:
+    """
+    Multipass merge strategy for large files with many functions.
+    Splits merge into 4 focused LLM passes:
+      Pass 1a: deps + props section
+      Pass 1b: function batches (N passes, each up to functions_batch_size)
+      Pass 1c: events section
+      Pass 2:  prose (YAML frontmatter + Overview + Usage example)
+    Then assembles and writes the final file.
+    """
+    # ── Checkpoint resume ──
+    ckpt = load_merge_checkpoint(comp_name)
+    if ckpt and ckpt["stage"] == "multipass":
+        completed_sections = ckpt["results"]
+        print(f"  [MULTIPASS] Resume từ section {ckpt['last_index'] + 2}")
+    else:
+        completed_sections = []
+
+    # Pre-compute structure
+    functions = presynthesis.functions
+    batches = [functions[i:i + functions_batch_size] for i in range(0, len(functions), functions_batch_size)]
+    total_batches = len(batches)
+    # Section order in completed_sections:
+    #   0        → deps_props
+    #   1..N     → function batch 1..N
+    #   N+1      → events
+    #   N+2      → prose
+    total_sections = 1 + total_batches + 1 + 1  # deps_props + batches + events + prose
+    events_section_idx = 1 + total_batches       # 0-based index in completed_sections
+    prose_section_idx = events_section_idx + 1
+
+    section_counter = 0  # tracks 1-based index for generate_chunk_analysis display
+
+    print(f"  [MULTIPASS] {total_sections} sections total ({total_batches} fn batches of {functions_batch_size})")
+
+    # ── Pass 1a: deps + props ──
+    if len(completed_sections) <= 0:
+        print(f"  [MULTIPASS] Pass 1a: deps+props...")
+        deps_json = json.dumps(presynthesis.dependencies, indent=2, ensure_ascii=False)
+        game_tags_json = json.dumps(presynthesis.game_tags, indent=2, ensure_ascii=False)
+        external_deps_json = json.dumps(presynthesis.external_deps, indent=2, ensure_ascii=False)
+        props_json = json.dumps(presynthesis.constructor_properties, indent=2, ensure_ascii=False)
+        prompt = build_deps_props_prompt(
+            comp_name, display_filepath, deps_json, game_tags_json, external_deps_json, props_json
+        )
+        section_counter += 1
+        result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+        if result is None:
+            return None
+        completed_sections.append(result)
+        save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+    else:
+        section_counter += 1
+
+    # ── Pass 1b: function batches ──
+    if total_batches > 0:
+        print(f"  [MULTIPASS] Pass 1b: functions ({total_batches} batches)...")
+        for batch_idx, batch in enumerate(batches, 1):
+            completed_idx = batch_idx  # completed_sections index = 1-based batch index (0 is deps_props)
+            if len(completed_sections) > completed_idx - 1 + 1:
+                # Already done
+                section_counter += 1
+                continue
+            prompt = build_functions_batch_prompt(comp_name, display_filepath, batch, batch_idx, total_batches)
+            section_counter += 1
+            result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+            if result is None:
+                return None
+            completed_sections.append(result)
+            save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+    else:
+        section_counter += total_batches
+
+    # ── Pass 1c: events ──
+    if len(completed_sections) <= events_section_idx:
+        print(f"  [MULTIPASS] Pass 1c: events...")
+        events_json = json.dumps(
+            {"listens_to": presynthesis.events_listens, "pushes": presynthesis.events_pushes},
+            indent=2,
+            ensure_ascii=False,
+        )
+        prompt = build_events_prompt(comp_name, display_filepath, events_json)
+        section_counter += 1
+        result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+        if result is None:
+            return None
+        completed_sections.append(result)
+        save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+    else:
+        section_counter += 1
+
+    # ── Pass 2: prose ──
+    if len(completed_sections) <= prose_section_idx:
+        print(f"  [MULTIPASS] Pass 2: prose...")
+        function_names = [f["name"] for f in presynthesis.functions]
+        prompt = build_prose_prompt(
+            comp_name,
+            comp_title,
+            display_filepath,
+            presynthesis,
+            function_names,
+            file_tree=file_tree,
+            connected_section=connected_section,
+            connected_content=connected_content,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+            sidebar_position=sidebar_position,
+            source_hash=source_hash,
+        )
+        section_counter += 1
+        result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+        if result is None:
+            return None
+        completed_sections.append(result)
+        save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+
+    # ── Assemble ──
+    prose_result = completed_sections[prose_section_idx]
+    deps_props_result = completed_sections[0]
+    fn_batch_results = completed_sections[1:events_section_idx]
+    events_result = completed_sections[events_section_idx]
+
+    assembled = prose_result.rstrip()
+    assembled += "\n\n" + deps_props_result.strip()
+    assembled += "\n\n## Main functions\n\n" + "\n\n".join(fn.strip() for fn in fn_batch_results)
+    assembled += "\n\n" + events_result.strip()
+
+    assembled = _ensure_events_section(assembled)
+
+    if source_hash:
+        assembled = inject_frontmatter_field(assembled, "source_hash", source_hash)
+
+    if DEBUG_PROMPTS:
+        _dump_debug(f"multipass_assembled_{os.path.basename(md_filepath)}", assembled)
+
+    dir_name = os.path.dirname(md_filepath)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+    with open(md_filepath, "w", encoding="utf-8") as f:
+        f.write(assembled)
+    md_filename = os.path.basename(md_filepath)
+    print(f"    [Multipass] Đã tạo {md_filename}")
+
+    return md_filename
 
 
 def hierarchical_merge(
@@ -802,29 +975,50 @@ def process_chunked_file(
           f"{len(presynthesis.functions)} functions, "
           f"scope={presynthesis.system_scope}")
 
-    # ── MERGE — always direct, PreSynthesisResult is small ──
-    print(f"  [MERGE STRATEGY] Direct merge (JSON pipeline)")
-    merge_prompt = build_merge_prompt(
-        comp_name=comp_name,
-        comp_title=comp_title,
-        display_filepath=display_filepath,
-        presynthesis=presynthesis,
-        source_hash=source_hash,
-        today_date=today_date,
-        version=version,
-        category_type=category_type,
-        sidebar_position=sidebar_position,
-        file_tree=file_tree,
-        connected_section=connected_section,
-        connected_content=connected_content,
-    )
-    result_filename = generate_merged_doc(
-        prompt=merge_prompt,
-        md_filepath=md_filepath,
-        source_hash=source_hash,
-        model_name=model_name,
-        sleep_time=merge_sleep,
-    )
+    # ── MERGE ──
+    if len(presynthesis.functions) > _MULTIPASS_FUNC_THRESHOLD:
+        n_funcs = len(presynthesis.functions)
+        print(f"  [MERGE STRATEGY] Multipass merge ({n_funcs} functions)")
+        result_filename = multipass_merge(
+            comp_name=comp_name,
+            comp_title=comp_title,
+            display_filepath=display_filepath,
+            presynthesis=presynthesis,
+            source_hash=source_hash,
+            md_filepath=md_filepath,
+            file_tree=file_tree,
+            connected_section=connected_section,
+            connected_content=connected_content,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+            sidebar_position=sidebar_position,
+            model_name=model_name,
+            sleep_time=merge_sleep,
+        )
+    else:
+        print(f"  [MERGE STRATEGY] Direct merge (JSON pipeline)")
+        merge_prompt = build_merge_prompt(
+            comp_name=comp_name,
+            comp_title=comp_title,
+            display_filepath=display_filepath,
+            presynthesis=presynthesis,
+            source_hash=source_hash,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+            sidebar_position=sidebar_position,
+            file_tree=file_tree,
+            connected_section=connected_section,
+            connected_content=connected_content,
+        )
+        result_filename = generate_merged_doc(
+            prompt=merge_prompt,
+            md_filepath=md_filepath,
+            source_hash=source_hash,
+            model_name=model_name,
+            sleep_time=merge_sleep,
+        )
 
     if result_filename:
         # Giữ lại chunk checkpoint để kiểm tra lại nếu output LLM bị lỗi.
