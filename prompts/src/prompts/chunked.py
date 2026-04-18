@@ -212,6 +212,30 @@ JSON SCHEMA:
 """
 
 
+_LARGE_FUNC_LIST_THRESHOLD = 100
+
+
+def _compact_functions_json(functions: list[dict]) -> str:
+    """
+    Serialize functions list for merge prompt.
+    For large lists (>100 fns): strip always-None/false fields + use compact JSON.
+    Saves ~20K tokens for files like SGwilson (601 functions).
+    """
+    _NOISE_FIELDS = ("incomplete", "error_states")
+    _NULL_VALUES = {"none", "", "n/a", "null", "no", "false"}
+
+    def _strip(fn: dict) -> dict:
+        return {
+            k: v for k, v in fn.items()
+            if k not in _NOISE_FIELDS or str(v).strip().lower() not in _NULL_VALUES
+        }
+
+    if len(functions) > _LARGE_FUNC_LIST_THRESHOLD:
+        stripped = [_strip(f) for f in functions]
+        return json.dumps(stripped, ensure_ascii=False)
+    return json.dumps(functions, indent=2, ensure_ascii=False)
+
+
 def build_merge_prompt(
     comp_name: str,
     comp_title: str,
@@ -243,7 +267,7 @@ def build_merge_prompt(
     # JSON sections for LLM to format
     deps_json = json.dumps(presynthesis.dependencies, indent=2, ensure_ascii=False)
     props_json = json.dumps(presynthesis.constructor_properties, indent=2, ensure_ascii=False)
-    funcs_json = json.dumps(presynthesis.functions, indent=2, ensure_ascii=False)
+    funcs_json = _compact_functions_json(presynthesis.functions)
     events_json = json.dumps({
         "listens_to": presynthesis.events_listens,
         "pushes": presynthesis.events_pushes,

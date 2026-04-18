@@ -109,6 +109,7 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
     for timeout_attempt in range(OLLAMA_TIMEOUT_RETRIES + 1):
         # Inner loop: failover across available accounts
         tried_this_round: set[int] = set()
+        had_timeout = False
         for _ in range(n):
             idx = select_key(n, tried_this_round)
             if idx < 0:
@@ -146,21 +147,20 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                     print(f"  [RATE LIMIT] Account {idx + 1} bị 429 → cooldown 5h ({available} còn lại)")
                     errors.append(f"Account {idx + 1}: 429")
                 elif _is_timeout_error(e):
+                    had_timeout = True
                     remaining = OLLAMA_TIMEOUT_RETRIES - timeout_attempt
-                    print(f"  [TIMEOUT] Account {idx + 1} timeout sau {OLLAMA_TIMEOUT:.0f}s → retry ({remaining} còn lại)")
+                    print(f"  [TIMEOUT] Account {idx + 1} timeout sau {OLLAMA_TIMEOUT:.0f}s → switch account ({remaining} retry còn lại)")
                     errors.append(f"Account {idx + 1}: timeout")
-                    break  # exit inner loop → outer loop retries
+                    # Không break — tiếp tục thử account khác trong round này
                 elif _is_retryable_error(e):
                     status = e.status_code  # type: ignore[attr-defined]
                     print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → switch account")
                     errors.append(f"Account {idx + 1}: {status}")
-                    continue
                 else:
                     raise
-        else:
-            continue  # inner loop finished without break → try next timeout round
-        # inner loop broke (timeout or no keys) → check if timeout retry
-        if timeout_attempt < OLLAMA_TIMEOUT_RETRIES:
+        # Tất cả account trong round đã thử — nếu có timeout, retry toàn bộ
+        if had_timeout and timeout_attempt < OLLAMA_TIMEOUT_RETRIES:
+            print(f"  [RETRY] Tất cả account đã thử, retry lần {timeout_attempt + 1}/{OLLAMA_TIMEOUT_RETRIES}...")
             continue
         break
 
