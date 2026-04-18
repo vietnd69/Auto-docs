@@ -85,6 +85,11 @@ def _main_impl():
         action="store_true",
         help="Skip validation (generate only, no content loop or format fix)",
     )
+    parser.add_argument(
+        "--resume-validate",
+        action="store_true",
+        help="Skip generation, resume validation from last section checkpoint (single-file mode)",
+    )
     args = parser.parse_args()
 
     # === CONFIGURATION — Lấy từ config.py và tuỳ chỉnh ===
@@ -155,6 +160,37 @@ def _main_impl():
 
         # Đảm bảo thư mục con tồn tại
         os.makedirs(os.path.dirname(md_filepath), exist_ok=True)
+
+        # --resume-validate: bỏ qua generation, chỉ chạy lại validator từ checkpoint
+        if args.resume_validate and os.path.exists(md_filepath):
+            print(f"  [resume-validate] Bỏ qua generation, validate lại {md_filename}...")
+            generated_path = md_filepath
+            try:
+                file_result = process_file(generated_path, PipelineConfig(
+                    writer_model=MODEL_NAME,
+                    reviewer_model=MODEL_NAME,
+                    stop_check=lambda: shutdown.stop_requested,
+                    resume=True,
+                ))
+            except KeyboardInterrupt:
+                stats["failed"] += 1
+                stats["validate_failed"] += 1
+                stats["failed_list"].append(filename)
+                shutdown.request_stop()
+                continue
+            except Exception as e:
+                print(f"  [Lỗi validate] {filename}: {e}")
+                stats["failed"] += 1
+                stats["validate_failed"] += 1
+                stats["failed_list"].append(filename)
+                continue
+            if file_result.final_status == "ok":
+                stats["processed"] += 1
+            else:
+                stats["failed"] += 1
+                stats["validate_failed"] += 1
+                stats["failed_list"].append(filename)
+            continue
 
         # Bỏ qua file đã có docs (trừ khi force hoặc single file mode)
         if not force_regen and os.path.exists(md_filepath):

@@ -388,22 +388,47 @@ def prefilter_fn_blocks(
 
     for block in fn_blocks:
         heading = block.split("\n", 1)[0]
-        m = re.match(r'^### `?([^`(\n]+)', heading)
-        if not m:
-            kept.append(block)  # unparseable heading — keep as fail-safe
-            continue
-        name = m.group(1).strip()
 
-        # Existence check (hallucination filter)
-        patterns = _def_patterns(name)
-        if not any(p.search(lua_source) for p in patterns):
-            stripped.append(name)
-            continue
+        # Extract full name from backtick-quoted heading (e.g. `onenter (fishing_nibble)`)
+        m_full = re.match(r'^### `([^`\n]+)`', heading)
+        if m_full:
+            full_name = m_full.group(1).strip()
+        else:
+            m = re.match(r'^### `?([^`\n]+)', heading)
+            if not m:
+                kept.append(block)  # unparseable heading — keep as fail-safe
+                continue
+            full_name = m.group(1).strip()
 
-        # Locality check
-        if classification.get(name) == "local":
-            stripped.append(name)
-            continue
+        # For "base (state_name)" compound names (space before paren = state variant),
+        # check both base function and state name exist in Lua source.
+        m_compound = re.match(r'^([\w.:]+)\s+\(([^)]+)\)', full_name)
+        if m_compound:
+            base_name = m_compound.group(1)
+            state_name = m_compound.group(2)
+            if not any(p.search(lua_source) for p in _def_patterns(base_name)):
+                stripped.append(full_name)
+                continue
+            # State name not in Lua source → the whole state variant is hallucinated
+            if state_name not in lua_source:
+                stripped.append(full_name)
+                continue
+            if classification.get(base_name) == "local":
+                stripped.append(full_name)
+                continue
+        else:
+            # Simple name — strip params (e.g. "GetState(inst)" → "GetState")
+            name = re.match(r'^[\w.:]+', full_name)
+            if not name:
+                kept.append(block)
+                continue
+            name = name.group(0)
+            if not any(p.search(lua_source) for p in _def_patterns(name)):
+                stripped.append(name)
+                continue
+            if classification.get(name) == "local":
+                stripped.append(name)
+                continue
 
         kept.append(block)
 

@@ -62,9 +62,9 @@ def _is_timeout_error(error: Exception) -> bool:
 
 
 def _is_retryable_error(error: Exception) -> bool:
-    """Kiểm tra xem lỗi có thể retry không (500, 502 — transient server errors)."""
+    """Kiểm tra xem lỗi có thể retry không (500, 502, 504 — transient server errors)."""
     if isinstance(error, ollama.ResponseError):
-        return error.status_code in (500, 502)
+        return error.status_code in (500, 502, 504)
     return False
 
 
