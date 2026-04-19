@@ -14,6 +14,7 @@ Functions:
 """
 
 import os
+import sys
 import time
 import json
 from pathlib import Path
@@ -263,6 +264,7 @@ def generate_chunk_analysis(
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
                 print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} → retry ({remaining} left)")
+                shutdown.interruptible_sleep(5)
             else:
                 print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} — giving up")
                 return None
@@ -626,6 +628,9 @@ def hierarchical_merge(
         )
         if rolled is None:
             return None # checkpoint đã lưu trong rolling, lần sau resume
+        rolled_tokens = estimate_merge_tokens([rolled])
+        if rolled_tokens > MERGE_TOKEN_LIMIT:
+            print(f"  [HIERARCHICAL] Cảnh báo: rolled result vẫn lớn ({rolled_tokens:,} tok > {MERGE_TOKEN_LIMIT:,} limit) — tiếp tục merge tầng 2")
         intermediate_results = [rolled]
 
     # Tầng 2: final merge (legacy text-based prompt)
@@ -971,6 +976,10 @@ def process_chunked_file(
         print(f"  Tài liệu sẽ bị thiếu nội dung từ các chunk này.")
         save_checkpoint(comp_name, chunk_results, total_chunks - 1, failed_indices)
 
+        if not sys.stdin.isatty():
+            print(f"  [HEADLESS] Không thể nhận input (stdin không phải TTY). Dừng pipeline.")
+            print(f"  [HEADLESS] {len(failed_indices)} chunk vẫn thất bại. Chạy lại thủ công để tiếp tục.")
+            return None
         confirm = input("\n  Tiếp tục merge với dữ liệu hiện có? [y/N]: ").strip().lower()
         if confirm != "y":
             print(f"  [DỪNG] Tiến trình đã lưu. Chạy lại để retry {len(failed_indices)} chunk còn lại.")
