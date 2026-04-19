@@ -850,11 +850,13 @@ def process_chunked_file(
 
         if result:
             try:
-                json.loads(result)
+                parsed = json.loads(result)
+                if not isinstance(parsed, dict) or "functions" not in parsed:
+                    raise ValueError("chunk JSON missing required shape")
                 chunk_results[i] = result
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
-            except json.JSONDecodeError:
-                print(f"    [Cảnh báo] Chunk {i} JSON không hợp lệ, sẽ retry.")
+            except (json.JSONDecodeError, ValueError):
+                print(f"    [Cảnh báo] Chunk {i} JSON không hợp lệ hoặc sai schema, sẽ retry.")
                 failed_indices.append(i)
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
         else:
@@ -925,15 +927,17 @@ def process_chunked_file(
                 )
                 if result:
                     try:
-                        json.loads(result)
+                        parsed = json.loads(result)
+                        if not isinstance(parsed, dict) or "functions" not in parsed:
+                            raise ValueError("chunk JSON missing required shape")
                         chunk_results[chunk_i] = result
                         save_checkpoint(comp_name, chunk_results, total_chunks - 1, still_failing)
                         print(f"    [Retry] Chunk {chunk_i} thành công ở lần {attempt}.")
                         success = True
                         break
-                    except json.JSONDecodeError:
+                    except (json.JSONDecodeError, ValueError):
                         if attempt < 3:
-                            print(f"    [Retry] Lần {attempt} JSON không hợp lệ, thử lại...")
+                            print(f"    [Retry] Lần {attempt} JSON không hợp lệ hoặc sai schema, thử lại...")
                 elif attempt < 3:
                     print(f"    [Retry] Lần {attempt} thất bại, thử lại sau 30s...")
 

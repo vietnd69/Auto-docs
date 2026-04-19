@@ -57,6 +57,8 @@ def pre_synthesize(
         raw = chunk_results[idx]
         try:
             parsed = json.loads(raw)
+            if not isinstance(parsed, dict) or "functions" not in parsed:
+                raise ValueError("chunk JSON missing required shape (must be dict with 'functions' key)")
             valid_chunks.append(parsed)
         except (json.JSONDecodeError, ValueError):
             malformed_indices.append(idx)
