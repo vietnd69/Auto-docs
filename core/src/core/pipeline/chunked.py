@@ -785,6 +785,24 @@ def process_chunked_file(
         resume_from = -1
         pending_retries: list[int] = []
 
+    # Validate shape of loaded checkpoint entries — stale entries from before fix may have wrong shape
+    if chunk_results:
+        stale_bad: list[int] = []
+        clean_results: dict[int, str] = {}
+        for k, v in chunk_results.items():
+            try:
+                p = json.loads(v)
+                if isinstance(p, dict) and "functions" in p:
+                    clean_results[k] = v
+                else:
+                    stale_bad.append(k)
+            except (json.JSONDecodeError, ValueError):
+                stale_bad.append(k)
+        if stale_bad:
+            print(f"  [CHECKPOINT] {len(stale_bad)} checkpoint entries có shape sai, sẽ retry: {stale_bad}")
+            pending_retries = list(set(pending_retries) | set(stale_bad))
+            chunk_results = clean_results
+
     # ── PER-CHUNK CONTEXT SETUP ──
     own_filename = os.path.basename(display_filepath)
 
