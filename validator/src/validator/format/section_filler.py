@@ -68,6 +68,7 @@ def rewrite_document(
     missing_headings: list[str],
     lua_filepath: str,
     model: str = MODEL_MAIN,
+    original_prompt: str = "",
 ) -> bool:
     """
     Call LLM to rewrite the entire document, adding missing sections.
@@ -80,13 +81,29 @@ def rewrite_document(
     lua_code = safe_read_lua(lua_filepath) or ""
     connected_section, connected_content = resolve_connected_content(lua_filepath)
 
-    prompt = build_rewrite_prompt(
-        md_text, lua_code, missing_headings,
-        connected_section, connected_content,
-    )
+    if original_prompt:
+        missing_str = ", ".join(f"`{h}`" for h in missing_headings)
+        required_list = "\n".join(f"- {h}" for h in _REQUIRED_HEADINGS)
+        correction = (
+            f"Your document is missing these required sections: {missing_str}.\n\n"
+            f"Please rewrite the ENTIRE document. All required sections must be present:\n"
+            f"{required_list}\n\n"
+            f"Output the full document starting with `---`."
+        )
+        messages = [
+            {"role": "user", "content": original_prompt},
+            {"role": "assistant", "content": md_text},
+            {"role": "user", "content": correction},
+        ]
+    else:
+        prompt = build_rewrite_prompt(
+            md_text, lua_code, missing_headings,
+            connected_section, connected_content,
+        )
+        messages = [{"role": "user", "content": prompt}]
 
     try:
-        response = ollama_chat(model, messages=[{"role": "user", "content": prompt}])
+        response = ollama_chat(model, messages=messages)
         cleaned = clean_model_output(response.message.content)
 
         if not cleaned:

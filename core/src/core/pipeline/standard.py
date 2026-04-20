@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from pathlib import Path
 from llm import client as config
@@ -18,7 +19,7 @@ def _dump_debug(label: str, content: str) -> None:
 
 
 def _check_missing_sections(md_content: str) -> list[str]:
-    return [h for h in _REQUIRED_HEADINGS if h not in md_content]
+    return [h for h in _REQUIRED_HEADINGS if not re.search(r'^' + re.escape(h), md_content, re.MULTILINE)]
 
 
 def generate_doc(
@@ -102,10 +103,10 @@ def generate_doc(
                     print(f"  [sections] Thiếu {len(missing)} section(s): {', '.join(missing)}")
                     for sec_attempt in range(1, max_section_retries + 1):
                         print(f"  [sections] Rewrite lần {sec_attempt}/{max_section_retries}...")
-                        ok = rewrite_document(md_filepath, missing, lua_filepath, model=model_name)
+                        ok = rewrite_document(md_filepath, missing, lua_filepath, model=model_name, original_prompt=prompt)
                         if not ok:
                             print(f"  [sections] Rewrite thất bại lần {sec_attempt}")
-                            break
+                            continue
                         new_content = Path(md_filepath).read_text(encoding="utf-8")
                         missing = _check_missing_sections(new_content)
                         if not missing:
