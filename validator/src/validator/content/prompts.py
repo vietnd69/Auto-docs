@@ -363,17 +363,22 @@ def build_typed_reviewer_prompt(
     file_desc = _FILE_TYPE_DESC.get(file_type, _FILE_TYPE_DESC["component"])
 
     is_main_fns = section_heading == "## Main functions"
-    batch_scope_note = (
-        "\n=== SCOPE NOTE ===\n"
-        f"You are reviewing a BATCH of ### function entries from '{section_heading}'. "
-        "Do NOT flag missing ## sections (## Overview, ## Usage example, etc.) — "
-        "they exist elsewhere in the document and are out of scope here.\n"
-        "CRITICAL: Only report findings for functions that appear as ### headings in the "
-        "'=== SECTION TO REVIEW ===' block below. Do NOT report findings for functions "
-        "you see in the Lua context but that have no ### entry in the section — those "
-        "belong to other batches.\n"
-        if is_main_fns else ""
-    )
+    if is_main_fns:
+        fn_names = re.findall(r'^### `([^`\n]+)`', section_text, re.MULTILINE)
+        if not fn_names:
+            fn_names = re.findall(r'^### (.+)', section_text, re.MULTILINE)
+        fn_list = "\n".join(f"  - {fn.strip()}" for fn in fn_names)
+        batch_scope_note = (
+            "\n=== SCOPE NOTE ===\n"
+            f"You are reviewing a BATCH of ### function entries from '{section_heading}'. "
+            "Do NOT flag missing ## sections (## Overview, ## Usage example, etc.) — "
+            "they exist elsewhere in the document and are out of scope here.\n"
+            f"IN-SCOPE FUNCTIONS — only report findings for these exact names:\n{fn_list}\n"
+            "CRITICAL: Do NOT report findings for any function not listed above, even if "
+            "you see it in the Lua context — those belong to other batches.\n"
+        )
+    else:
+        batch_scope_note = ""
 
     lua_block = f"```lua\n{lua_context}\n```" if lua_context else "(none)"
 

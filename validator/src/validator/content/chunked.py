@@ -48,6 +48,7 @@ from validator.content.writer import TypedOp, parse_typed_op_json
 
 _DATA_CONFIG_DIRS = {"map", "languages", "util"}
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+_MAX_OSC_HISTORY = 20  # max findings injected per oscillation list to cap reviewer prompt size
 
 _STRUCTURAL_HEADINGS = {
     "## Dependencies & tags",
@@ -108,15 +109,22 @@ def _call_reviewer(
     config: ContentLoopConfig,
     file_type: str,
     reviewed_context: str = "",
-    oscillation_history: "list[Finding] | None" = None,
-) -> list[Finding]:
+    oscillation_fixed: "list[Finding] | None" = None,
+    oscillation_unfixed: "list[Finding] | None" = None,
+) -> "list[Finding] | None":
     """Call the reviewer LLM and return structured findings.
 
-    When oscillation_history is provided (findings that were previously reported
-    and fixed but keep re-appearing), a 4-turn conversation is built:
-      [system, user(review_request), assistant(previous_findings), user(re-check)]
-    This gives the model explicit context that those issues were already acted on,
-    reducing the chance it hallucinates the same finding again.
+    Returns [] when the reviewer approves, a non-empty list of findings when it
+    finds issues, or None when all retries are exhausted (bad JSON / server error).
+    Callers must treat None as "skip iteration, do not approve".
+
+    When oscillation_fixed or oscillation_unfixed are provided, a 4-turn conversation
+    is built: [system, user(review_request), assistant(previous_findings), user(re-check)].
+
+    - oscillation_fixed: findings the writer successfully patched (changed == True).
+      Reviewer is asked to verify they are no longer present.
+    - oscillation_unfixed: findings the writer could not resolve (no-change) or that
+      belong to another batch (cross-batch skip). Reviewer is told not to re-report them.
     """
     rule_ids = _RULE_IDS_BY_SECTION.get(section_heading)
     system_prompt, user_content = build_typed_reviewer_prompt(
@@ -128,7 +136,8 @@ def _call_reviewer(
         {"role": "user", "content": user_content},
     ]
 
-    if oscillation_history:
+    all_prev = (oscillation_fixed or []) + (oscillation_unfixed or [])
+    if all_prev:
         prev_resp = {
             "approved": False,
             "findings": [
@@ -139,24 +148,25 @@ def _call_reviewer(
                     "rule_id": f.rule_id,
                     "issue": f.issue,
                 }
-                for f in oscillation_history
+                for f in all_prev
             ],
         }
         messages.append({
             "role": "assistant",
             "content": json.dumps(prev_resp, ensure_ascii=False),
         })
-        messages.append({
-            "role": "user",
-            "content": (
-                "The writer has applied fixes for each finding above. "
-                "Review the current document carefully — verify each previous issue "
-                "is genuinely still present before re-reporting it."
-            ),
-        })
+        parts: list[str] = []
+        if oscillation_fixed:
+            parts.append("The writer has applied fixes for some findings above — verify those issues are no longer present.")
+        if oscillation_unfixed:
+            parts.append(
+                "Other findings above could not be resolved or target functions not present in this batch — do not re-report them."
+            )
+        parts.append("Review the current document carefully and only report issues that are clearly still present.")
+        messages.append({"role": "user", "content": " ".join(parts)})
 
     token_count = count_tokens(system_prompt + user_content)
-    osc_note = f" +oscillation({len(oscillation_history)})" if oscillation_history else ""
+    osc_note = f" +oscillation({len(all_prev)})" if all_prev else ""
     print(f"  [content/chunked] reviewer call: {token_count:,} tok{osc_note}")
     if DEBUG_PROMPTS:
         _dump_prompt("chunked_reviewer", system_prompt + "\n\n" + user_content)
@@ -181,9 +191,13 @@ def _call_reviewer(
         findings = parse_findings_json(data)
         if approved:
             return []
-        if findings is not None:
-            return findings
-    return []
+        if not findings:
+            # Invariant violation: reviewer rejected but returned zero findings.
+            # Treat as a bad response and retry rather than silently approving.
+            print(f"  [content/chunked] reviewer invariant: rejected with 0 findings (attempt {attempt + 1})")
+            continue
+        return findings
+    return None  # exhausted retries — callers must NOT treat this as approval
 
 
 def _canonical_fn_name(raw: str) -> str:
@@ -306,15 +320,17 @@ def _run_typed_loop(
     text = normalize_fn_headings(cache.read(cache_id))
     cache.write(cache_id, text)
 
-    last_findings: list[Finding] = []
-    # Per-(function, field) pair: ordered list of findings that were actioned (fix applied).
-    # Used to inject oscillation context into subsequent reviewer calls.
-    # Strategy:
-    #   - Count == 0: first time → call reviewer + writer normally
-    #   - Count == 1: pair re-appears → inject assistant role with prior finding so the
-    #                 model can self-correct ("I said X before, writer fixed it, re-check")
-    #   - Count >= 2: pair persists despite injection → block to prevent infinite loop
-    actioned_pairs: dict[tuple[str | None, str | None], list[Finding]] = {}
+    # attempt_counts: how many times each (function, field) pair has been processed
+    # (writer call or cross-batch skip). Used for oscillation blocking after 2 attempts.
+    attempt_counts: dict[tuple[str | None, str | None], int] = {}
+    # Flat lists of findings passed as oscillation context to the next reviewer call.
+    # fixed_findings: writer successfully changed the doc (changed == True).
+    # unfixed_findings: writer returned no-change OR function was cross-batch skipped.
+    # Keeping them separate lets the reviewer message accurately distinguish "fixed" vs
+    # "could not resolve / out of scope".
+    # Capped at _MAX_OSC_HISTORY each to avoid bloating the reviewer prompt.
+    fixed_findings: list[Finding] = []
+    unfixed_findings: list[Finding] = []
 
     _pfx = f"  [content/chunked] [{cache_id}]"
 
@@ -323,24 +339,22 @@ def _run_typed_loop(
         # Read current content from cache
         text = cache.read(cache_id)
 
-        # Build oscillation context from all previously actioned findings so the
-        # reviewer knows which issues were already fixed and should not be re-reported.
-        oscillation_history: list[Finding] | None = None
-        flat_history = [f for hist in actioned_pairs.values() for f in hist]
-        if flat_history:
-            oscillation_history = flat_history
-
         findings = _call_reviewer(
             text, lua_ctx, section_heading, config, file_type, reviewed_context,
-            oscillation_history=oscillation_history,
+            oscillation_fixed=fixed_findings[-_MAX_OSC_HISTORY:] or None,
+            oscillation_unfixed=unfixed_findings[-_MAX_OSC_HISTORY:] or None,
         )
         _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every reviewer call
 
+        if findings is None:
+            # All retries exhausted (bad JSON / server error) — skip this iteration,
+            # do not treat as approval.
+            print(f"{_pfx} {iter_label}: reviewer failed (all retries exhausted) — skipping iter")
+            break
         if not findings:
             print(f"{_pfx} {iter_label}: reviewer → 0 finding(s) → approved")
             return text, [], i + 1
 
-        last_findings = findings
         print(f"{_pfx} {iter_label}: reviewer → {len(findings)} finding(s)")
 
         any_actionable = False
@@ -351,25 +365,31 @@ def _run_typed_loop(
             # Re-read from cache each time (writer may have updated it)
             text = cache.read(cache_id)
             target_text = _extract_target_text(text, finding)
+            pair = (finding.function, finding.field)
+            cnt = attempt_counts.get(pair, 0)
             if target_text is None:
+                # Cross-batch hallucination: function lives in another batch.
+                # Record up to 2 skips in unfixed_findings so the reviewer gets context
+                # next iter ("out of scope — do not re-report"). Cap at 2 to avoid growth.
+                if cnt < 2:
+                    unfixed_findings.append(finding)
+                    attempt_counts[pair] = cnt + 1
                 print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] '{fn_label}' not in batch — skip")
                 continue
             any_actionable = True
             in_batch_count += 1
 
-            pair = (finding.function, finding.field)
-            history = actioned_pairs.get(pair, [])
-            if len(history) >= 2:
-                # Injected assistant context twice; reviewer still oscillates → block.
+            if cnt >= 2:
+                # Attempted (or skipped) twice already; reviewer still oscillates → block.
                 print(
                     f"{_pfx} {iter_label}: [{fi}/{len(findings)}] "
                     f"oscillation blocked '{fn_label}/{finding.rule_id}' "
-                    f"(injected {len(history)}x)"
+                    f"(attempted {cnt}x)"
                 )
                 oscillating_count += 1
                 continue
 
-            if len(history) == 1:
+            if cnt == 1:
                 print(
                     f"{_pfx} {iter_label}: [{fi}/{len(findings)}] "
                     f"oscillation inject for '{fn_label}/{finding.rule_id}'"
@@ -378,8 +398,10 @@ def _run_typed_loop(
             print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] '{fn_label}' {finding.rule_id} → writer")
             op = _call_writer(target_text, lua_ctx, finding, config, file_type)
             _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every writer call
+            attempt_counts[pair] = cnt + 1
             if op is None:
                 print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] writer returned no op")
+                unfixed_findings.append(finding)
                 continue
             dummy = DocSection(heading=section_heading, text=text)
             updated = apply_typed_ops(
@@ -394,11 +416,10 @@ def _run_typed_loop(
                 f"{_pfx} {iter_label}: [{fi}/{len(findings)}] "
                 f"op={op.op}{op_fn}{op_field} → {'applied' if changed else 'no change'}"
             )
-            # Only record as actioned when the fix actually changed the document.
             if changed:
-                if pair not in actioned_pairs:
-                    actioned_pairs[pair] = []
-                actioned_pairs[pair].append(finding)
+                fixed_findings.append(finding)
+            else:
+                unfixed_findings.append(finding)
             # Writer updates the cache
             cache.write(cache_id, new_text)
 
@@ -420,6 +441,9 @@ def _run_typed_loop(
     print(f"{_pfx} final verify after {max_iters} iter(s)...")
     final_findings = _call_reviewer(text, lua_ctx, section_heading, config, file_type, reviewed_context)
     _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after final reviewer call
+    if final_findings is None:
+        print(f"{_pfx} final verify → reviewer failed (all retries exhausted)")
+        return text, [], max_iters + 1  # treat as approved — cannot determine otherwise
     if final_findings:
         print(f"{_pfx} final verify → {len(final_findings)} issue(s) remain unresolved")
     else:
@@ -559,9 +583,13 @@ def run_chunked_content_loop(
                 batch_lua_ctx = extract_lua_context(
                     lua_source, extract_function_names(batch_text), max_tokens=8000
                 )
-                # Create cache for this batch
+                # Create cache for this batch; preserve existing cache on resume
+                # (crash mid-batch leaves the cache at whatever state was last written).
                 batch_cache_id = f"sec{sec_idx}_batch{bi}"
-                cache.create(batch_cache_id, batch_text)
+                if cache.exists(batch_cache_id):
+                    batch_text = cache.read(batch_cache_id)
+                else:
+                    cache.create(batch_cache_id, batch_text)
 
                 print(f"  [content/chunked] Section {sec_idx} batch {bi}/{n_batches} -- reviewing...")
                 batch_text, issues, iters = _run_typed_loop(
