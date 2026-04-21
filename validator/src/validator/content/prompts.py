@@ -160,7 +160,8 @@ Return a JSON array of patches. Each patch replaces a specific text segment:
     {{
         "old_text": "exact text to find in the document",
         "new_text": "replacement text",
-        "reason": "why this change is needed"
+        "reason": "why this change is needed",
+        "allow_drops": false
     }}
 ]
 ```
@@ -173,9 +174,10 @@ Rules:
 - Keep patches minimal — only change what's needed to fix the issues
 - Do NOT modify YAML frontmatter
 - Preserve markdown formatting and structure
-- old_text must NOT span more than one ### function block — never include two or more ### headings in the same old_text
+- old_text should target ONE ### function block — prefer one patch per function
+- To DELETE a single function: old_text = that function's block only, new_text = ""
+- To DELETE multiple contiguous functions at once (e.g., a group of local helpers): span all their ### blocks in old_text, set "allow_drops": true, new_text = "" to remove all of them. Only use allow_drops when the reviewer explicitly asks to remove functions (e.g., local/private functions not in public API).
 - To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
-- To DELETE a function: target only that function's own block, never include surrounding functions in old_text
 - NEVER delete a ## section — never use empty new_text for a ## heading or its content. To rename a ## heading: old_text = the heading line only (e.g. "## OldName"), new_text = the new heading line (e.g. "## NewName")"""
 
     exported_names = extract_lua_exported_names(lua_source)
