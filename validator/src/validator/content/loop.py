@@ -263,6 +263,11 @@ def run_content_loop(
         # Multi-turn correction: when patches fail, tell writer which old_text didn't match
         if failed > 0:
             failed_patches, failure_reasons = _collect_failed_patches(cached_content, patches)
+            guard_blocked = failed - len(failed_patches)
+            if guard_blocked:
+                print(f"  [content]   {guard_blocked} blocked by guard (use allow_drops for intentional removal), {len(failed_patches)} not found/ambiguous")
+            elif failed_patches:
+                print(f"  [content]   {len(failed_patches)} not found/ambiguous")
             if failed_patches:
                 print(f"  [content] Sleeping {NORMAL_SLEEP}s before correction...")
                 time.sleep(NORMAL_SLEEP)

@@ -65,6 +65,8 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
     for patch in patches:
         count = content.count(patch.old_text)
         if count == 0:
+            first_line = patch.old_text.split("\n")[0][:80]
+            print(f"  [content/writer] Patch not found: {first_line!r}")
             failed += 1
         elif count > 1:
             print(f"  [content/writer] Ambiguous patch skipped (old_text appears {count}x): {patch.old_text[:80]!r}")
