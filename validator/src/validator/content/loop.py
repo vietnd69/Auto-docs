@@ -9,7 +9,6 @@ Cache-based flow:
 """
 
 import json
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -37,11 +36,6 @@ _STANDARD_HEADINGS = [
     "## Events & listeners",
 ]
 
-
-def _find_nonstandard_headings(content: str) -> list[str]:
-    """Return ## headings in content that are not in _STANDARD_HEADINGS."""
-    found = re.findall(r'^## .+$', content, re.MULTILINE)
-    return [h.strip() for h in found if h.strip() not in _STANDARD_HEADINGS]
 
 
 def _extract_standard_heading(review: "ReviewResult") -> str:
@@ -186,10 +180,8 @@ def run_content_loop(
                     accepted_headings.add(std_heading)
                     print(f"  [content] Jury ACCEPTED — '{std_heading}' heading check bypassed")
                 else:
-                    # Jury rejected — inject synthetic finding so writer renames sections
-                    print(f"  [content] Jury REJECTED — enforcing standard section names")
-                    # Reconstruct the reviewer's prior response as an assistant turn so the
-                    # reviewer won't re-request the same special case in future iterations.
+                    # Jury rejected — go back to reviewer with verdict injected via prior_turns
+                    print(f"  [content] Jury REJECTED — going back to reviewer in next iteration")
                     prior_assistant = json.dumps({
                         "approved": review.approved,
                         "need_special_case": True,
@@ -212,63 +204,13 @@ def run_content_loop(
                             ),
                         },
                     ])
-                    non_std = _find_nonstandard_headings(cached_content)
-                    if non_std:
-                        targets = " and ".join(f"'{h}'" for h in non_std)
-                        rename_issue = (
-                            f"Jury rejected format exception for '{std_heading}'. "
-                            f"Rename {targets} to '{std_heading}'. "
-                            f"Change ONLY the heading line — never delete the section or its content."
-                        )
-                        rename_suggestion = (
-                            f"Patch: old_text = '{non_std[0]}', new_text = '{std_heading}'. "
-                            f"Never set new_text to empty string when renaming a section."
-                        )
-                    else:
-                        rename_issue = (
-                            f"Jury rejected format exception for '{std_heading}'. "
-                            f"Rename the non-standard section heading to '{std_heading}'. "
-                            f"Change ONLY the heading line — never delete the section or its content."
-                        )
-                        rename_suggestion = (
-                            f"Change the heading line to '{std_heading}'. "
-                            f"Never set new_text to empty string when renaming a section."
-                        )
-                    review = ReviewResult(
-                        approved=False,
-                        issues=[rename_issue],
-                        suggestions=[rename_suggestion],
-                    )
+                    previous_review = review
+                    continue
             elif not jury_verdicts[std_heading]:
-                # Same heading already rejected — re-inject rename instruction
-                print(f"  [content] Reviewer again requests special case for '{std_heading}' but jury already rejected — enforcing standard names")
-                non_std = _find_nonstandard_headings(cached_content)
-                if non_std:
-                    targets = " and ".join(f"'{h}'" for h in non_std)
-                    already_rej_issue = (
-                        f"Section heading does not match required names. "
-                        f"Rename {targets} to '{std_heading}'. "
-                        f"Change ONLY the heading line — never delete the section or its content."
-                    )
-                    already_rej_suggestion = (
-                        f"Patch: old_text = '{non_std[0]}', new_text = '{std_heading}'. "
-                        f"Never set new_text to empty string when renaming a section."
-                    )
-                else:
-                    already_rej_issue = (
-                        f"Section heading does not match required names. "
-                        f"Rename the non-standard section heading to '{std_heading}'. "
-                        f"Change ONLY the heading line — never delete the section or its content."
-                    )
-                    already_rej_suggestion = (
-                        f"Change the heading line to '{std_heading}'. "
-                        f"Never set new_text to empty string when renaming a section."
-                    )
-                review = ReviewResult(
-                    approved=False,
-                    issues=[already_rej_issue],
-                    suggestions=[already_rej_suggestion],
-                )
+                # Same heading already rejected — go back to reviewer (jury_context_turns already contains verdict)
+                print(f"  [content] Reviewer again requests special case for '{std_heading}' but jury already rejected — going back to reviewer")
+                previous_review = review
+                continue
             else:
                 # Jury already accepted this heading — log it and fall through
                 reason_preview = review.special_case_reason[:120]
