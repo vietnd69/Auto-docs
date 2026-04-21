@@ -225,26 +225,48 @@ def rewrite_document(
     return patches, raw
 
 
+def _find_doc_snippet(md_content: str, old_text: str, context_lines: int = 6) -> str:
+    """Find the nearest matching region in the document for a failed old_text.
+
+    Uses the first line of old_text (usually a ### heading) to locate the region,
+    then returns the following lines so the writer can see the exact formatting.
+    """
+    first_line = old_text.split("\n")[0]
+    idx = md_content.find(first_line)
+    if idx == -1:
+        return ""
+    snippet = "\n".join(md_content[idx:].split("\n")[:context_lines])
+    return snippet
+
+
 def _build_correction_user_message(
     failed_patches: list[Patch],
     failure_reasons: list[str],
+    md_content: str = "",
 ) -> str:
-    """Build the follow-up user message for the correction turn.
-
-    Lists each failed patch with its reason so the model knows exactly which
-    old_text values didn't match and can resubmit with corrected values.
-    """
-    rejection_lines = "\n".join(
-        f"  {i + 1}. Reason: {reason}\n"
-        f"     old_text submitted: {p.old_text[:200]!r}"
-        for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons))
-    )
+    """Build the follow-up user message for the correction turn."""
+    parts = []
+    for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons)):
+        part = f"  {i + 1}. Reason: {reason}\n     old_text submitted: {p.old_text[:200]!r}"
+        if md_content and reason == "old_text not found in document":
+            snippet = _find_doc_snippet(md_content, p.old_text)
+            if snippet:
+                part += (
+                    f"\n     Document actually contains"
+                    f" (EXACT whitespace — '*   **' = 3 spaces, '* **' = 1 space, "
+                    f"'    -' = 4-space sub-bullet, '  -' = 2-space sub-bullet):\n{snippet!r}"
+                )
+        parts.append(part)
+    rejection_lines = "\n".join(parts)
     return (
         f"[SYSTEM VALIDATION: REJECTED]\n"
         f"{len(failed_patches)} patch(es) could not be applied:\n\n"
         f"{rejection_lines}\n\n"
         f"Your old_text values did not match the document verbatim. "
-        f"Re-read the document carefully and return corrected patches with exact matching text."
+        f"Most common cause: whitespace in bullet formatting — "
+        f"the document may use '*   **Description:**' (3 spaces) while you wrote '* **Description:**' (1 space). "
+        f"Use the 'Document actually contains' snippets above to copy the exact text character-by-character. "
+        f"Do NOT reconstruct old_text from memory or skill examples."
     )
 
 
@@ -268,7 +290,7 @@ def correct_failed_patches(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
-    correction_message = _build_correction_user_message(failed_patches, failure_reasons)
+    correction_message = _build_correction_user_message(failed_patches, failure_reasons, md_content)
     # Multi-turn: user → assistant (previous raw JSON) → user (correction request)
     # previous_raw is a complete JSON array, compatible with structured output.
     messages = [
