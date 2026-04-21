@@ -268,7 +268,7 @@ def run_content_loop(
                 time.sleep(NORMAL_SLEEP)
                 print(f"  [content] Requesting correction for {len(failed_patches)} failed patch(es)...")
                 correction = correct_failed_patches(
-                    cached_content, lua_source, connected_content,
+                    updated_content, lua_source, connected_content,
                     review, failed_patches, failure_reasons, raw, config.writer_model,
                 )
                 if correction:
@@ -326,6 +326,10 @@ def run_content_loop(
                 issues=[f"Section heading does not match required names. Rename '{std_heading}' to the standard heading."],
                 suggestions=["Rename any non-standard section headings to match the required names exactly"],
             )
+        else:
+            # Jury already accepted this heading in an earlier iteration — bypass the check
+            accepted_headings.add(std_heading)
+            print(f"  [content] Final review requests special case for '{std_heading}' — jury already accepted, bypassing")
 
     status = "approved" if final_review.approved else f"rejected ({len(final_review.issues)} issue(s))"
     print(f"  [content] Final review: {status}")
