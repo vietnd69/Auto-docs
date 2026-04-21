@@ -38,6 +38,7 @@ class Patch:
     old_text: str
     new_text: str
     reason: str
+    allow_drops: bool = False  # skip function-drop guard for intentional deletions
 
 
 @dataclass
@@ -72,14 +73,16 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
         else:
             old_fn_count = len(_FN_HEADING_RE.findall(patch.old_text))
             if old_fn_count >= 2:
-                # Multi-block patch: compare function names in accumulated content before/after
-                # to catch regressions regardless of count (handles rename and swap cases too)
+                # Multi-block patch: compare function names before/after to catch accidental drops.
+                # allow_drops=True bypasses this guard for intentional bulk deletions.
                 candidate = content.replace(patch.old_text, patch.new_text, 1)
                 lost = _fn_names(content) - _fn_names(candidate)
-                if lost:
+                if lost and not patch.allow_drops:
                     print(f"  [content/writer] Patch blocked — multi-block patch drops: {', '.join(sorted(lost))}: {patch.old_text[:60]!r}")
                     failed += 1
                 else:
+                    if lost:
+                        print(f"  [content/writer] Patch allowed (allow_drops) — intentionally drops: {', '.join(sorted(lost))}")
                     content = candidate
             else:
                 content = content.replace(patch.old_text, patch.new_text, 1)
@@ -95,6 +98,7 @@ def _parse_patch_list(data: object) -> list[Patch]:
             old_text=str(item.get("old_text", "")),
             new_text=str(item.get("new_text", "")),
             reason=str(item.get("reason", "")),
+            allow_drops=bool(item.get("allow_drops", False)),
         )
         for item in data
         if isinstance(item, dict) and item.get("old_text")
@@ -142,6 +146,7 @@ def parse_writer_json(data: list) -> list[Patch]:
             old_text=str(item.get("old_text", "")),
             new_text=str(item.get("new_text", "")),
             reason=str(item.get("reason", "")),
+            allow_drops=bool(item.get("allow_drops", False)),
         )
         for item in data
         if isinstance(item, dict) and item.get("old_text")

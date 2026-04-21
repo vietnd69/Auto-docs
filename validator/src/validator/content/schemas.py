@@ -39,6 +39,7 @@ PATCHES_SCHEMA: dict = {
             "old_text": {"type": "string"},
             "new_text": {"type": "string"},
             "reason": {"type": "string"},
+            "allow_drops": {"type": "boolean"},
         },
         "required": ["old_text", "new_text", "reason"],
     },
