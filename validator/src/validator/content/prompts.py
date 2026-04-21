@@ -167,6 +167,9 @@ Return a JSON array of patches. Each patch replaces a specific text segment:
 
 Rules:
 - old_text must be an EXACT substring of the current document
+- CRITICAL: Copy old_text VERBATIM character-by-character from the CURRENT DOCUMENTATION section.
+  The document may use "*   **Description:**" (3 spaces after *) or "* **Description:**" (1 space).
+  You MUST match exactly what the document has — never reconstruct from memory or skill examples.
 - Keep patches minimal — only change what's needed to fix the issues
 - Do NOT modify YAML frontmatter
 - Preserve markdown formatting and structure
