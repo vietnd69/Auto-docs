@@ -52,6 +52,31 @@ inject_into: [analyst, analyst_chunk, analyst_merge, analyst_intermediate, analy
 - `EventHandler(event, fn)` — handles events inside a stategraph.
 - `TimeEvent(time, fn)` — fires function at specific animation frame.
 
+### Stategraph Documentation Rules
+
+Stategraphs are NOT component files. Do NOT use component patterns when documenting them.
+
+**Overview:** Describe the stategraph as an animation state machine, not as a set of utility functions.
+Explicitly state: "Stategraphs are accessed via `StartStateGraph()`, not called as utility functions."
+List the major state categories (locomotion, combat, tool use, etc.) and key component integrations.
+
+**Usage example:** Show `player.sg:GoToState()`, `player.sg:HasStateTag()`, and `ListenForEvent` on the entity.
+Do NOT show `CreateEntity()` + `AddComponent()` — stategraphs are not components.
+
+**Properties:** Document only file-scope local tables and constants used across multiple states
+(e.g., `ATTACK_PROP_MUST_TAGS`, `START_FACE_DIST`). Do NOT list state-local variables.
+
+**Main functions — State Handlers:** Document state handler functions grouped by state name.
+Use the format: `### onenter (statename)` / `### onexit (statename)` / `### ontimeout (statename)`.
+- Only document states with non-trivial logic (more than a simple animation play or tag add/remove).
+- Skip states whose onenter/onexit is a one-liner (e.g., `inst.sg:SetTimeout(1)`).
+- If a file has 100+ states, document representative groups: death states, transformation states,
+  combat states, and any state with error-prone logic. Note omissions explicitly.
+- Do NOT document `TimeEvent` callbacks as separate functions — describe them in the parent state's entry.
+
+**Events:** Document `EventHandler` entries that react to engine events (not state-internal handlers).
+These are stategraph-level event listeners, not component event listeners.
+
 ## Brains (AI)
 
 - `Brain:new(inst)` creates a behavior tree for AI entities.

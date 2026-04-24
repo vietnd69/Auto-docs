@@ -48,6 +48,17 @@ Use EXACTLY these labels (see function_format skill for full format spec):
 - For each function: Description, Parameters, Returns, Error states.
 - Error states = crash or silent state corruption only. NOT normal conditional returns.
 
+### Brain Files — Main Functions
+
+For brain files (files that call `Brain:new()` or extend Brain):
+- Document `OnStart()` and `OnInitializationComplete()` as the primary functions.
+- Document local helper functions (e.g., `GetFaceTargetFn`, `KeepFaceTargetFn`, `LayEgg`) that are
+  passed as callbacks to behavior nodes — these define the actual AI decision logic.
+- Mark local functions as `(local)` in the heading: `### GetFaceTargetFn(inst) (local)`
+- In Properties: document file-scope constants (e.g., `START_FACE_DIST`, `KEEP_FACE_DIST`) with
+  their literal values and the behavior they gate. Without these, the `KeepFaceTargetFn` description
+  is incomplete — readers cannot know the distance thresholds.
+
 ### Non-Trivial Mechanics
 
 If a function's internal logic is non-obvious — especially arithmetic involving accumulators,
