@@ -548,6 +548,30 @@ def fix_malformed_multiline_backticks(text: str) -> tuple[str, int]:
         i += 1
     return "".join(lines), count
 
+def fix_unclosed_code_fence_before_heading(text: str) -> tuple[str, int]:
+    """Close unclosed code fences immediately before ## / ### headings.
+
+    When a ## heading appears inside an open code fence (missing closing ```),
+    Docusaurus renders the entire following section as raw code — headings become invisible.
+    Fix: insert a closing ``` + blank line before the affected heading.
+    """
+    lines = text.splitlines(keepends=True)
+    in_fence = False
+    insertions = 0
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+        elif in_fence and re.match(r"^#{2,3}\s+", lines[i]):
+            lines.insert(i, "```\n")
+            in_fence = False
+            insertions += 1
+            i += 1  # skip the ``` we just inserted; next iteration sees the heading
+        i += 1
+    return "".join(lines), insertions
+
+
 def fix_empty_properties_section(text: str) -> tuple[str, bool]:
     """
     Nếu ## Properties section không có data rows, tự động thêm row None.
@@ -816,6 +840,12 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
     if heading_fixes > 0:
         text = new_text
         applied.append(f"Đã thêm blank line trước {heading_fixes} heading(s) bị thiếu.")
+
+    # Fix unclosed code fences that swallow ## headings (renders sections invisible in Docusaurus)
+    new_text, fence_fixes = fix_unclosed_code_fence_before_heading(text)
+    if fence_fixes > 0:
+        text = new_text
+        applied.append(f"Đã đóng {fence_fixes} code fence bị thiếu ``` trước heading.")
 
     # Ghi file một lần duy nhất cho Phase 1 nếu có thay đổi
     if not dry_run and text != original_text:
