@@ -48,6 +48,25 @@ Use EXACTLY these labels (see function_format skill for full format spec):
 - For each function: Description, Parameters, Returns, Error states.
 - Error states = crash or silent state corruption only. NOT normal conditional returns.
 
+### Non-Trivial Mechanics
+
+If a function's internal logic is non-obvious — especially arithmetic involving accumulators,
+accumulator-ceiling-subtract patterns, or multi-step state transitions — describe the mechanism
+explicitly in the Description. Do NOT reduce it to a vague phrase like "skill-based bonus days"
+when the actual logic is `accumulator = accumulator + bonus; days = math.ceil(accumulator); accumulator = accumulator - days`.
+Readers debugging growth rates or bonus calculations will be blocked without this detail.
+
+### Return Value Accuracy
+
+Before writing the Returns field, mentally trace the function's return statements:
+- `Shave()`-style functions: if `self.bits` is never decremented inside the function but the
+  delta is computed from external state (`dropbits = oldbits - self.bits`), the doc must
+  reflect this — NOT claim the function "removes beard bits" internally.
+- Distinguish between "returns nil implicitly" vs "returns false, 'REASON'" — they have
+  different meanings for callers.
+- Verify that the description of WHAT is returned matches the actual `return` statements,
+  not a paraphrase of the function's intent.
+
 ## Events & Listeners Section
 
 - **Listens to:** Events registered via `inst:ListenForEvent(event, fn)`.

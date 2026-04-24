@@ -23,6 +23,33 @@ Use EXACTLY this structure for every entry in ## Main functions:
   or Returns. Write `None` ONLY when all parameters are nil-checked or the function
   handles nil gracefully.
 
+  **Verification protocol — required before writing `None`:**
+  Scan every line of the function body for:
+  - `self.inst.components.X:Method()` — if there is NO `if X ~= nil` guard immediately
+    before this call, it IS an error state. Document it.
+  - `inst.components.X` accessed on a parameter entity — same rule applies.
+  - Any chained access like `a.b.c` where `a.b` could be nil.
+  A false `None` (claiming no error when an unguarded nil dereference exists) is scored
+  as a critical inaccuracy. A false error (claiming crash when nil guard exists in code)
+  is equally wrong — always verify the guard is absent before listing an error state.
+
+## Multi-Path Functions
+
+If a function has multiple meaningfully distinct code paths controlled by flags or
+conditions (e.g., `recipe.manufactured`, `recipe.dropitem`, `recipe.placer`, `recipe.override_numtogive_fn`),
+document EACH major branch in the Description using a sub-list:
+
+* **Description:** [General action]. Behavior depends on recipe flags:
+  - `recipe.manufactured = true` — prototyper spawns the prefab; this function only removes ingredients and returns early.
+  - `recipe.dropitem = true` — crafted item is dropped on the ground instead of placed in inventory.
+  - `recipe.override_numtogive_fn` set — quantity given is determined by calling this function instead of the recipe default.
+
+Do NOT collapse multi-path functions into a single generic sentence. Missing branches
+are scored as significant omissions (typically 0.5d–1d penalty per missed path).
+
+Also document important pre-condition checks that determine early exit vs normal flow —
+e.g., `PREFAB_SKINS_SHOULD_NOT_SELECT` check that causes `return nil` (not `return false`).
+
 ## Dependency Section Format
 
 Use EXACTLY these labels in ## Dependencies & tags:
