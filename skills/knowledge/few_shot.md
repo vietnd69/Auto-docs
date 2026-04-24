@@ -56,12 +56,12 @@ inst.components.samplecomp:Activate()
 ### `SetDuration(seconds)`
 *   **Description:** Sets the total duration of the buff.
 *   **Parameters:** `seconds` (number) - duration in seconds.
-*   **Returns:** Nothing.
+*   **Returns:** nil
 
 ### `Activate()`
 *   **Description:** Starts the buff timer and adds the `buffed` tag.
 *   **Parameters:** None.
-*   **Returns:** Nothing.
+*   **Returns:** nil
 *   **Error states:** Errors if `self.inst` is nil when `Activate()` calls `self.inst:AddTag()` — no nil guard present.
 
 ## Events & listeners
