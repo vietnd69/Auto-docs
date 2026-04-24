@@ -16,22 +16,53 @@ inject_into: [analyst, analyst_chunk, analyst_merge, analyst_intermediate, analy
 ## File Type Classification
 
 Determine before writing any section:
-- DATA CONFIG FILE: no Class() constructor, no self.inst, returns a plain table/array.
+
+- **DATA CONFIG FILE**: no Class() constructor, no self.inst, returns a plain table/array.
   HOW TO DETECT: source file has NO `Class()` constructor, no `self.inst`, and returns
   a plain table/array at top level → DATA CONFIG FILE.
-  → MUST apply ALL [Data config] rules. Do NOT use [Component] patterns.
-- COMPONENT FILE: has Class(function(self, ...) ... end) constructor.
-  → MUST apply ALL [Component] rules. Do NOT use [Data config] patterns.
-- STATEGRAPH FILE: calls `StateGraph(name, states, events, defaultstate, actionhandlers)`.
-  HOW TO DETECT: file contains `StateGraph(` at top level and defines `State{...}` entries.
-  → MUST apply STATEGRAPH rules (see dst_conventions skill). Do NOT use Component or Data Config patterns.
-- BRAIN FILE: defines a Brain class or returns a BehaviorTree via `Brain:new()`.
-  HOW TO DETECT: file has `Brain:new()` or extends Brain class.
-  → Treat like a Component but with no constructor Properties. Use brain-specific docs patterns.
+  → MUST apply ALL [Data config] rules. Use few_shot_data.
 
-When signals are mixed (e.g., local helper functions that resemble constructors),
-check: does the file's top-level return value contain a plain array/table, not a class instance?
-If yes → DATA CONFIG FILE.
+- **COMPONENT FILE**: has `Class(function(self, ...) ... end)` constructor and is in `components/` or attaches via `inst:AddComponent`.
+  → MUST apply ALL [Component] rules. Use few_shot.
+
+- **REPLICA FILE**: filename ends in `_replica.lua`, defines a Class with `net_*` netvar properties and `SetupRPCs`-style RPC registration.
+  HOW TO DETECT: file in `components/` ends with `_replica.lua` AND constructor declares `self.X = net_bool(...)` or similar netvars.
+  → Treat like a Component but document the master/replica relationship explicitly. See replica_pattern skill.
+
+- **STATEGRAPH FILE**: calls `StateGraph(name, states, events, defaultstate, actionhandlers)`.
+  HOW TO DETECT: file contains `StateGraph(` at top level and defines `State{...}` entries.
+  → MUST apply STATEGRAPH rules (see dst_conventions). Use few_shot_stategraph.
+
+- **BRAIN FILE**: defines a Brain class or returns a BehaviourTree via `Brain:new()` / `Class(Brain, ...)`.
+  HOW TO DETECT: file in `brains/` extends `Brain` or imports `behaviourtree`.
+  → Treat like a Component but with no constructor Properties; document local helper functions
+  and file-scope constants. Use few_shot_brain.
+
+- **BEHAVIOUR FILE**: file in `behaviours/` defines a single behavior node by extending `BehaviourNode`.
+  HOW TO DETECT: file in `behaviours/` declares `MyBehaviour = Class(BehaviourNode, ...)`.
+  → Document `Visit()`, `Reset()`, `DBString()` as Main functions. Usage example shows the node
+  embedded in a SelectorNode/SequenceNode tree, not standalone. Use few_shot_behaviour.
+
+- **WIDGET FILE**: file in `widgets/` extends `Widget` via `Class(Widget, ...)`.
+  HOW TO DETECT: file imports `Widget` from `widgets/widget` and constructor calls `Widget._ctor(self, ...)`.
+  → Document `_ctor`, `AddChild`-built children, event handlers (`OnGainFocus`, `OnLoseFocus`,
+  `OnControl`). Usage example shows `screen:AddChild(MyWidget(...))`. Use few_shot_widget.
+
+- **SCREEN FILE**: file in `screens/` extends `Screen` via `Class(Screen, ...)`.
+  HOW TO DETECT: file imports `Screen` and is in `screens/` (or root-level screen file).
+  → Document `_ctor`, `OnControl`, `OnUpdate`, navigation methods. Usage example shows
+  `TheFrontEnd:PushScreen(MyScreen(...))`. Use few_shot_screen.
+
+- **PREFAB FILE**: file in `prefabs/` calls `return Prefab(name, fn, assets, deps)` (or `MakePlayerCharacter`).
+  HOW TO DETECT: top-level `return Prefab(...)` or wrapper macro returning a Prefab table.
+  → Document `fn()` (the constructor entry point), `master_postinit`, the assets table,
+  and the prefab table itself. Usage example: `SpawnPrefab("name")`. Use few_shot_prefab.
+
+When signals are mixed (e.g., a brain file that also defines a local Widget), classify by the
+file's primary export — what does the top-level `return` produce?
+
+When in doubt, prefer the more specific classification (REPLICA over COMPONENT, BEHAVIOUR over
+BRAIN) since their few-shots/rules are stricter subsets.
 
 ## Completeness
 
