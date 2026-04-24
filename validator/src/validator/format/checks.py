@@ -146,6 +146,44 @@ def check_duplication(text: str) -> list[ValidationError]:
 
 
 
+def check_unclosed_code_fences(text: str) -> list[ValidationError]:
+    """Detect ## headings that fall inside an unclosed code fence block.
+
+    An unclosed fence is valid MDX syntax — the compiler accepts it without error,
+    but Docusaurus renders everything after the opening ``` as raw code, making all
+    following headings and sections invisible on the page.
+    """
+    errors: list[ValidationError] = []
+    in_fence = False
+    fence_start_line: int | None = None
+
+    for lineno, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            if not in_fence:
+                in_fence = True
+                fence_start_line = lineno
+            else:
+                in_fence = False
+                fence_start_line = None
+        elif in_fence and re.match(r"^#{2,3}\s+", line):
+            errors.append(ValidationError(
+                "format", "error",
+                f"Heading '{stripped}' at line {lineno} is inside an unclosed code fence "
+                f"(opened at line {fence_start_line}). Add closing ``` before this heading.",
+                line=lineno,
+            ))
+
+    if in_fence and fence_start_line is not None:
+        errors.append(ValidationError(
+            "format", "error",
+            f"Unclosed code fence opened at line {fence_start_line} — never closed before end of file.",
+            line=fence_start_line,
+        ))
+
+    return errors
+
+
 def check_filler_text(text: str) -> list[ValidationError]:
     """Check for filler text like '(End of documentation)'."""
     if re.search(r'\(End of (documentation|example)\)', text, re.IGNORECASE):
@@ -183,6 +221,9 @@ def validate_all(filepath: str, accepted_headings: set[str] | None = None) -> li
 
     # Filler text
     errors.extend(check_filler_text(raw))
+
+    # Unclosed code fences (headings inside open fences render as invisible code)
+    errors.extend(check_unclosed_code_fences(raw))
 
     # MDX validation
     from validator.format.mdx import validate_mdx
