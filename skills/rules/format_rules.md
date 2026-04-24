@@ -40,6 +40,16 @@ Docusaurus fails on bare JSX tokens:
 - Never leave bare angle brackets or curly braces in plain text.
 - Do NOT use unescaped `{{` or `}}` in regular prose.
 
+## Code Fence Closure
+
+Every fenced code block opened with ` ``` ` MUST be closed with a matching ` ``` ` before the next `##` or `###` heading.
+A code block that bleeds into a heading causes Docusaurus to render the entire following section as raw code — the heading disappears from the page.
+
+**Mandatory self-check after writing `## Usage example`:**
+- Confirm the closing ` ``` ` appears on its own line.
+- Confirm there is a blank line between the closing fence and the next `##` heading.
+- If the code block is missing its closing fence, the MDX validator will flag it as a compile error.
+
 ## Heading Rules
 
 - Sentence case: "Main functions" not "Main Functions". Proper nouns/acronyms stay capitalized.
