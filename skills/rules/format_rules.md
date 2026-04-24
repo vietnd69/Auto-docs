@@ -12,7 +12,12 @@ Never change this order:
 `## Overview` → `## Usage example` → `## Dependencies & tags` → `## Properties` → `## Main functions` → `## Events & listeners`
 
 Do NOT omit, reorder, or rename these sections.
-**Exception:** `## Events & listeners` may be omitted when the source file has no events (no `ListenForEvent` or `PushEvent` calls).
+
+**Allowed omissions:**
+- `## Events & listeners` may be omitted when the source file has no events (no `ListenForEvent` or `PushEvent` calls).
+- `## Properties` may be omitted ONLY for stategraph files with no file-scope local tables/constants. If any file-scope local exists (e.g., `ATTACK_PROP_MUST_TAGS`, `START_FACE_DIST`), Properties section is REQUIRED.
+
+For all other file types, the Properties section is mandatory — use the `| None | | | No properties are defined. |` row when no properties exist.
 
 ## Output Format
 
