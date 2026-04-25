@@ -378,6 +378,7 @@ def _render_file(
                 today_date=config.TODAY_DATE,
                 version=config.VERSION,
                 category_type=category_type,
+                lua_type=category_type,
                 model_name=MODEL_NAME,
                 chunk_sleep=10,
                 merge_sleep=20,
