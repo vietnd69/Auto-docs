@@ -89,3 +89,4 @@ local assets = {
 - **Listens to (set up in master_postinit):** `attacked` -- triggers brain re-evaluation by clearing target.
 - **Listens to:** `death` -- spawns loot via `inst.components.lootdropper:DropLoot()`.
 ```
+```

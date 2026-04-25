@@ -96,3 +96,4 @@ TheFrontEnd:PushScreen(SampleScreen("Are you sure?", OnConfirm))
 ## Events & listeners
 None — screens consume input via OnControl, not engine event subscriptions.
 ```
+```
