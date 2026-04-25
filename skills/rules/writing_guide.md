@@ -59,6 +59,51 @@ For brain files (files that call `Brain:new()` or extend Brain):
   their literal values and the behavior they gate. Without these, the `KeepFaceTargetFn` description
   is incomplete — readers cannot know the distance thresholds.
 
+### Behaviour Files — Main Functions
+
+For files in `behaviours/` extending `BehaviourNode`:
+- Document `_ctor`, `Visit`, `Reset`, `DBString` as the primary functions.
+- Properties section MUST list the constructor parameters as widget-style state (e.g., `inst`, `predicate`, `maxtime`)
+  AND any internal cursor state (`starttime`, `running_action`).
+- Usage example shows the node embedded inside a SelectorNode/SequenceNode tree, NOT instantiated standalone.
+- Do NOT use `CreateEntity()` + `AddComponent()` patterns.
+
+### Widget Files — Main Functions
+
+For files in `widgets/` extending `Widget`:
+- Document `_ctor` first, then layout/state methods (`SetValue`, `SetEnabled`, etc.), then lifecycle hooks
+  (`OnGainFocus`, `OnLoseFocus`, `OnHide`, `OnShow`, `OnUpdate`, `OnControl`).
+- Properties section lists child widgets created in `_ctor` (e.g., `icon`, `label`, `bg`) PLUS state values.
+- Usage example shows `screen:AddChild(MyWidget(...))` followed by 1-2 method calls.
+- Do NOT mention `inst.components` or ECS — widgets are pure UI.
+
+### Screen Files — Main Functions
+
+For files in `screens/` extending `Screen`:
+- Document `_ctor`, `OnControl`, `OnUpdate`, plus user-facing methods (`OnConfirm`, `OnCancel`, navigation).
+- Properties section lists child widgets and screen-state values (selection index, mode flags).
+- Usage example shows `TheFrontEnd:PushScreen(MyScreen(...))`.
+- Mention modal vs non-modal behaviour and which controls the screen captures.
+
+### Prefab Files — Main Functions
+
+For files in `prefabs/` returning `Prefab(...)`:
+- Document `fn()` (client-side constructor) and `master_postinit(inst)` (server-only init) as primary functions.
+- If the file defines `OnSave`, `OnLoad`, `OnEntityWake`, `OnEntitySleep`, document them as separate entries.
+- Properties section lists `assets`, `prefabs` arrays + key `TUNING.*` constants the prefab consumes.
+- Usage example shows `SpawnPrefab("name")` and the assets array.
+- Dependencies & tags MUST list every component attached, every stategraph/brain set, every tag added.
+
+### Replica Files — Main Functions
+
+For files matching `*_replica.lua`:
+- Document the constructor (declares netvars), each `Get*` accessor (read-only on client), and any
+  `Set*` methods that route to the master via netvar assignment.
+- Properties section lists every netvar (`net_bool`, `net_int`, `net_string`, etc.) with its default
+  value and what state it mirrors from the master component.
+- Usage example shows client-side access: `if inst.replica.combat:CanTarget(other) then ... end`.
+- Mark methods that ONLY run on master with `(master only)` and methods that ONLY run on client with `(client only)`.
+
 ### Non-Trivial Mechanics
 
 If a function's internal logic is non-obvious — especially arithmetic involving accumulators,
