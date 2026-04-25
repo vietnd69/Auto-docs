@@ -529,3 +529,71 @@ issue:    {issue_val}
 {target_text}"""
 
     return system_prompt, user_content
+
+
+def build_typed_writer_batch_prompt(
+    batch_text: str,
+    lua_context: str,
+    findings: list,  # list of Finding
+    section_heading: str = "",
+    file_type: str = "component",
+) -> tuple[str, str]:
+    """Writer prompt that fixes multiple Findings in one LLM call, returning a list of TypedOps.
+
+    Returns (system_prompt, user_content) for multi-role conversation.
+    """
+    lua_block = f"```lua\n{lua_context}\n```" if lua_context else "(none)"
+
+    system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API docs.
+Fix ALL listed issues by returning a JSON array of typed operations. Return JSON only.
+
+=== SKILLS ===
+{combine_skills("writer_typed")}
+
+=== OPERATION TYPES ===
+- update_section:   replace the full section text (Overview, Usage example rewrites)
+- update_field:     replace one field's inline value (single-line field label only)
+- rewrite_function: replace the entire ### function block for the named function
+- delete_function:  remove the ### function block (use for hallucinated functions)
+
+IMPORTANT for update_section on "## Main functions": the content field MUST contain ONLY the
+function blocks that appear in the === SECTION TEXT === block shown to you. Do NOT expand it
+to include functions from other batches or the full file. If you need to fix all functions,
+emit one rewrite_function op per function instead.
+
+=== RESPONSE FORMAT ===
+Return a JSON array — one object per issue (may merge issues targeting the same function):
+[
+  {{
+    "op": "update_section | update_field | rewrite_function | delete_function",
+    "section": "## Section heading",
+    "function": "FunctionName or null",
+    "field": "FieldName or null",
+    "value": "new single-line field value or null",
+    "content": "full replacement content or null"
+  }}
+]"""
+
+    issue_lines: list[str] = []
+    for i, finding in enumerate(findings, 1):
+        fn_val  = getattr(finding, "function", None)
+        fld_val = getattr(finding, "field", None)
+        rule_val  = getattr(finding, "rule_id", "")
+        issue_val = getattr(finding, "issue", "")
+        section_val = getattr(finding, "section", section_heading)
+        issue_lines.append(
+            f"{i}. section={section_val}  function={fn_val or '(none)'}  "
+            f"field={fld_val or '(none)'}  rule_id={rule_val}\n   issue: {issue_val}"
+        )
+    issues_block = "\n".join(issue_lines)
+
+    user_content = f"""=== LUA CONTEXT (ground truth) ===
+{lua_block}
+
+=== ISSUES TO FIX ({len(findings)} total) ===
+{issues_block}
+
+=== SECTION TEXT ===
+{batch_text}"""
+
+    return system_prompt, user_content
