@@ -15,7 +15,7 @@ import json
 
 from prompts.standard import build_prompt as build_single_prompt  # noqa: F401
 from prompts.pre_synthesis import PreSynthesisResult
-from prompts.skills_loader import combine_skills
+from prompts.skills_loader import combine_skills, few_shot_excludes, load_trimmed_writing_guide
 
 
 def build_intermediate_merge_prompt(
@@ -106,12 +106,16 @@ def build_chunk_prompt(
     today_date: str = "",
     version: str = "",
     category_type: str = "",
+    lua_type: str = "",
 ) -> str:
     """
     Tạo prompt cho 1 chunk của file Lua.
     LLM output ONLY JSON matching the fixed schema — no markdown, no prose.
     JSON sẽ được parse bởi pre_synthesize() trong pre_synthesis.py.
     """
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_chunk", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer and a veteran mod developer for the game Don't Starve Together (DST).
 You are analyzing CHUNK {chunk_index} of {total_chunks} from the Lua source file: {display_filepath}
 
@@ -132,7 +136,7 @@ Your task is to extract ALL functions, properties, events, dependencies, and tag
    {connected_content if connected_content else "No function source code available. Base your analysis solely on the target file's own code."}
 
 === SKILLS ===
-{combine_skills("analyst_chunk")}
+{_skills}
 
 === OUTPUT FORMAT ===
 
@@ -250,6 +254,7 @@ def build_merge_prompt(
     version: str = "",
     category_type: str = "",
     sidebar_position: int = 10,
+    lua_type: str = "",
 ) -> str:
     """
     Tạo prompt tổng hợp — nhận PreSynthesisResult đã pre-filled.
@@ -273,6 +278,9 @@ def build_merge_prompt(
         "pushes": presynthesis.events_pushes,
     }, indent=2, ensure_ascii=False)
 
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 You are creating the final documentation for the component "{comp_name}" from file {display_filepath}.
@@ -293,7 +301,7 @@ Your task is to format this data into a well-organized Markdown document and wri
    {connected_content if connected_content else "No function source code available."}
 
 === SKILLS ===
-{combine_skills("analyst_merge")}
+{_skills}
 
 === PARTIAL DESCRIPTIONS (one per chunk) ===
 Synthesize these into a single description sentence for the YAML frontmatter.
@@ -399,18 +407,22 @@ def build_deps_props_prompt(
     game_tags_json: str,
     external_deps_json: str,
     props_json: str,
+    lua_type: str = "",
 ) -> str:
     """
     Pass 1a — format `## Dependencies & tags` and `## Properties` from JSON.
     Output ONLY those 2 sections, no YAML frontmatter, no overview.
     """
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 You are formatting 2 sections for the component "{comp_name}" from file {display_filepath}.
 No prose is needed — format the provided JSON data into the exact Markdown structure specified.
 
 === FORMAT SPECIFICATION ===
-{combine_skills("analyst_merge")}
+{_skills}
 
 === DEPENDENCIES (pre-extracted) ===
 {deps_json}
@@ -452,6 +464,7 @@ def build_functions_batch_prompt(
     functions_batch: list[dict],
     batch_index: int,
     total_batches: int,
+    lua_type: str = "",
 ) -> str:
     """
     Pass 1b — format a batch of functions into ### FunctionName(params) headings.
@@ -459,12 +472,15 @@ def build_functions_batch_prompt(
     """
     funcs_json = _compact_functions_json(functions_batch)
 
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 You are formatting batch {batch_index}/{total_batches} of `## Main functions` for the component "{comp_name}" from file {display_filepath}.
 
 === FORMAT SPECIFICATION ===
-{combine_skills("analyst_merge")}
+{_skills}
 
 === FUNCTIONS (this batch) ===
 {funcs_json}
@@ -493,17 +509,21 @@ def build_events_prompt(
     comp_name: str,
     display_filepath: str,
     events_json: str,
+    lua_type: str = "",
 ) -> str:
     """
     Pass 1c — format `## Events & listeners` from JSON.
     Output ONLY the ## Events & listeners section.
     """
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 You are formatting the `## Events & listeners` section for the component "{comp_name}" from file {display_filepath}.
 
 === SKILLS ===
-{combine_skills("analyst_merge")}
+{_skills}
 
 === EVENTS (pre-extracted) ===
 {events_json}
@@ -547,6 +567,7 @@ def build_prose_prompt(
     category_type: str = "",
     sidebar_position: int = 10,
     source_hash: str = "",
+    lua_type: str = "",
 ) -> str:
     """
     Pass 2 — write YAML frontmatter + ## Overview + ## Usage example.
@@ -564,6 +585,9 @@ def build_prose_prompt(
     game_tags_json = json.dumps(presynthesis.game_tags, ensure_ascii=False)
     external_deps_json = json.dumps(presynthesis.external_deps, ensure_ascii=False)
 
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 You are writing the document header for the component "{comp_name}" from file {display_filepath}.
@@ -571,7 +595,7 @@ Your task: write ONLY the YAML frontmatter, title heading, version line, ## Over
 Stop after ## Usage example. Do NOT write ## Dependencies & tags or any section below it.
 
 === SKILLS ===
-{combine_skills("analyst_merge")}
+{_skills}
 
 === CONTEXT ===
 
@@ -664,6 +688,7 @@ def _build_merge_prompt_legacy(
     category_type: str = "",
     sidebar_position: int = 10,
     input_label: str = "CHUNK",
+    lua_type: str = "",
 ) -> str:
     """
     Legacy text-based merge prompt — used by hierarchical_merge() and rolling_merge_to_one().
@@ -679,6 +704,9 @@ def _build_merge_prompt_legacy(
         f"You have previously analyzed a large Lua source file. Below are {len(chunk_results)} intermediate group analyses."
     )
 
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge_legacy", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 {desc_line}
@@ -698,7 +726,7 @@ Below are the analysis results from each portion. Your task is to MERGE them int
    {connected_content if connected_content else "No function source code available."}
 
 === SKILLS ===
-{combine_skills("analyst_merge_legacy")}
+{_skills}
 
 === CHUNK ANALYSIS RESULTS ===
 {merged_chunks}
