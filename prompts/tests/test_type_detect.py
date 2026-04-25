@@ -48,7 +48,7 @@ def run_tests():
     check("replica suffix in root", detect_lua_type("./container_replica.lua") == "replica")
 
     # Backslash normalization
-    check("backslash normalized", detect_lua_type(".\\brains\\pigbrain.lua") == "brains")
+    check("backslash normalized", detect_lua_type(r".\brains\pigbrain.lua") == "brains")
 
     # Case insensitive directory
     check("uppercase dir", detect_lua_type("./Brains/pigbrain.lua") == "brains")
