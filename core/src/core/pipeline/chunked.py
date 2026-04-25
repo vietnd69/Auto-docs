@@ -95,6 +95,7 @@ from prompts.chunked import (
     build_prose_prompt,
 )
 from prompts.pre_synthesis import pre_synthesize
+from prompts.type_detect import detect_lua_type
 
 _MULTIPASS_FUNC_THRESHOLD = 100
 
@@ -376,6 +377,7 @@ def multipass_merge(
     today_date: str = "",
     version: str = "",
     category_type: str = "",
+    lua_type: str = "",
     sidebar_position: int = 10,
     model_name: str = "qwen3-coder-next:cloud",
     sleep_time: int = 10,
@@ -425,7 +427,8 @@ def multipass_merge(
         external_deps_json = json.dumps(presynthesis.external_deps, indent=2, ensure_ascii=False)
         props_json = json.dumps(presynthesis.constructor_properties, indent=2, ensure_ascii=False)
         prompt = build_deps_props_prompt(
-            comp_name, display_filepath, deps_json, game_tags_json, external_deps_json, props_json
+            comp_name, display_filepath, deps_json, game_tags_json, external_deps_json, props_json,
+            lua_type=lua_type,
         )
         section_counter += 1
         result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
@@ -445,7 +448,10 @@ def multipass_merge(
                 # Already done
                 section_counter += 1
                 continue
-            prompt = build_functions_batch_prompt(comp_name, display_filepath, batch, batch_idx, total_batches)
+            prompt = build_functions_batch_prompt(
+                comp_name, display_filepath, batch, batch_idx, total_batches,
+                lua_type=lua_type,
+            )
             section_counter += 1
             result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
             if result is None:
@@ -463,7 +469,7 @@ def multipass_merge(
             indent=2,
             ensure_ascii=False,
         )
-        prompt = build_events_prompt(comp_name, display_filepath, events_json)
+        prompt = build_events_prompt(comp_name, display_filepath, events_json, lua_type=lua_type)
         section_counter += 1
         result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
         if result is None:
@@ -489,6 +495,7 @@ def multipass_merge(
             today_date=today_date,
             version=version,
             category_type=category_type,
+            lua_type=lua_type,
             sidebar_position=sidebar_position,
             source_hash=source_hash,
         )
@@ -728,6 +735,7 @@ def process_chunked_file(
     today_date: str = "",
     version: str = "",
     category_type: str = "",
+    lua_type: str = "",
     model_name: str = "qwen3-coder-next:cloud",
     chunk_sleep: int = 10,
     merge_sleep: int = 20,
@@ -857,6 +865,7 @@ def process_chunked_file(
             today_date=today_date,
             version=version,
             category_type=category_type,
+            lua_type=lua_type,
             file_tree=file_tree,
             connected_section=chunk_section,
             connected_content=chunk_content,
@@ -932,6 +941,7 @@ def process_chunked_file(
                 today_date=today_date,
                 version=version,
                 category_type=category_type,
+                lua_type=lua_type,
                 file_tree=file_tree,
                 connected_section=chunk_section,
                 connected_content=chunk_content,
@@ -1023,6 +1033,7 @@ def process_chunked_file(
             today_date=today_date,
             version=version,
             category_type=category_type,
+            lua_type=lua_type,
             sidebar_position=sidebar_position,
             model_name=model_name,
             sleep_time=merge_sleep,
@@ -1038,6 +1049,7 @@ def process_chunked_file(
             today_date=today_date,
             version=version,
             category_type=category_type,
+            lua_type=lua_type,
             sidebar_position=sidebar_position,
             file_tree=file_tree,
             connected_section=connected_section,

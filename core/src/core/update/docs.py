@@ -24,6 +24,7 @@ from llm.paths import BASE_DOCS_DIR, BASE_LUA_DIR, DATA_DIR, PROJECT_ROOT
 from llm.settings import DEBUG_PROMPTS, MODEL_MAIN as MODEL_NAME
 from llm.tokens import count_tokens
 from prompts.standard import build_prompt
+from prompts.type_detect import detect_lua_type
 from rag.content import extract_connected_content
 from rag.docs import (
     compute_source_hash,
@@ -62,11 +63,6 @@ def parse_args():
 def get_md_path(lua_rel_path: str) -> str:
     rel_no_ext = lua_rel_path.replace(".lua", "")
     return os.path.join(DOCS_DIR, f"{rel_no_ext}.md").replace("\\", "/")
-
-
-def get_category_type(lua_rel_path: str) -> str:
-    parts = lua_rel_path.split("/")
-    return parts[0] if len(parts) > 1 else "root"
 
 
 def load_diff_report() -> dict | None:
@@ -295,7 +291,7 @@ def _render_file(
     comp_name = os.path.basename(rel_no_ext)
     comp_title = comp_name.replace("_", " ").title()
     display_filepath = f"./{path}"
-    category_type = get_category_type(path)
+    category_type = detect_lua_type(display_filepath)
     lua_abs_path = os.path.join(SCRIPTS_DIR, path)
 
     lua_code = safe_read_lua(lua_abs_path)
