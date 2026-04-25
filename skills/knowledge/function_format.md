@@ -65,6 +65,32 @@ Use EXACTLY these labels in ## Dependencies & tags:
 - `tag_name` -- add / remove / check
 (Write `None` if game_tags JSON is empty)
 
+## Heading & Receiver Convention
+
+- Function entry heading uses `### \`Name(params)\`` regardless of whether the function is
+  declared as `function MyClass:Method(...)` or `function MyClass.Method(...)` in source.
+- Do NOT include `self:` or `MyClass:` in the heading. The owning class is implied by the
+  document's `## Main functions` section.
+- For local helper functions in brain files, include the `(local)` marker AFTER the parens:
+  `### \`GetWanderPoint(inst)\` (local)`.
+- For functions named exactly `_ctor` (Widget/Screen/Behaviour constructors), keep the
+  underscore: `### \`_ctor(prompt, on_confirm)\``.
+
+## Constructors
+
+- Component constructors are passed to `Class(function(self, inst) ... end)` — they are
+  documented as Properties (the `self.X = value` assignments), NOT as a function entry.
+- Widget/Screen/Behaviour constructors are explicit `_ctor` methods — they ARE documented as
+  function entries in `## Main functions` with the parameter list.
+- Brain constructors are typically empty/inherited — do NOT document them.
+
+## Async / Coroutine Functions
+
+- If a function is started via `inst:StartThread(...)` or contains `Sleep(...)` calls, prefix
+  the Description with "**Coroutine.**" so readers know the function yields:
+  `* **Description:** **Coroutine.** Periodically polls X and yields via Sleep(0.5)...`
+- DoTaskInTime / DoPeriodicTask callbacks are NOT coroutines — do not mark them.
+
 ## Few-Shot Example
 
 Mirror this format only. Do NOT copy the content:
