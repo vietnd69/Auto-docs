@@ -124,6 +124,55 @@ Flag each missed branch separately:
 - **Pushes:** events fired via inst:PushEvent(event, data)
 Omit this section entirely if the component has no events.
 
+## Typed Checks per File Type
+
+Apply these AFTER the generic checklist. The file type is determined by the rules in
+`content_rules` (DATA CONFIG / COMPONENT / REPLICA / STATEGRAPH / BRAIN / BEHAVIOUR / WIDGET /
+SCREEN / PREFAB).
+
+### Stategraph file checks
+- Main functions headings follow `### \`onenter (statename)\`` / `### \`ontimeout (statename)\`` /
+  `### \`onexit (statename)\``. Flag if a state's onenter contains non-trivial logic but no entry exists.
+- Properties section lists ONLY file-scope locals (e.g., `ATTACK_PROP_MUST_TAGS`). State-local
+  variables MUST NOT appear.
+- Events & listeners lists EventHandler entries that react to ENGINE events, not state-internal handlers.
+- Usage example uses `inst.sg:GoToState(...)` / `inst.sg:HasStateTag(...)`, NOT `CreateEntity()` + `AddComponent()`.
+
+### Brain file checks
+- `OnStart()` is documented and the description names the root SelectorNode/SequenceNode children.
+- Local helper functions passed as callbacks to behaviour nodes are documented with `(local)` marker.
+- File-scope constants gating behaviour (e.g., `START_FACE_DIST = 20`) appear in the Properties table.
+- Events & listeners section is typically `None` — flag only if source actually has ListenForEvent.
+
+### Behaviour file checks
+- `Visit`, `Reset`, `DBString` are documented (they form the BehaviourNode contract).
+- `_ctor` is documented as a function entry with parameter list.
+- Usage example shows the node embedded inside a SelectorNode/SequenceNode tree, not a standalone
+  call.
+
+### Widget file checks
+- `_ctor` is documented and lists every constructor parameter.
+- Child widgets created via `self:AddChild(...)` appear in the Properties table.
+- Usage example uses `screen:AddChild(MyWidget(...))`. NEVER `CreateEntity` or `AddComponent`.
+- No mention of `inst.components` (widgets do not interact with ECS).
+
+### Screen file checks
+- `_ctor`, `OnControl` documented; `OnUpdate` documented if present.
+- Usage example shows `TheFrontEnd:PushScreen(MyScreen(...))`.
+- Properties section lists child widgets and screen state.
+
+### Prefab file checks
+- `fn()` and `master_postinit(inst)` documented as separate function entries.
+- Properties table lists `assets`, `prefabs` arrays + key TUNING constants consumed by the prefab.
+- Dependencies & tags lists every component attached, the stategraph set, the brain set,
+  and every tag added in fn() or master_postinit.
+- Usage example uses `SpawnPrefab("name")`.
+
+### Replica file checks (per replica_pattern skill)
+- Every netvar declared in source appears in the Properties table.
+- Methods are marked `(master only)` / `(client read)` / `(RPC handler)` as applicable.
+- Overview states the corresponding master component name and what fields are mirrored.
+
 ## Special Case: need_special_case
 
 Use need_special_case=true ONLY when ALL three conditions are true:
