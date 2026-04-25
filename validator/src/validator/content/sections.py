@@ -453,6 +453,26 @@ def ensure_required_fields(fn_blocks: list[str]) -> list[str]:
 
 # ── Apply engine ──────────────────────────────────────────────────────────────
 
+def _canonical_fn_name(raw: str) -> str:
+    """Return canonical function name for precise heading matching.
+
+    Strips trailing (params) when a state-name group also exists, preserving
+    the state name so stategraph handlers match precisely:
+      "onupdate (attack_recoil)(inst)" → "onupdate (attack_recoil)"
+      "onenter (idle)"                 → "onenter (idle)"
+      "GetState(inst)"                 → "GetState"
+    """
+    groups = re.findall(r'\([^)]*\)', raw)
+    if len(groups) >= 2:
+        return raw[:raw.rfind('(')].rstrip()
+    if len(groups) == 1:
+        idx = raw.rfind('(')
+        if idx > 0 and raw[idx - 1] == ' ':
+            return raw.strip()
+        return raw[:idx].rstrip()
+    return raw.strip()
+
+
 def _update_field_in_text(text: str, field: str, value: str) -> str:
     """Replace single-line '* **{field}:** ...' with '* **{field}:** {value}'.
 
@@ -484,7 +504,7 @@ def apply_typed_ops(
     for op in ops:
         if not isinstance(op, TypedOp):
             continue
-        idx = next((i for i, s in enumerate(result) if s.heading == op.section), None)
+        idx = next((i for i, s in enumerate(result) if s.heading.strip().lower() == op.section.strip().lower()), None)
         if idx is None:
             continue  # section not found — silent no-op
         section = result[idx]
@@ -492,14 +512,14 @@ def apply_typed_ops(
         if op.op == "update_section":
             if not op.content:
                 continue  # null/empty content — no-op to avoid wiping the section
-            section.text = op.content
+            section.text = normalize_fn_headings(op.content)
 
         elif op.op == "update_field" and op.function:
             preamble, fn_blocks = split_section_blocks(section.text)
-            op_fn_name = re.sub(r'\s*\(.*$', '', op.function).strip()
+            op_fn_name = _canonical_fn_name(op.function)
             for j, block in enumerate(fn_blocks):
-                bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-                if bm and bm.group(1).strip() == op_fn_name:
+                m = re.match(r'^### `([^`\n]+)`', block.split("\n", 1)[0]) or re.match(r'^### `?([^`\n]+)', block.split("\n", 1)[0])
+                if m and _canonical_fn_name(m.group(1)) == op_fn_name:
                     fn_blocks[j] = _update_field_in_text(block, op.field or "", op.value or "")
                     break
             section.text = preamble + "".join(fn_blocks)
@@ -511,11 +531,11 @@ def apply_typed_ops(
             if not op.content:
                 continue  # null/empty content — no-op to avoid wiping the function block
             preamble, fn_blocks = split_section_blocks(section.text)
-            op_fn_name = re.sub(r'\s*\(.*$', '', op.function).strip()
+            op_fn_name = _canonical_fn_name(op.function)
             for j, block in enumerate(fn_blocks):
-                bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-                if bm and bm.group(1).strip() == op_fn_name:
-                    fn_blocks[j] = op.content
+                m = re.match(r'^### `([^`\n]+)`', block.split("\n", 1)[0]) or re.match(r'^### `?([^`\n]+)', block.split("\n", 1)[0])
+                if m and _canonical_fn_name(m.group(1)) == op_fn_name:
+                    fn_blocks[j] = normalize_fn_headings(op.content)
                     break
             # If function not found: no-op (loop completes without modifying)
             section.text = preamble + "".join(fn_blocks)

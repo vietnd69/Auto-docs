@@ -24,13 +24,14 @@ from rag.docs import safe_read_lua
 from validator.content.loop import ContentLoopConfig, ContentLoopResult
 from validator.content.prompts import (
     build_typed_reviewer_prompt,
-    build_typed_writer_prompt,
+    build_typed_writer_batch_prompt,
     _RULE_IDS_BY_SECTION,
 )
 from validator.content.reviewer import Finding, parse_findings_json
-from validator.content.schemas import FINDINGS_SCHEMA, TYPED_OP_SCHEMA
+from validator.content.schemas import FINDINGS_SCHEMA, TYPED_OPS_LIST_SCHEMA
 from validator.content.sections import (
     DocSection,
+    _canonical_fn_name,
     apply_typed_ops,
     classify_lua_functions,
     ensure_required_fields,
@@ -44,7 +45,7 @@ from validator.content.sections import (
     split_section_blocks,
     sub_chunk_section_lua_aware,
 )
-from validator.content.writer import TypedOp, parse_typed_op_json
+from validator.content.writer import TypedOp, parse_typed_ops_json
 
 _DATA_CONFIG_DIRS = {"map", "languages", "util"}
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
@@ -90,7 +91,7 @@ def _detect_file_type(lua_filepath: str, lua_source: str = "") -> str:
     return "component"
 
 
-def _try_parse_json(raw: str) -> dict | None:
+def _try_parse_json(raw: str) -> dict | list | None:
     """Strip fences and think-tags then parse JSON. Returns None on failure."""
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
@@ -200,28 +201,6 @@ def _call_reviewer(
     return None  # exhausted retries — callers must NOT treat this as approval
 
 
-def _canonical_fn_name(raw: str) -> str:
-    """Return canonical function name for batch-membership matching.
-
-    Strips trailing (params) when a state-name group also exists, preserving
-    the state name so stategraph handlers match precisely:
-      "onupdate (attack_recoil)(inst)" → "onupdate (attack_recoil)"
-      "onenter (idle)"                 → "onenter (idle)"
-      "GetState(inst)"                 → "GetState"
-    """
-    groups = re.findall(r'\([^)]*\)', raw)
-    if len(groups) >= 2:
-        # Two paren groups: state + params → strip last (params)
-        return raw[:raw.rfind('(')].rstrip()
-    if len(groups) == 1:
-        idx = raw.rfind('(')
-        # Space before '(' → state name like "(idle)" → keep
-        # Directly attached → params like "(inst)" → strip
-        if idx > 0 and raw[idx - 1] == ' ':
-            return raw.strip()
-        return raw[:idx].rstrip()
-    return raw.strip()
-
 
 def _extract_target_text(text: str, finding: Finding) -> str | None:
     """Extract the specific text snippet that a finding targets.
@@ -253,23 +232,24 @@ def _extract_target_text(text: str, finding: Finding) -> str | None:
     return text
 
 
-def _call_writer(
-    target_text: str,
+def _call_writer_batch(
+    batch_text: str,
     lua_ctx: str,
-    finding: Finding,
+    findings: "list[Finding]",
     config: ContentLoopConfig,
     file_type: str,
-) -> TypedOp | None:
-    """Call the writer LLM for one Finding and return a TypedOp. Returns None on failure."""
-    system_prompt, user_content = build_typed_writer_prompt(
-        target_text, lua_ctx, finding, finding.section, file_type
+) -> "list[TypedOp]":
+    """Call the writer LLM for all findings in one call. Returns list of TypedOps."""
+    section_heading = findings[0].section if findings else ""
+    system_prompt, user_content = build_typed_writer_batch_prompt(
+        batch_text, lua_ctx, findings, section_heading, file_type
     )
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
     token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/chunked] writer call: {token_count:,} tok")
+    print(f"  [content/chunked] writer call: {token_count:,} tok ({len(findings)} finding(s))")
     if DEBUG_PROMPTS:
         _dump_prompt("chunked_writer", system_prompt + "\n\n" + user_content)
 
@@ -279,7 +259,7 @@ def _call_writer(
         resp = ollama_chat(
             model=config.writer_model,
             messages=messages,
-            format=TYPED_OP_SCHEMA,
+            format=TYPED_OPS_LIST_SCHEMA,
             options={"temperature": WRITER_TEMPERATURE, "think": WRITER_THINK},
         )
         raw = resp["message"]["content"]
@@ -289,10 +269,15 @@ def _call_writer(
         if data is None:
             print(f"  [content/chunked] writer bad JSON (attempt {attempt + 1})")
             continue
-        op = parse_typed_op_json(data)
-        if op and op.op:
-            return op
-    return None
+        # Model may return a single object instead of a wrapped array — coerce defensively
+        if isinstance(data, dict) and data.get("op"):
+            data = [data]
+        ops = parse_typed_ops_json(data)
+        if ops:
+            print(f"  [content/chunked] writer → {len(ops)} op(s)")
+            return ops
+        print(f"  [content/chunked] writer → 0 ops (attempt {attempt + 1})")
+    return []
 
 
 def _run_typed_loop(
@@ -360,17 +345,15 @@ def _run_typed_loop(
         any_actionable = False
         in_batch_count = 0
         oscillating_count = 0
+        actionable: list[Finding] = []
+
         for fi, finding in enumerate(findings, 1):
             fn_label = finding.function or "(section-level)"
-            # Re-read from cache each time (writer may have updated it)
-            text = cache.read(cache_id)
             target_text = _extract_target_text(text, finding)
             pair = (finding.function, finding.field)
             cnt = attempt_counts.get(pair, 0)
             if target_text is None:
                 # Cross-batch hallucination: function lives in another batch.
-                # Record up to 2 skips in unfixed_findings so the reviewer gets context
-                # next iter ("out of scope — do not re-report"). Cap at 2 to avoid growth.
                 if cnt < 2:
                     unfixed_findings.append(finding)
                     attempt_counts[pair] = cnt + 1
@@ -380,7 +363,6 @@ def _run_typed_loop(
             in_batch_count += 1
 
             if cnt >= 2:
-                # Attempted (or skipped) twice already; reviewer still oscillates → block.
                 print(
                     f"{_pfx} {iter_label}: [{fi}/{len(findings)}] "
                     f"oscillation blocked '{fn_label}/{finding.rule_id}' "
@@ -394,46 +376,63 @@ def _run_typed_loop(
                     f"{_pfx} {iter_label}: [{fi}/{len(findings)}] "
                     f"oscillation inject for '{fn_label}/{finding.rule_id}'"
                 )
-
-            print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] '{fn_label}' {finding.rule_id} → writer")
-            op = _call_writer(target_text, lua_ctx, finding, config, file_type)
-            _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)  # sleep after every writer call
-            attempt_counts[pair] = cnt + 1
-            if op is None:
-                print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] writer returned no op")
-                unfixed_findings.append(finding)
-                continue
-            dummy = DocSection(heading=section_heading, text=text)
-            updated = apply_typed_ops(
-                [dummy], [op], frontmatter="",
-                intentionally_removed=intentionally_removed,
-            )
-            new_text = updated[0].text
-            changed = new_text != text
-            op_fn = f" fn='{op.function}'" if op.function else ""
-            op_field = f" field='{op.field}'" if op.field else ""
-            print(
-                f"{_pfx} {iter_label}: [{fi}/{len(findings)}] "
-                f"op={op.op}{op_fn}{op_field} → {'applied' if changed else 'no change'}"
-            )
-            if changed:
-                fixed_findings.append(finding)
             else:
-                unfixed_findings.append(finding)
-            # Writer updates the cache
-            cache.write(cache_id, new_text)
+                print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] '{fn_label}' {finding.rule_id} → writer")
+            actionable.append(finding)
 
         if not any_actionable:
-            # All findings were cross-batch hallucinations — no writes made, reviewer
-            # would see identical content next iteration. Treat batch as approved.
             print(f"{_pfx} {iter_label}: all {len(findings)} finding(s) cross-batch — treating as approved")
             return cache.read(cache_id), [], i + 1
 
         if in_batch_count > 0 and in_batch_count == oscillating_count:
-            # Every in-batch finding has been blocked (injected context did not help).
-            # No further progress is possible; treat the batch as converged.
             print(f"{_pfx} {iter_label}: all {in_batch_count} finding(s) oscillation-blocked — treating as approved")
             return cache.read(cache_id), [], i + 1
+
+        if actionable:
+            ops = _call_writer_batch(text, lua_ctx, actionable, config, file_type)
+            _sleep(config.stop_check, VALIDATOR_CALL_SLEEP)
+
+            if not ops:
+                # Writer gave up (bad JSON / no fix found) — do NOT increment attempt_counts.
+                # Only genuine fix attempts (ops returned) count toward oscillation blocking.
+                # This ensures persistent writer failures exhaust max_iters and reach
+                # the final verify rather than being silently treated as approved.
+                print(f"{_pfx} {iter_label}: writer returned no ops")
+                for finding in actionable:
+                    unfixed_findings.append(finding)
+            else:
+                text_before = text
+                for op in ops:
+                    dummy = DocSection(heading=section_heading, text=text)
+                    updated = apply_typed_ops(
+                        [dummy], [op], frontmatter="",
+                        intentionally_removed=intentionally_removed,
+                    )
+                    new_text = updated[0].text
+                    op_fn = f" fn='{op.function}'" if op.function else ""
+                    op_field = f" field='{op.field}'" if op.field else ""
+                    changed = new_text != text
+                    print(f"{_pfx} {iter_label}: op={op.op}{op_fn}{op_field} → {'applied' if changed else 'no change'}")
+                    text = new_text
+                cache.write(cache_id, text)
+
+                # Update oscillation tracking — compare per-function text before/after
+                for finding in actionable:
+                    pair = (finding.function, finding.field)
+                    attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                    fn_before = _extract_target_text(text_before, finding)
+                    fn_after  = _extract_target_text(text, finding)
+                    if fn_before is not None and fn_after is not None and fn_before != fn_after:
+                        # Function modified (rewrite_function / update_field)
+                        fixed_findings.append(finding)
+                    elif fn_before is not None and fn_after is None and text_before != text:
+                        # Function deleted (delete_function succeeded)
+                        fixed_findings.append(finding)
+                    elif fn_before is None and text_before != text:
+                        # Section-level finding (function=None) — overall text changed
+                        fixed_findings.append(finding)
+                    else:
+                        unfixed_findings.append(finding)
 
     # Final verification: fixes from the last iteration are applied but unreviewed.
     # One extra review confirms whether they resolved the issues.

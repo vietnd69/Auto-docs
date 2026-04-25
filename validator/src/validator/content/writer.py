@@ -181,6 +181,18 @@ def parse_typed_op_json(data: dict) -> "TypedOp | None":
     )
 
 
+def parse_typed_ops_json(data: list) -> "list[TypedOp]":
+    """Parse pre-validated JSON array into a list of TypedOp objects."""
+    if not isinstance(data, list):
+        return []
+    ops: list[TypedOp] = []
+    for item in data:
+        op = parse_typed_op_json(item)
+        if op and op.op:
+            ops.append(op)
+    return ops
+
+
 def rewrite_document(
     md_content: str,
     lua_source: str,
