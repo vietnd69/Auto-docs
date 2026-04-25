@@ -48,6 +48,7 @@ Use EXACTLY these labels (see function_format skill for full format spec):
 - For each function: Description, Parameters, Returns, Error states.
 - Error states = crash or silent state corruption only. NOT normal conditional returns.
 
+<!-- type:brains -->
 ### Brain Files — Main Functions
 
 For brain files (files that call `Brain:new()` or extend Brain):
@@ -58,7 +59,8 @@ For brain files (files that call `Brain:new()` or extend Brain):
 - In Properties: document file-scope constants (e.g., `START_FACE_DIST`, `KEEP_FACE_DIST`) with
   their literal values and the behavior they gate. Without these, the `KeepFaceTargetFn` description
   is incomplete — readers cannot know the distance thresholds.
-
+<!-- /type -->
+<!-- type:behaviours -->
 ### Behaviour Files — Main Functions
 
 For files in `behaviours/` extending `BehaviourNode`:
@@ -67,7 +69,8 @@ For files in `behaviours/` extending `BehaviourNode`:
   AND any internal cursor state (`starttime`, `running_action`).
 - Usage example shows the node embedded inside a SelectorNode/SequenceNode tree, NOT instantiated standalone.
 - Do NOT use `CreateEntity()` + `AddComponent()` patterns.
-
+<!-- /type -->
+<!-- type:widgets -->
 ### Widget Files — Main Functions
 
 For files in `widgets/` extending `Widget`:
@@ -76,7 +79,8 @@ For files in `widgets/` extending `Widget`:
 - Properties section lists child widgets created in `_ctor` (e.g., `icon`, `label`, `bg`) PLUS state values.
 - Usage example shows `screen:AddChild(MyWidget(...))` followed by 1-2 method calls.
 - Do NOT mention `inst.components` or ECS — widgets are pure UI.
-
+<!-- /type -->
+<!-- type:screens -->
 ### Screen Files — Main Functions
 
 For files in `screens/` extending `Screen`:
@@ -84,7 +88,8 @@ For files in `screens/` extending `Screen`:
 - Properties section lists child widgets and screen-state values (selection index, mode flags).
 - Usage example shows `TheFrontEnd:PushScreen(MyScreen(...))`.
 - Mention modal vs non-modal behaviour and which controls the screen captures.
-
+<!-- /type -->
+<!-- type:prefabs -->
 ### Prefab Files — Main Functions
 
 For files in `prefabs/` returning `Prefab(...)`:
@@ -93,7 +98,8 @@ For files in `prefabs/` returning `Prefab(...)`:
 - Properties section lists `assets`, `prefabs` arrays + key `TUNING.*` constants the prefab consumes.
 - Usage example shows `SpawnPrefab("name")` and the assets array.
 - Dependencies & tags MUST list every component attached, every stategraph/brain set, every tag added.
-
+<!-- /type -->
+<!-- type:replica -->
 ### Replica Files — Main Functions
 
 For files matching `*_replica.lua`:
@@ -103,7 +109,7 @@ For files matching `*_replica.lua`:
   value and what state it mirrors from the master component.
 - Usage example shows client-side access: `if inst.replica.combat:CanTarget(other) then ... end`.
 - Mark methods that ONLY run on master with `(master only)` and methods that ONLY run on client with `(client only)`.
-
+<!-- /type -->
 ### Non-Trivial Mechanics
 
 If a function's internal logic is non-obvious — especially arithmetic involving accumulators,
