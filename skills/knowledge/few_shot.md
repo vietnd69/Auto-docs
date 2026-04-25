@@ -68,3 +68,4 @@ inst.components.samplecomp:Activate()
 - **Listens to:** `onhitother` - refreshes the buff timer on hit.
 - **Pushes:** `buff_expired` - fired when the timer reaches zero.
 ```
+```

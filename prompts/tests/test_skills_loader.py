@@ -158,7 +158,7 @@ def run_integration_tests():
     # T15: load_skill on real file
     dst = load_skill("dst_conventions")
     check("integration: load_skill dst_conventions",
-          "ENTITY COMPONENT SYSTEM" in dst.upper(), f"unexpected content: {dst[:40]}")
+          "entity component system" in dst.lower(), f"unexpected content: {dst[:40]}")
 
     # T16: _clear_cache works
     _clear_cache()

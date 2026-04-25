@@ -94,3 +94,4 @@ end
 ## Events & listeners
 None — brain trees react to component state, not engine events directly. Event handling is done in the brain's host stategraph or via component subscriptions.
 ```
+```
