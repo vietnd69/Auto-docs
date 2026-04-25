@@ -1,7 +1,7 @@
 ---
 name: validator_writer
 description: Patch format rules, anchoring examples, and common repeated patterns for documentation fixes
-inject_into: [writer_full, writer_typed]
+inject_into: [writer_full]
 ---
 
 # Validator Writer
