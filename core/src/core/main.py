@@ -17,6 +17,7 @@ from rag.docs import (
     get_lua_files,
 )
 from prompts.standard import build_prompt
+from prompts.type_detect import detect_lua_type
 from core.pipeline.standard import generate_doc
 from core.pipeline.chunking import needs_chunking
 from core.pipeline.chunked import process_chunked_file
@@ -97,7 +98,6 @@ def _main_impl():
     LUA_DIR = os.path.join(BASE_LUA_DIR, "")
     DOCS_DIR = os.path.join(BASE_DOCS_DIR, "")
     VERSION = config.VERSION
-    CATEGORY_TYPE = "root"
     TODAY_DATE = config.TODAY_DATE
     FILE_TREE = config.get_shared_file_tree()
 
@@ -200,6 +200,7 @@ def _main_impl():
 
         filepath = os.path.join(LUA_DIR, filename)
         display_filepath = filepath.replace("./dst-scripts", ".").replace("\\", "/")
+        category_type = detect_lua_type(display_filepath)
 
         lua_code = safe_read_lua(filepath)
         if lua_code is None:
@@ -239,7 +240,7 @@ def _main_impl():
             file_tree=FILE_TREE,
             today_date=TODAY_DATE,
             version=VERSION,
-            category_type=CATEGORY_TYPE,
+            category_type=category_type,
         )
 
         # Đếm token toàn bộ prompt
@@ -264,7 +265,8 @@ def _main_impl():
                     file_tree=FILE_TREE,
                     today_date=TODAY_DATE,
                     version=VERSION,
-                    category_type=CATEGORY_TYPE,
+                    category_type=category_type,
+                    lua_type=category_type,
                     model_name=MODEL_NAME,
                     chunk_sleep=10,
                     merge_sleep=20,
