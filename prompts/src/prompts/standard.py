@@ -3,29 +3,8 @@ Module chua ham build_prompt() -- tao prompt cho LLM.
 Khong chua constants, chi chua template.
 """
 
-from prompts.skills_loader import combine_skills
-
-_DATA_CONFIG_DIRS = {"map", "languages", "util"}
-
-
-def _detect_file_type(display_filepath: str) -> str:
-    """Returns 'component' or 'data_config' based on directory path.
-
-    Expects a relative path as produced by main.py (e.g. './map/a.lua',
-    './components/combat.lua', './achievements.lua'). Absolute paths are
-    unsupported and results are not guaranteed.
-    """
-    normalized = display_filepath.replace("\\", "/")
-    if normalized.startswith("./"):
-        normalized = normalized[2:]
-    elif normalized.startswith("/"):
-        normalized = normalized.lstrip("/")
-    parts = normalized.split("/")
-    if len(parts) == 1:
-        return "data_config"
-    if parts[0].lower() in _DATA_CONFIG_DIRS:
-        return "data_config"
-    return "component"
+from prompts.skills_loader import combine_skills, few_shot_excludes, load_trimmed_writing_guide
+from prompts.type_detect import detect_lua_type
 
 
 def build_prompt(
@@ -46,9 +25,10 @@ def build_prompt(
     Tao prompt day du de gui cho LLM tao tai lieu cho mot file Lua.
     Tat ca config (version, date, tree...) duoc truyen vao qua tham so.
     """
-    file_type = _detect_file_type(display_filepath)
-    exclude = ["few_shot_data"] if file_type == "component" else ["few_shot"]
+    lua_type = detect_lua_type(display_filepath)
+    exclude = [*few_shot_excludes(lua_type), "writing_guide"]
     skills_block = combine_skills("analyst", exclude=exclude)
+    skills_block += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
 
     return f"""=== CONTEXT ===
 
