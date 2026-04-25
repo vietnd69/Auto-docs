@@ -165,6 +165,111 @@ def run_integration_tests():
     check("integration: _clear_cache runs", True)
 
 
+# -- few_shot_excludes tests -----------------------------------------------
+
+def run_few_shot_excludes_tests():
+    from prompts.skills_loader import few_shot_excludes
+
+    ALL_FEW_SHOTS = {
+        "few_shot", "few_shot_brain", "few_shot_behaviour",
+        "few_shot_stategraph", "few_shot_widget", "few_shot_screen",
+        "few_shot_prefab", "few_shot_data",
+    }
+
+    # T-FS1: brains type keeps only few_shot_brain
+    excl = set(few_shot_excludes("brains"))
+    check("few_shot_excludes brains: excludes 7",
+          len(excl) == 7, f"got {len(excl)}")
+    check("few_shot_excludes brains: few_shot_brain NOT excluded",
+          "few_shot_brain" not in excl, "few_shot_brain was excluded")
+    check("few_shot_excludes brains: replica_pattern NOT in excludes",
+          "replica_pattern" not in excl, "replica_pattern should never be excluded")
+
+    # T-FS2: data_config keeps only few_shot_data
+    excl = set(few_shot_excludes("data_config"))
+    check("few_shot_excludes data_config: few_shot_data NOT excluded",
+          "few_shot_data" not in excl, "few_shot_data was excluded")
+    check("few_shot_excludes data_config: few_shot_brain excluded",
+          "few_shot_brain" in excl, "few_shot_brain should be excluded")
+
+    # T-FS3: replica keeps few_shot (general)
+    excl = set(few_shot_excludes("replica"))
+    check("few_shot_excludes replica: few_shot NOT excluded",
+          "few_shot" not in excl, "few_shot was excluded for replica")
+
+    # T-FS4: unknown type keeps few_shot (general fallback)
+    excl = set(few_shot_excludes("nonexistent"))
+    check("few_shot_excludes unknown: few_shot NOT excluded",
+          "few_shot" not in excl, "few_shot was excluded for unknown type")
+
+    # T-FS5: returns a list (not set)
+    result = few_shot_excludes("brains")
+    check("few_shot_excludes returns list",
+          isinstance(result, list), f"got {type(result)}")
+
+
+# -- load_trimmed_writing_guide tests ----------------------------------------
+
+def run_trimmed_writing_guide_tests():
+    from prompts.skills_loader import load_trimmed_writing_guide, _clear_cache
+    _clear_cache()
+
+    # T-WG1: brains type contains Brain section
+    result = load_trimmed_writing_guide("brains")
+    check("writing_guide brains: has Brain section",
+          "Brain Files" in result or "brain files" in result.lower(),
+          f"Brain section missing")
+
+    # T-WG2: brains type does NOT contain other type sections
+    check("writing_guide brains: no Behaviour section",
+          "Behaviour Files" not in result, "Behaviour section present for brains")
+    check("writing_guide brains: no Widget section",
+          "Widget Files" not in result, "Widget section present for brains")
+    check("writing_guide brains: no Screen section",
+          "Screen Files" not in result, "Screen section present for brains")
+    check("writing_guide brains: no Prefab section",
+          "Prefab Files" not in result, "Prefab section present for brains")
+    check("writing_guide brains: no Replica section",
+          "Replica Files" not in result, "Replica section present for brains")
+
+    # T-WG3: replica type contains Replica section only
+    result = load_trimmed_writing_guide("replica")
+    check("writing_guide replica: has Replica section",
+          "Replica Files" in result, "Replica section missing")
+    check("writing_guide replica: no Brain section",
+          "Brain Files" not in result, "Brain section present for replica")
+
+    # T-WG4: cameras type has no type-specific sections
+    result = load_trimmed_writing_guide("cameras")
+    for section in ["Brain Files", "Behaviour Files", "Widget Files", "Screen Files", "Prefab Files", "Replica Files"]:
+        check(f"writing_guide cameras: no {section}",
+              section not in result, f"{section} present for cameras")
+
+    # T-WG5: common content is always present
+    result = load_trimmed_writing_guide("brains")
+    check("writing_guide brains: Constructor Rule present",
+          "Constructor Rule" in result, "Constructor Rule missing")
+    check("writing_guide brains: Non-Trivial Mechanics present",
+          "Non-Trivial Mechanics" in result, "Non-Trivial Mechanics missing")
+
+    # T-WG6: markers stripped from output (not visible to LLM)
+    check("writing_guide markers stripped",
+          "<!-- type:" not in result and "<!-- /type -->" not in result,
+          "Markers visible in output")
+
+
+# -- pytest entry points ----------------------------------------------------
+
+def test_few_shot_excludes():
+    run_few_shot_excludes_tests()
+    assert failed == 0, f"{failed} check(s) failed in run_few_shot_excludes_tests"
+
+
+def test_trimmed_writing_guide():
+    run_trimmed_writing_guide_tests()
+    assert failed == 0, f"{failed} check(s) failed in run_trimmed_writing_guide_tests"
+
+
 # -- entry point ------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -176,5 +281,9 @@ if __name__ == "__main__":
     run_load_skills_for_tests()
     print("\n=== integration tests ===")
     run_integration_tests()
+    print("\n=== few_shot_excludes tests ===")
+    run_few_shot_excludes_tests()
+    print("\n=== load_trimmed_writing_guide tests ===")
+    run_trimmed_writing_guide_tests()
     print(f"\n{passed} passed, {failed} failed")
     sys.exit(1 if failed else 0)

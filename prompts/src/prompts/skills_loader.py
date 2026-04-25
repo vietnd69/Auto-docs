@@ -5,8 +5,11 @@ API:
     combine_skills(target, *, exclude=None) -> str
     load_skill(name) -> str
     load_skills_for(target, *, exclude=None) -> dict[str, str]
+    few_shot_excludes(lua_type) -> list[str]
+    load_trimmed_writing_guide(lua_type) -> str
 """
 import logging as _logging
+import re as _re
 from pathlib import Path
 from pathlib import Path as _Path
 
@@ -151,3 +154,63 @@ def combine_skills(
     for entry in matches:
         parts.append(f"=== SKILL: {entry['name']} ===\n{entry['content']}")
     return "\n\n".join(parts)
+
+
+_ALL_FEW_SHOTS: frozenset[str] = frozenset({
+    "few_shot",
+    "few_shot_brain",
+    "few_shot_behaviour",
+    "few_shot_stategraph",
+    "few_shot_widget",
+    "few_shot_screen",
+    "few_shot_prefab",
+    "few_shot_data",
+})
+
+_FEW_SHOT_FOR_TYPE: dict[str, str] = {
+    "brains": "few_shot_brain",
+    "behaviours": "few_shot_behaviour",
+    "stategraphs": "few_shot_stategraph",
+    "widgets": "few_shot_widget",
+    "screens": "few_shot_screen",
+    "prefabs": "few_shot_prefab",
+    "components": "few_shot",
+    "replica": "few_shot",
+    "cameras": "few_shot",
+    "data_config": "few_shot_data",
+}
+
+_TYPE_BLOCK_RE = _re.compile(
+    r"<!-- type:(\w+) -->\n?(.*?)<!-- /type -->",
+    _re.DOTALL,
+)
+
+
+def few_shot_excludes(lua_type: str) -> list[str]:
+    """Return exclude list for combine_skills() — all few-shots except the one for lua_type."""
+    keep = _FEW_SHOT_FOR_TYPE.get(lua_type, "few_shot")
+    return sorted(_ALL_FEW_SHOTS - {keep})
+
+
+def load_trimmed_writing_guide(
+    lua_type: str,
+    *,
+    _registry_override: dict | None = None,
+) -> str:
+    """Return writing_guide content with only the type-specific section for lua_type.
+
+    Strips all <!-- type:X -->...<!-- /type --> blocks except the one matching lua_type.
+    For types with no dedicated section, strips all type blocks.
+    HTML comment markers are removed from the output.
+    """
+    reg = _get_registry(_override=_registry_override)
+    if "writing_guide" not in reg:
+        return ""
+    content = reg["writing_guide"]["content"]
+
+    def _keep_or_strip(m: _re.Match) -> str:
+        return m.group(2).rstrip("\n") if m.group(1) == lua_type else ""
+
+    result = _TYPE_BLOCK_RE.sub(_keep_or_strip, content)
+    result = _re.sub(r"\n{3,}", "\n\n", result)
+    return result.strip()
