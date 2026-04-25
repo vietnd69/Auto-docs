@@ -98,3 +98,48 @@ These are stategraph-level event listeners, not component event listeners.
 - `inst:StartThread(fn)` — coroutine attached to entity lifecycle.
 - `Sleep(seconds)` inside a coroutine yields execution (non-blocking).
 - `inst:ClearScheduledTask(task)` — cancel a pending task.
+
+## Save / Load Lifecycle
+
+- `OnSave(self)` — return a table of state to persist; called when world saves.
+- `OnLoad(self, data)` — restore state from the saved table on world load.
+- `OnEntityWake(self)` — called when entity becomes active (player nearby).
+- `OnEntitySleep(self)` — called when entity goes idle (no players nearby).
+- `OnRemoveEntity(self)` / `OnRemoveFromEntity(self)` — cleanup when entity is removed.
+
+These are component-level hooks. Document them as Main functions when present.
+
+## AnimState
+
+- `inst.AnimState:PlayAnimation(name, loop)` — start an animation (single play unless loop=true).
+- `inst.AnimState:PushAnimation(name, loop)` — queue after current animation finishes.
+- `inst.AnimState:SetBank(bank)` / `SetBuild(build)` — switch animation bank/build at runtime.
+- `inst.AnimState:OverrideSymbol(symbol, build, src)` — swap a single symbol for skin/customisation.
+- Heavily used in stategraphs (`onenter`/`ontimeout`) and prefab fn().
+
+## SoundEmitter
+
+- `inst.SoundEmitter:PlaySound(path, name, volume, ...)` — play a one-shot or looping sound.
+- `inst.SoundEmitter:KillSound(name)` — stop a named looping sound.
+- `inst.SoundEmitter:SetParameter(name, param, value)` — adjust a live FMOD parameter.
+- Common in stategraphs and combat reactions.
+
+## Action System
+
+- `ACTIONS.X` — action enum entries; consumed by ActionHandler.
+- `ActionHandler(ACTIONS.X, "statename")` — stategraph action binding; routes a player verb to a state.
+- `BufferedAction(doer, target, action, invobject)` — runtime instantiation of an action.
+- `inst.components.X:GetValidActions(target, right)` — component hook returning available actions.
+
+## Skin System
+
+- `inst.skinname` — string identifier for the active skin.
+- `inst.AnimState:OverrideSymbol(...)` driven by skin data is the typical render path.
+- `Prefabs[name].SkinFn` — function applied during prefab construction to apply a skin.
+
+## Replica / Master
+
+- Replica filename pattern: `<componentname>_replica.lua`.
+- Replicas mirror master state via netvars (`net_*`) and expose read-only Get*/Has* accessors on the client.
+- Master-only methods MUST guard with `if not TheWorld.ismastersim then return end`.
+- See `replica_pattern` skill for full replica file documentation conventions.
