@@ -495,7 +495,9 @@ Fix ONE specific issue by returning ONE typed operation. Return JSON only.
 - update_section:   replace the full section text (Overview, Usage example rewrites)
 - update_field:     replace one field's inline value (single-line field label only)
 - rewrite_function: replace the entire ### function block for the named function
-- delete_function:  remove the ### function block (use for hallucinated functions)
+- delete_function:  remove the ### function block (use ONLY for hallucinated functions — not in Lua source at all)
+
+CRITICAL: WRONG_DESCRIPTION and WRONG_ERROR_STATE always require rewrite_function or update_field — NEVER delete_function.
 
 === RESPONSE FORMAT ===
 Return a single JSON object:
@@ -554,7 +556,12 @@ Fix ALL listed issues by returning a JSON array of typed operations. Return JSON
 - update_section:   replace the full section text (Overview, Usage example rewrites)
 - update_field:     replace one field's inline value (single-line field label only)
 - rewrite_function: replace the entire ### function block for the named function
-- delete_function:  remove the ### function block (use for hallucinated functions)
+- delete_function:  remove the ### function block (use ONLY for hallucinated functions — not in Lua source at all)
+
+CRITICAL op selection rules:
+- WRONG_DESCRIPTION, INACCURATE_DESCRIPTION → rewrite_function (never delete_function)
+- WRONG_ERROR_STATE, MISPLACED_ERROR_STATE → update_field field="Error states" (never delete_function)
+- delete_function is NEVER correct for any content accuracy rule_id — only for genuine hallucinations
 
 IMPORTANT for update_section on "## Main functions": the content field MUST contain ONLY the
 function blocks that appear in the === SECTION TEXT === block shown to you. Do NOT expand it

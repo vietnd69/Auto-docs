@@ -201,7 +201,7 @@ def delete_fn_block(text: str, fn_name: str) -> str:
     """
     escaped = re.escape(fn_name)
     pattern = re.compile(
-        rf'^### `?{escaped}\b[^\n]*\n'   # heading line
+        rf'^### `?{escaped}(?=[^a-zA-Z0-9_.])[^\n]*\n'   # heading line
         rf'(?:(?!^##(?:#)? ).*\n?)*',    # body lines until next ## or ### or EOF
         re.MULTILINE,
     )

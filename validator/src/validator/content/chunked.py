@@ -345,6 +345,7 @@ def _run_typed_loop(
         any_actionable = False
         in_batch_count = 0
         oscillating_count = 0
+        oscillation_blocked_findings: list[Finding] = []
         actionable: list[Finding] = []
 
         for fi, finding in enumerate(findings, 1):
@@ -369,6 +370,7 @@ def _run_typed_loop(
                     f"(attempted {cnt}x)"
                 )
                 oscillating_count += 1
+                oscillation_blocked_findings.append(finding)
                 continue
 
             if cnt == 1:
@@ -385,8 +387,12 @@ def _run_typed_loop(
             return cache.read(cache_id), [], i + 1
 
         if in_batch_count > 0 and in_batch_count == oscillating_count:
-            print(f"{_pfx} {iter_label}: all {in_batch_count} finding(s) oscillation-blocked — treating as approved")
-            return cache.read(cache_id), [], i + 1
+            remaining = [f.issue for f in oscillation_blocked_findings]
+            print(
+                f"{_pfx} {iter_label}: all {in_batch_count} finding(s) oscillation-blocked"
+                f" — {len(remaining)} issue(s) unresolved"
+            )
+            return cache.read(cache_id), remaining, i + 1
 
         if actionable:
             ops = _call_writer_batch(text, lua_ctx, actionable, config, file_type)
