@@ -52,16 +52,20 @@ class TypedOp:
     content: str | None = None    # full replacement content, used by update_section/rewrite_function
 
 
-def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["Patch"]]:
-    """Apply patches to content via str.replace(). Returns (new_content, failed_count, ambiguous_patches).
+def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["Patch"], list[tuple["Patch", frozenset[str]]]]:
+    """Apply patches to content via str.replace(). Returns (new_content, failed_count, ambiguous_patches, guard_blocked).
 
     Regression guard: each patch is applied to a temporary copy first. If applying
     it would reduce the number of ### function headings, the patch is rejected —
     this prevents writer from silently dropping functions when old_text spans
     multiple ### blocks and new_text omits some of them.
+
+    guard_blocked is a list of (blocked_patch, lost_fn_names) for patches rejected by
+    the regression guard. These can be used to request a multi-turn correction.
     """
     failed = 0
     ambiguous: list[Patch] = []
+    guard_blocked_list: list[tuple[Patch, frozenset[str]]] = []
     for patch in patches:
         count = content.count(patch.old_text)
         if count == 0:
@@ -81,6 +85,7 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
                 lost = _fn_names(content) - _fn_names(candidate)
                 if lost and not patch.allow_drops:
                     print(f"  [content/writer] Patch blocked — multi-block patch drops: {', '.join(sorted(lost))}: {patch.old_text[:60]!r}")
+                    guard_blocked_list.append((patch, frozenset(lost)))
                     failed += 1
                 else:
                     if lost:
@@ -88,7 +93,7 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
                     content = candidate
             else:
                 content = content.replace(patch.old_text, patch.new_text, 1)
-    return content, failed, ambiguous
+    return content, failed, ambiguous, guard_blocked_list
 
 
 def _parse_patch_list(data: object) -> list[Patch]:
@@ -363,4 +368,96 @@ def correct_failed_patches(
         print(f"  [content/writer] Correction: {len(patches)} patch(es) generated")
     else:
         print(f"  [content/writer] Correction returned no patches")
+    return patches
+
+
+def _build_guard_rejection_message(
+    guard_blocked: list[tuple["Patch", frozenset[str]]],
+) -> str:
+    """Build the user-turn message explaining which patches were blocked by the regression guard."""
+    n = len(guard_blocked)
+    lines = [
+        "[SYSTEM: REGRESSION GUARD REJECTION]",
+        f"{n} patch(es) were blocked because they span multiple ### function blocks and would silently",
+        "drop function documentation. The regression guard requires explicit opt-in to remove functions.",
+        "",
+    ]
+    for i, (patch, lost_fns) in enumerate(guard_blocked, 1):
+        fn_list = ", ".join(sorted(lost_fns))
+        old_preview = patch.old_text[:80]
+        lines.append(f"Patch {i} blocked — would drop: {fn_list}")
+        lines.append(f"  old_text started with: {old_preview!r}")
+        lines.append("")
+    lines += [
+        "To fix each blocked patch, choose ONE approach:",
+        '  (a) Set "allow_drops": true — only if the reviewer EXPLICITLY asked to remove those functions',
+        "  (b) Split into per-function patches — one patch per ### function block, with old_text that",
+        "      targets ONLY that single function. Use the CURRENT DOCUMENT (section 4 above) for exact",
+        "      old_text values.",
+        "",
+        "Return a JSON array of corrected patches for the blocked items ONLY.",
+        "Do NOT re-generate patches for items that were already successfully applied.",
+    ]
+    return "\n".join(lines)
+
+
+def correct_guard_blocked_patches(
+    md_content: str,
+    lua_source: str,
+    connected_content: str,
+    review_feedback: ReviewResult,
+    guard_blocked: list[tuple["Patch", frozenset[str]]],
+    previous_raw: str,
+    model: str,
+) -> list[Patch]:
+    """Multi-turn correction for patches blocked by the regression guard.
+
+    Uses the multi-turn structure:
+        system:    writer prompt system
+        user:      writer prompt user (shows md_content as current document)
+        assistant: previous_raw (the writer's original JSON response)
+        user:      guard rejection message explaining which patches were blocked and why
+    """
+    system_prompt, user_content = build_writer_prompt(
+        md_content, lua_source, connected_content,
+        review_feedback.issues, review_feedback.suggestions,
+    )
+    rejection_message = _build_guard_rejection_message(guard_blocked)
+    token_count = count_tokens(system_prompt + user_content + previous_raw + rejection_message)
+    print(f"  [content/writer] Guard correction prompt: {token_count:,} tokens")
+    if DEBUG_PROMPTS:
+        full = system_prompt + "\n\n" + user_content + "\n\n[ASSISTANT]\n" + previous_raw + "\n\n[USER]\n" + rejection_message
+        _dump_prompt("writer_guard_correction", full)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": previous_raw},
+        {"role": "user", "content": rejection_message},
+    ]
+
+    raw = ""
+    patches: list[Patch] = []
+    for attempt in range(BAD_RESPONSE_RETRIES + 1):
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
+        raw = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_prompt("writer_guard_correction_response", raw)
+        remaining = BAD_RESPONSE_RETRIES - attempt
+        if not raw.strip():
+            if remaining > 0:
+                print(f"  [content/writer] Guard correction empty → retrying ({remaining} left)")
+                continue
+            break
+        patches = parse_writer_response(raw)
+        if patches:
+            break
+        if remaining > 0:
+            print(f"  [content/writer] Guard correction no patches → retrying ({remaining} left)")
+        else:
+            print(f"  [content/writer] Guard correction no patches after {BAD_RESPONSE_RETRIES + 1} attempts")
+
+    if patches:
+        print(f"  [content/writer] Guard correction: {len(patches)} patch(es) generated")
+    else:
+        print(f"  [content/writer] Guard correction returned no patches")
     return patches
