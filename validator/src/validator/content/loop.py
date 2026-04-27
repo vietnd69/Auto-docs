@@ -257,34 +257,39 @@ def run_content_loop(
 
         updated_content, failed, _, guard_blocked_patches = apply_patches(cached_content, patches)
         applied = len(patches) - failed
-        print(f"  [content] Applied {applied}/{len(patches)} patches" +
-              (f" ({failed} failed)" if failed else ""))
+        parts = [f"applied {applied}/{len(patches)}"]
+        if failed:
+            parts.append(f"{failed} failed")
+        print(f"  [content] Patches: {', '.join(parts)}")
 
         # Multi-turn correction: when patches fail, tell writer which old_text didn't match
         if failed > 0:
             failed_patches, failure_reasons = _collect_failed_patches(cached_content, patches)
             guard_blocked_count = len(guard_blocked_patches)
+            breakdown = []
             if guard_blocked_count:
-                print(f"  [content]   {guard_blocked_count} blocked by guard (use allow_drops for intentional removal), {len(failed_patches)} not found/ambiguous")
-            elif failed_patches:
-                print(f"  [content]   {len(failed_patches)} not found/ambiguous")
+                breakdown.append(f"{guard_blocked_count} guard-blocked")
+            if len(failed_patches):
+                breakdown.append(f"{len(failed_patches)} not-found/ambiguous")
+            if breakdown:
+                print(f"  [content]   Failure breakdown: {', '.join(breakdown)}")
             if failed_patches:
                 print(f"  [content] Sleeping {NORMAL_SLEEP}s before correction...")
                 time.sleep(NORMAL_SLEEP)
-                print(f"  [content] Requesting correction for {len(failed_patches)} failed patch(es)...")
+                print(f"  [content] Not-found correction: requesting for {len(failed_patches)} patch(es)...")
                 correction = correct_failed_patches(
                     updated_content, failed_patches, failure_reasons, config.writer_model,
                 )
                 if correction:
                     updated_content, corr_failed, _, _ = apply_patches(updated_content, correction)
                     corr_applied = len(correction) - corr_failed
-                    print(f"  [content] Correction applied {corr_applied}/{len(correction)} patches")
+                    print(f"  [content] Not-found correction: applied {corr_applied}/{len(correction)} patches")
 
         if guard_blocked_patches:
             guard_count = len(guard_blocked_patches)
             print(f"  [content] Sleeping {NORMAL_SLEEP}s before guard correction...")
             time.sleep(NORMAL_SLEEP)
-            print(f"  [content] Requesting guard correction for {guard_count} blocked patch(es)...")
+            print(f"  [content] Guard correction: requesting for {guard_count} blocked patch(es)...")
             guard_correction = correct_guard_blocked_patches(
                 cached_content, lua_source, connected_content,
                 review, guard_blocked_patches, raw, config.writer_model,
@@ -295,7 +300,7 @@ def run_content_loop(
                 # patches generated against cached_content is safe here.
                 updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
                 gc_applied = len(guard_correction) - gc_failed
-                print(f"  [content] Guard correction applied {gc_applied}/{len(guard_correction)} patches")
+                print(f"  [content] Guard correction: applied {gc_applied}/{len(guard_correction)} patches")
 
         # Fallback warning if still majority failed after correction
         if patches and failed > len(patches) / 2:

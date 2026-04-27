@@ -66,14 +66,15 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
     failed = 0
     ambiguous: list[Patch] = []
     guard_blocked_list: list[tuple[Patch, frozenset[str]]] = []
-    for patch in patches:
+    total = len(patches)
+    for idx, patch in enumerate(patches, 1):
         count = content.count(patch.old_text)
         if count == 0:
             first_line = patch.old_text.split("\n")[0][:80]
-            print(f"  [content/writer] Patch not found: {first_line!r}")
+            print(f"  [content/writer] Patch {idx}/{total} NOT FOUND: {first_line!r}")
             failed += 1
         elif count > 1:
-            print(f"  [content/writer] Ambiguous patch skipped (old_text appears {count}x): {patch.old_text[:80]!r}")
+            print(f"  [content/writer] Patch {idx}/{total} AMBIGUOUS ({count}x): {patch.old_text[:80]!r}")
             failed += 1
             ambiguous.append(patch)
         else:
@@ -84,12 +85,12 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
                 candidate = content.replace(patch.old_text, patch.new_text, 1)
                 lost = _fn_names(content) - _fn_names(candidate)
                 if lost and not patch.allow_drops:
-                    print(f"  [content/writer] Patch blocked — multi-block patch drops: {', '.join(sorted(lost))}: {patch.old_text[:60]!r}")
+                    print(f"  [content/writer] Patch {idx}/{total} GUARD BLOCKED (drops: {', '.join(sorted(lost))}): {patch.old_text[:60]!r}")
                     guard_blocked_list.append((patch, frozenset(lost)))
                     failed += 1
                 else:
                     if lost:
-                        print(f"  [content/writer] Patch allowed (allow_drops) — intentionally drops: {', '.join(sorted(lost))}")
+                        print(f"  [content/writer] Patch {idx}/{total} GUARD ALLOWED (allow_drops, drops: {', '.join(sorted(lost))})")
                     content = candidate
             else:
                 content = content.replace(patch.old_text, patch.new_text, 1)
@@ -215,7 +216,7 @@ def rewrite_document(
         review_feedback.issues, review_feedback.suggestions,
     )
     token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/writer] Prompt: {token_count:,} tokens")
+    print(f"  [content/writer] Write prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
         _dump_prompt("writer", system_prompt + "\n\n" + user_content)
     messages = [
@@ -335,7 +336,7 @@ def correct_failed_patches(
         md_content, failed_patches, failure_reasons,
     )
     token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/writer] Correction prompt: {token_count:,} tokens")
+    print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
         _dump_prompt("writer_correction", system_prompt + "\n\n" + user_content)
     messages = [
