@@ -258,70 +258,85 @@ def _find_doc_snippet(md_content: str, old_text: str, context_lines: int = 6) ->
     return snippet
 
 
-def _build_correction_user_message(
+def _extract_fn_headings(md_content: str) -> str:
+    """Extract all ### function headings from the document as a reference list."""
+    headings = re.findall(r'^(### .+)$', md_content, re.MULTILINE)
+    return "\n".join(headings) if headings else "(no ### headings found)"
+
+
+def _build_targeted_correction_prompt(
+    md_content: str,
     failed_patches: list[Patch],
     failure_reasons: list[str],
-    md_content: str = "",
-) -> str:
-    """Build the follow-up user message for the correction turn."""
-    parts = []
-    for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons)):
-        part = f"  {i + 1}. Reason: {reason}\n     old_text submitted: {p.old_text[:200]!r}"
-        if md_content and reason == "old_text not found in document":
-            snippet = _find_doc_snippet(md_content, p.old_text)
-            if snippet:
-                part += (
-                    f"\n     Document actually contains"
-                    f" (EXACT whitespace — '*   **' = 3 spaces, '* **' = 1 space, "
-                    f"'    -' = 4-space sub-bullet, '  -' = 2-space sub-bullet):\n{snippet!r}"
-                )
-        parts.append(part)
-    rejection_lines = "\n".join(parts)
-    return (
-        f"[SYSTEM VALIDATION: REJECTED]\n"
-        f"{len(failed_patches)} patch(es) could not be applied:\n\n"
-        f"{rejection_lines}\n\n"
-        f"Your old_text values did not match the document verbatim. "
-        f"Most common cause: whitespace in bullet formatting — "
-        f"the document may use '*   **Description:**' (3 spaces) while you wrote '* **Description:**' (1 space). "
-        f"Use the 'Document actually contains' snippets above to copy the exact text character-by-character. "
-        f"Do NOT reconstruct old_text from memory or skill examples."
+) -> tuple[str, str]:
+    """Build a targeted prompt for correcting only the failed patches.
+
+    Does NOT include the full reviewer feedback or previous patch history —
+    those caused the writer to re-generate all patches (most already applied)
+    instead of fixing only the failed ones.
+    """
+    system_prompt = (
+        "You are a documentation writer fixing failed patch applications.\n\n"
+        "Some patches could not be applied because old_text was not found verbatim in the document.\n"
+        "Your ONLY task: for each failed patch, return a corrected version with an exact old_text.\n\n"
+        "Return a JSON array — one corrected patch per failed patch:\n"
+        '[{"old_text": "exact text from document", "new_text": "replacement", "reason": "why"}]\n\n'
+        "Rules:\n"
+        "- old_text MUST be an EXACT substring of the CURRENT DOCUMENT shown below\n"
+        "- Copy old_text character-by-character from the document — never reconstruct from memory\n"
+        "- Most common cause of failure: whitespace — '*   **Description:**' (3 spaces) vs "
+        "'* **Description:**' (1 space). Match exactly.\n"
+        "- Do NOT generate patches for anything not listed as a failed patch below\n"
+        "- Do NOT re-patch sections that were already successfully applied"
     )
+
+    parts = []
+    for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons), 1):
+        snippet = _find_doc_snippet(md_content, p.old_text, context_lines=10)
+        part = (
+            f"--- Failed patch {i} ---\n"
+            f"Attempted old_text: {p.old_text[:300]!r}\n"
+            f"Failure reason: {reason}\n"
+            f"Intended new_text: {p.new_text[:300]!r}"
+        )
+        if snippet:
+            part += f"\nDocument region near target (EXACT whitespace):\n{snippet!r}"
+        parts.append(part)
+
+    fn_headings = _extract_fn_headings(md_content)
+    user_content = (
+        f"=== FAILED PATCHES TO CORRECT ({len(failed_patches)} total) ===\n\n"
+        + "\n\n".join(parts)
+        + f"\n\n=== ### HEADINGS IN DOCUMENT (use these for old_text anchors) ===\n{fn_headings}"
+        + f"\n\n=== CURRENT DOCUMENT ===\n{md_content}"
+    )
+    return system_prompt, user_content
 
 
 def correct_failed_patches(
     md_content: str,
-    lua_source: str,
-    connected_content: str,
-    review_feedback: ReviewResult,
     failed_patches: list[Patch],
     failure_reasons: list[str],
-    previous_raw: str,
     model: str,
 ) -> list[Patch]:
-    """Multi-turn correction: send failed patch details as a follow-up user message.
+    """Targeted correction: ask writer to fix only the failed patches.
 
-    Uses a proper multi-turn structure (user → assistant → user) so that
-    structured output (format=PATCHES_SCHEMA) works correctly — assistant prefill
-    is incompatible with Ollama's JSON schema mode.
+    Uses a simple single-turn prompt showing only the failed patches and the
+    current document. Avoids the multi-turn + previous_raw structure, which
+    caused the writer to re-generate all patches (targeting the pre-patch document)
+    instead of correcting just the failed ones.
     """
-    system_prompt, user_content = build_writer_prompt(
-        md_content, lua_source, connected_content,
-        review_feedback.issues, review_feedback.suggestions,
+    system_prompt, user_content = _build_targeted_correction_prompt(
+        md_content, failed_patches, failure_reasons,
     )
-    correction_message = _build_correction_user_message(failed_patches, failure_reasons, md_content)
-    # Multi-turn: user → assistant (previous raw JSON) → user (correction request)
-    # previous_raw is a complete JSON array, compatible with structured output.
+    token_count = count_tokens(system_prompt + user_content)
+    print(f"  [content/writer] Correction prompt: {token_count:,} tokens")
+    if DEBUG_PROMPTS:
+        _dump_prompt("writer_correction", system_prompt + "\n\n" + user_content)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
-        {"role": "assistant", "content": previous_raw},
-        {"role": "user", "content": correction_message},
     ]
-    token_count = count_tokens(system_prompt + user_content + previous_raw + correction_message)
-    print(f"  [content/writer] Correction prompt: {token_count:,} tokens")
-    if DEBUG_PROMPTS:
-        _dump_prompt("writer_correction", "\n\n".join(m["content"] for m in messages))
 
     raw = ""
     patches: list[Patch] = []
