@@ -24,6 +24,25 @@ Detection: look for patterns like:
 
 These callbacks define the component's core periodic behavior. Omitting them means the decay/update logic is invisible to readers.
 
+## Property Watcher Callbacks and Event Listener Locals
+
+File-scope local functions registered as property watchers or event listeners in the constructor MUST appear as Main function entries if they perform non-trivial logic.
+
+Detection: scan for these patterns at **file scope** (outside any Class body):
+- `local function onXxx(self, value)` then referenced in constructor as `inst:WatchWorldState(...)` or registered via a property change system — document this function
+- `local function OnSomething(inst)` then used in `inst:ListenForEvent("event", OnSomething)` inside the class body or `SetPreventUnequipping` — document this function
+
+**What qualifies:**
+- Any file-scope `local function` that syncs state to replica components (e.g., `onequipslot` calling `self.inst.replica.equippable:setequipslot(equipslot)`)
+- Any `local function` that modifies entity state in response to a property change
+- The callback registered in `SetPreventUnequipping`-style methods that hooks `onremove`
+
+**What does NOT require documentation:**
+- Trivial one-liner lambdas passed inline: `inst:ListenForEvent("x", function(inst) inst:Remove() end)` — too simple, already clear from the function that registers it
+- File-scope functions that are only called from a single, already-documented function and do no additional side-effects beyond what that function describes
+
+Describe the callback in its own `### OnXxx(...)` entry, mark it `(local)` in the heading, and note which event/property triggers it.
+
 ## File Type Classification
 
 Determine before writing any section:
@@ -68,6 +87,12 @@ Determine before writing any section:
   HOW TO DETECT: top-level `return Prefab(...)` or wrapper macro returning a Prefab table.
   → Document `fn()` (the constructor entry point), `master_postinit`, the assets table,
   and the prefab table itself. Usage example: `SpawnPrefab("name")`. Use few_shot_prefab.
+
+  **PLAYER CHARACTER PREFAB**: file calls `return MakePlayerCharacter(name, prefabs, assets, common_postinit, master_postinit)`.
+  HOW TO DETECT: `require("prefabs/player_common")` at top + `MakePlayerCharacter(...)` as the return value.
+  → Document `common_postinit(inst)` and `master_postinit(inst)` as the primary functions (NOT `fn()`).
+  → Overview MUST state that the base player skeleton comes from `player_common.lua`, not this file.
+  → See `dst_conventions` MakePlayerCharacter section for full rules.
 
 When signals are mixed (e.g., a brain file that also defines a local Widget), classify by the
 file's primary export — what does the top-level `return` produce?
@@ -130,6 +155,24 @@ Do NOT include constants that are only used internally and not referenced by doc
 - Callback hook properties (`self.onXxx`) set by external prefabs are part of the public API
   and must be listed even if always `nil` by default.
 
+### Component Callback Hooks — Public API Surface
+
+Many components define hook properties as `self.onXxx = nil` in the constructor, explicitly expecting external code (prefab files) to assign them. These are the component's **callback API** — not internal implementation details.
+
+Detection: scan the constructor for `self.onXxx = nil` or `self.onXxx = false` patterns where `onXxx` is later checked as `if self.onXxx ~= nil then self.onXxx(self.inst, ...) end` inside the component's own methods.
+
+Common examples: `self.onturnon`, `self.onturnoff`, `self.onactivate`, `self.onrepaired`, `self.oncalculatehitfn`, `self.onattackotherfn`.
+
+**Documentation rule:** Document every hook property in the Properties table with:
+1. Its type: `function` (or `function | nil`)
+2. Default: `nil`
+3. Description explaining the callback signature and when it fires:
+
+| `onturnon` | function | `nil` | Called when prototype is turned on. Signature: `fn(inst)`. Set by owning prefab. |
+| `oncalculatehitfn` | function | `nil` | Override damage calculation. Signature: `fn(inst, target, damage) → number`. |
+
+Do NOT omit hook properties simply because they are `nil` by default — they define the component's integration surface with prefab code.
+
 ### Copy-Paste Artifacts
 
 If a function body contains a comment referencing a clearly wrong entity or context
@@ -137,6 +180,39 @@ If a function body contains a comment referencing a clearly wrong entity or cont
 inline in that function's description:
   > **Code note:** `OnLoad` contains the comment "to determing the current beefalo state" — apparent copy-paste from beefalo component; no functional impact.
 This matters for maintainers debugging unexpected behavior.
+
+## Multiple Prefab Returns
+
+A prefab file may return multiple `Prefab()` values in a comma-separated list, or use factory functions that return additional prefabs:
+
+```lua
+-- All of these register separate, independently spawnable prefabs:
+return Prefab("abigail", fn, assets, prefabs),
+       Prefab("abigail_retaliation", retaliationattack_fn, {}),
+       CreateDebuff("abigail_vex_debuff"),
+       CreateDebuff("abigail_vex_shadow_debuff")
+```
+
+**Documentation rule:** When a file returns multiple prefabs, the document MUST cover ALL of them. Either:
+1. Document each prefab as its own `### fn() (prefabname)` subsection in Main functions, OR
+2. Note in Overview that the file registers N prefabs and name them all
+
+Do NOT document only the first/primary prefab and silently omit the others. The Overview must list all registered prefab names even if some share the same constructor logic (factory functions).
+
+Detection: scan the last `return` statement of the file for comma-separated `Prefab(...)` calls or calls to factory functions that return `Prefab(...)`.
+
+## Prefab Helper Macro Functions
+
+In prefab files, standalone helper functions called inside `fn()` or `master_postinit()` (e.g., `MakeInventoryPhysics`, `MakeSmallBurnable`, `MakeDeployableFertilizer`, `MakeHauntableLaunchAndPerish`) are NOT components. Do NOT list them under **Components used:**.
+
+These functions are called to apply a bundle of setup logic and are external to the prefab file. List them under **External dependencies:** with their purpose:
+```
+**External dependencies:**
+- `MakeInventoryPhysics` -- applies physics and floatable behavior for inventory items
+- `MakeSmallBurnable` -- registers burnable/smoldering behavior for small entities
+```
+
+A function belongs under **Components used:** ONLY if it is accessed via `inst.components.X` or `inst:AddComponent("X")`.
 
 ## Data Config File Properties
 

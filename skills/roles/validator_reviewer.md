@@ -65,6 +65,15 @@ Do NOT leave the table with header + separator only and no data rows — that is
 Do NOT invent properties not in the constructor.
 Data config files: document the top-level container + each record field.
 
+NETVAR CHECK: Scan the constructor for `net_bool(...)`, `net_int(...)`, `net_float(...)`, `net_string(...)`, `net_event(...)` declarations. If found in a non-replica component file:
+1. Each netvar must appear in the Properties table with its dirty event name.
+2. If the constructor has `if self.ismastersim then ... else ... end`, the `ismastersim` property must be documented.
+3. `net_event` has no `:value()` — if the doc describes reading a `net_event` with `:value()`, flag it.
+{"issue": "net_bool 'enabled' declared on line N has dirty event 'enableddirty' but the Properties table omits the dirty event name.", "suggestion": "Add dirty event name to the property description: 'Dirty event: enableddirty'."}
+
+CALLBACK HOOK CHECK: Scan the constructor for `self.onXxx = nil` or `self.onXxx = false` where `onXxx` is later invoked inside the component with `if self.onXxx ~= nil then self.onXxx(...) end`. If such hooks exist but are absent from the Properties table, flag each one:
+{"issue": "Component defines callback hook self.onturnon = nil (line N) but it is not documented in the Properties table.", "suggestion": "Add self.onturnon to Properties with type 'function', default 'nil', and description of when it fires and its signature."}
+
 DYNAMIC PROPERTY CHECK: Scan the Lua constructor for any of these patterns:
 - `metafn()` call that generates `self[key]` entries
 - `for i, v in ipairs(SomeGlobalTable) do self[...] = ... end` (property-generating loop)
@@ -122,7 +131,16 @@ Flag each missed branch separately:
 
 - **Listens to:** events registered via inst:ListenForEvent(event, fn)
 - **Pushes:** events fired via inst:PushEvent(event, data)
-Omit this section entirely if the component has no events.
+- **World state watchers:** variables watched via inst:WatchWorldState("varname", fn) — separate label from Listens to
+Omit this section entirely if the component has no events, listeners, or watchers.
+
+WORLDSTATE WATCHER CHECK: Scan the source for `inst:WatchWorldState(...)` calls. If found and absent from the doc, flag it:
+{"issue": "Component calls inst:WatchWorldState('israining', OnIsRaining) but the Events & listeners section has no World state watchers label.", "suggestion": "Add a **World state watchers:** subsection listing the watched variable and what the callback does."}
+
+**Event data structure check:** For every event entry, verify that the data payload is documented. Check the `inst:PushEvent(event, data)` call in source to determine what fields `data` contains. If the doc says `Data: {owner = entity}` but source passes `{owner = owner, from_ground = from_ground}`, flag the missing field. If the source passes a simple value (not a table), note that too: `Data: isacidsizzling (boolean direct param)` — not all event callbacks receive a `data` table.
+
+Flag inconsistent event patterns:
+{"issue": "Event 'acidsizzlingchange' listener receives a direct boolean parameter, not a data table. Doc should note: 'Data: direct boolean param (isacidsizzling)' instead of implying a table.", "suggestion": "Update event data format to match actual callback signature in source."}
 
 ## Typed Checks per File Type
 
@@ -135,6 +153,8 @@ SCREEN / PREFAB).
   `### \`onexit (statename)\``. Flag if a state's onenter contains non-trivial logic but no entry exists.
 - Properties section lists ONLY file-scope locals (e.g., `ATTACK_PROP_MUST_TAGS`). State-local
   variables MUST NOT appear.
+- **STATE LIST TABLE required:** Properties section MUST begin with a state reference table listing every state defined in the `StateGraph(...)` call plus any states injected by `CommonStates.AddXxxStates(...)`. If this table is absent, flag it:
+  {"issue": "Properties section is missing the state reference table. The stategraph defines N states but there is no consolidated table listing them with their tags and roles.", "suggestion": "Add a state reference table at the top of ## Properties before any constant rows, with columns: State name | Tags | Description."}
 - Events & listeners lists EventHandler entries that react to ENGINE events, not state-internal handlers.
 - Usage example uses `inst.sg:GoToState(...)` / `inst.sg:HasStateTag(...)`, NOT `CreateEntity()` + `AddComponent()`.
 
@@ -153,6 +173,8 @@ SCREEN / PREFAB).
 ### Widget file checks
 - `_ctor` is documented and lists every constructor parameter.
 - Child widgets created via `self:AddChild(...)` appear in the Properties table.
+- **Conditional children:** If source creates child widgets inside `if` blocks (e.g., based on `item:HasTag(...)`), ALL such conditional children must appear in Properties with their creation condition noted. If a child widget is created in source but absent from the Properties table, flag it:
+  {"issue": "Child widget `rechargeframe` created conditionally (when item has 'rechargeable' tag) is missing from the Properties table.", "suggestion": "Add a row for `rechargeframe` noting it is created only when item has the 'rechargeable' tag."}
 - Usage example uses `screen:AddChild(MyWidget(...))`. NEVER `CreateEntity` or `AddComponent`.
 - No mention of `inst.components` (widgets do not interact with ECS).
 
@@ -167,6 +189,9 @@ SCREEN / PREFAB).
 - Dependencies & tags lists every component attached, the stategraph set, the brain set,
   and every tag added in fn() or master_postinit.
 - Usage example uses `SpawnPrefab("name")`.
+- **MakePlayerCharacter check:** If source calls `MakePlayerCharacter(...)`, the primary functions are `common_postinit` and `master_postinit` — NOT a generic `fn()`. Flag if the doc uses `fn()` as the entry point heading for player character prefabs.
+- **Multiple prefab returns check:** Scan the source file's last `return` statement for comma-separated `Prefab(...)` calls. If N > 1 prefabs are returned but the doc only covers 1, flag it:
+  {"issue": "Source file returns N prefabs but only 1 is documented. Missing: prefab_name_2, prefab_name_3.", "suggestion": "Add subsections or an Overview note for each additional prefab registered by this file."}
 
 ### Replica file checks (per replica_pattern skill)
 - Every netvar declared in source appears in the Properties table.
