@@ -242,7 +242,7 @@ def run_content_loop(
 
         print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches...")
         # LLM1 fix — works on cached content
-        patches, raw = rewrite_document(
+        patches, _ = rewrite_document(
             cached_content, lua_source, connected_content, review, config.writer_model,
         )
 
@@ -273,8 +273,7 @@ def run_content_loop(
                 time.sleep(NORMAL_SLEEP)
                 print(f"  [content] Requesting correction for {len(failed_patches)} failed patch(es)...")
                 correction = correct_failed_patches(
-                    updated_content, lua_source, connected_content,
-                    review, failed_patches, failure_reasons, raw, config.writer_model,
+                    updated_content, failed_patches, failure_reasons, config.writer_model,
                 )
                 if correction:
                     updated_content, corr_failed, _ = apply_patches(updated_content, correction)
