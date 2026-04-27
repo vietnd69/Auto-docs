@@ -296,6 +296,10 @@ def _build_targeted_correction_prompt(
         "- Copy old_text character-by-character from the document — never reconstruct from memory\n"
         "- Most common cause of failure: whitespace — '*   **Description:**' (3 spaces) vs "
         "'* **Description:**' (1 space). Match exactly.\n"
+        "- CRITICAL: old_text must stay within a SINGLE ### function block — never let it span two "
+        "or more ### headings. If you need a broader change, split into multiple patches (one per ### block).\n"
+        "- Use the '### HEADINGS IN DOCUMENT' list below to find the exact heading name, then copy "
+        "it verbatim as the start of old_text.\n"
         "- Do NOT generate patches for anything not listed as a failed patch below\n"
         "- Do NOT re-patch sections that were already successfully applied"
     )

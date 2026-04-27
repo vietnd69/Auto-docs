@@ -298,7 +298,9 @@ def run_content_loop(
                     previous_patches=patches,
                 )
                 if correction:
-                    updated_content, corr_failed, _, _ = apply_patches(updated_content, correction)
+                    updated_content, corr_failed, _, corr_guard_blocked = apply_patches(updated_content, correction)
+                    if corr_guard_blocked:
+                        guard_blocked_patches.extend(corr_guard_blocked)
                     corr_applied = len(correction) - corr_failed
                     remaining_failed -= corr_applied
                     print(f"  [content] Not-found correction: applied {corr_applied}/{len(correction)} patches")
