@@ -33,6 +33,22 @@ Use EXACTLY this structure for every entry in ## Main functions:
   as a critical inaccuracy. A false error (claiming crash when nil guard exists in code)
   is equally wrong — always verify the guard is absent before listing an error state.
 
+## String Enum Parameters
+
+If a function accepts a string parameter that is constrained to a fixed set of named values (e.g., tendency names, state names, category keys), document the valid values and their semantics in the Parameters field.
+
+Format:
+```
+- `tendency` -- string tendency name. Valid values:
+  - `"rider"` -- increases riding-speed bonus after domestication
+  - `"ornery"` -- increases aggression toward non-riders
+  - `"pudgy"` -- increases food consumption and health regen
+```
+
+Do NOT write just "string tendency name" without the values when the valid set is finite and knowable from source (TUNING constants, global tables, if-else chains, etc.).
+
+When values are defined in a global table (e.g., `TENDENCY = { RIDER = "rider", ... }`), list the string literals, not the constant names — callers use the literals.
+
 ## Multi-Path Functions
 
 If a function has multiple meaningfully distinct code paths controlled by flags or
