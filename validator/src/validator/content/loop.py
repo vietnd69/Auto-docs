@@ -263,7 +263,7 @@ def run_content_loop(
         # Multi-turn correction: when patches fail, tell writer which old_text didn't match
         if failed > 0:
             failed_patches, failure_reasons = _collect_failed_patches(cached_content, patches)
-            guard_blocked_count = failed - len(failed_patches)
+            guard_blocked_count = len(guard_blocked_patches)
             if guard_blocked_count:
                 print(f"  [content]   {guard_blocked_count} blocked by guard (use allow_drops for intentional removal), {len(failed_patches)} not found/ambiguous")
             elif failed_patches:
@@ -286,10 +286,13 @@ def run_content_loop(
             time.sleep(NORMAL_SLEEP)
             print(f"  [content] Requesting guard correction for {guard_count} blocked patch(es)...")
             guard_correction = correct_guard_blocked_patches(
-                updated_content, lua_source, connected_content,
+                cached_content, lua_source, connected_content,
                 review, guard_blocked_patches, raw, config.writer_model,
             )
             if guard_correction:
+                # Guard-blocked old_text values are guaranteed to exist in updated_content
+                # (the guard prevented them from being applied), so applying correction
+                # patches generated against cached_content is safe here.
                 updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
                 gc_applied = len(guard_correction) - gc_failed
                 print(f"  [content] Guard correction applied {gc_applied}/{len(guard_correction)} patches")
