@@ -35,6 +35,8 @@ MODEL_UPDATE: str   = _get("model", "update",   "qwen3-coder-next:cloud")
 MODEL_EMBED: str    = _get("model", "embed",    "BAAI/bge-small-en-v1.5")
 MODEL_COMPRESS: str = _get("model", "compress", "qwen3.5:cloud")
 MODEL_JURY: str     = _get("model", "jury",     "qwen3.5:cloud")
+MODEL_REVIEWER: str = _get("model", "reviewer", MODEL_MAIN)
+MODEL_WRITER: str   = _get("model", "writer",   MODEL_MAIN)
 
 # === Tokens ===
 PROMPT_TOKEN_LIMIT: int      = _get("tokens", "prompt_limit",     16000)
