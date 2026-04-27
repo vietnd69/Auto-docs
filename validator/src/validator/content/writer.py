@@ -274,6 +274,10 @@ def _build_targeted_correction_prompt(
     md_content: str,
     failed_patches: list[Patch],
     failure_reasons: list[str],
+    review_issues: list[str] | None = None,
+    review_suggestions: list[str] | None = None,
+    previous_writer_raw: str = "",
+    previous_patches: list[Patch] | None = None,
 ) -> tuple[str, str]:
     """Build a targeted prompt for correcting only the failed patches.
 
@@ -296,6 +300,37 @@ def _build_targeted_correction_prompt(
         "- Do NOT re-patch sections that were already successfully applied"
     )
 
+    review_issues = review_issues or []
+    review_suggestions = review_suggestions or []
+    previous_patches = previous_patches or []
+
+    feedback_lines = []
+    for i, issue in enumerate(review_issues, 1):
+        suggestion = review_suggestions[i - 1] if i - 1 < len(review_suggestions) else ""
+        feedback_lines.append(f"{i}. Issue: {issue}")
+        if suggestion:
+            feedback_lines.append(f"   Suggestion: {suggestion}")
+    feedback_block = "\n".join(feedback_lines) if feedback_lines else "(none)"
+
+    patch_status_lines = []
+    if previous_patches:
+        failed_reason_by_patch = {id(p): r for p, r in zip(failed_patches, failure_reasons)}
+        failed_idx = 0
+        success_idx = 0
+        for p in previous_patches:
+            reason = failed_reason_by_patch.get(id(p))
+            if reason is not None:
+                failed_idx += 1
+                patch_status_lines.append(
+                    f"F{failed_idx}. FAILED — reason: {reason}; old_text preview: {p.old_text[:120]!r}"
+                )
+            else:
+                success_idx += 1
+                patch_status_lines.append(
+                    f"S{success_idx}. APPLIED — old_text preview: {p.old_text[:120]!r}"
+                )
+    patch_status_block = "\n".join(patch_status_lines) if patch_status_lines else "(no prior patch status)"
+
     parts = []
     for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons), 1):
         snippet = _find_doc_snippet(md_content, p.old_text, context_lines=10)
@@ -311,6 +346,12 @@ def _build_targeted_correction_prompt(
 
     fn_headings = _extract_fn_headings(md_content)
     user_content = (
+        "=== PREVIOUS REVIEWER FEEDBACK (from the same iteration) ===\n"
+        f"{feedback_block}\n\n"
+        "=== PREVIOUS WRITER RESPONSE (raw JSON text) ===\n"
+        f"{previous_writer_raw or '(none)'}\n\n"
+        "=== PATCH APPLY STATUS FROM PREVIOUS WRITER RESPONSE ===\n"
+        f"{patch_status_block}\n\n"
         f"=== FAILED PATCHES TO CORRECT ({len(failed_patches)} total) ===\n\n"
         + "\n\n".join(parts)
         + f"\n\n=== ### HEADINGS IN DOCUMENT (use these for old_text anchors) ===\n{fn_headings}"
@@ -324,6 +365,10 @@ def correct_failed_patches(
     failed_patches: list[Patch],
     failure_reasons: list[str],
     model: str,
+    review_issues: list[str] | None = None,
+    review_suggestions: list[str] | None = None,
+    previous_writer_raw: str = "",
+    previous_patches: list[Patch] | None = None,
 ) -> list[Patch]:
     """Targeted correction: ask writer to fix only the failed patches.
 
@@ -333,7 +378,13 @@ def correct_failed_patches(
     instead of correcting just the failed ones.
     """
     system_prompt, user_content = _build_targeted_correction_prompt(
-        md_content, failed_patches, failure_reasons,
+        md_content,
+        failed_patches,
+        failure_reasons,
+        review_issues=review_issues,
+        review_suggestions=review_suggestions,
+        previous_writer_raw=previous_writer_raw,
+        previous_patches=previous_patches,
     )
     token_count = count_tokens(system_prompt + user_content)
     print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens")
@@ -374,8 +425,14 @@ def correct_failed_patches(
 
 def _build_guard_rejection_message(
     guard_blocked: list[tuple["Patch", frozenset[str]]],
+    updated_content: str,
 ) -> str:
-    """Build the user-turn message explaining which patches were blocked by the regression guard."""
+    """Build the user-turn message explaining which patches were blocked by the regression guard.
+
+    updated_content is the document state AFTER all non-guard-blocked patches have been applied.
+    It is appended so the writer can use exact old_text values that exist in the real current document,
+    rather than the pre-patch snapshot shown in the earlier user turn.
+    """
     n = len(guard_blocked)
     lines = [
         "[SYSTEM: REGRESSION GUARD REJECTION]",
@@ -393,11 +450,14 @@ def _build_guard_rejection_message(
         "To fix each blocked patch, choose ONE approach:",
         '  (a) Set "allow_drops": true — only if the reviewer EXPLICITLY asked to remove those functions',
         "  (b) Split into per-function patches — one patch per ### function block, with old_text that",
-        "      targets ONLY that single function. Use the CURRENT DOCUMENT (section 4 above) for exact",
-        "      old_text values.",
+        "      targets ONLY that single function. Use the CURRENT DOCUMENT below for exact old_text",
+        "      values (other patches have already been applied — this reflects the real document state).",
         "",
         "Return a JSON array of corrected patches for the blocked items ONLY.",
         "Do NOT re-generate patches for items that were already successfully applied.",
+        "",
+        "=== CURRENT DOCUMENT (reflects patches already applied) ===",
+        updated_content,
     ]
     return "\n".join(lines)
 
@@ -409,21 +469,27 @@ def correct_guard_blocked_patches(
     review_feedback: ReviewResult,
     guard_blocked: list[tuple["Patch", frozenset[str]]],
     previous_raw: str,
+    updated_content: str,
     model: str,
 ) -> list[Patch]:
     """Multi-turn correction for patches blocked by the regression guard.
 
     Uses the multi-turn structure:
         system:    writer prompt system
-        user:      writer prompt user (shows md_content as current document)
+        user:      writer prompt user (shows md_content as current document — pre-patch snapshot,
+                   kept for coherence with the assistant turn that follows)
         assistant: previous_raw (the writer's original JSON response)
-        user:      guard rejection message explaining which patches were blocked and why
+        user:      guard rejection message (includes updated_content — the real current doc state
+                   after all non-guard-blocked patches were applied)
+
+    updated_content must be passed so the correction writer sees the actual document state when
+    generating old_text values to split the guard-blocked patches.
     """
     system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
-    rejection_message = _build_guard_rejection_message(guard_blocked)
+    rejection_message = _build_guard_rejection_message(guard_blocked, updated_content)
     token_count = count_tokens(system_prompt + user_content + previous_raw + rejection_message)
     print(f"  [content/writer] Guard correction prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:

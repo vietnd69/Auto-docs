@@ -204,12 +204,13 @@ def run_content_loop(
                             ),
                         },
                     ])
-                    previous_review = review
+                    # Don't set previous_review here — writer never ran, nothing was patched.
+                    # jury_context_turns already carries the rejection context for the reviewer.
                     continue
             elif not jury_verdicts[std_heading]:
                 # Same heading already rejected — go back to reviewer (jury_context_turns already contains verdict)
                 print(f"  [content] Reviewer again requests special case for '{std_heading}' but jury already rejected — going back to reviewer")
-                previous_review = review
+                # Don't set previous_review here — writer never ran, nothing was patched.
                 continue
             else:
                 # Jury already accepted this heading — log it and fall through
@@ -278,7 +279,14 @@ def run_content_loop(
                 time.sleep(NORMAL_SLEEP)
                 print(f"  [content] Not-found correction: requesting for {len(failed_patches)} patch(es)...")
                 correction = correct_failed_patches(
-                    updated_content, failed_patches, failure_reasons, config.writer_model,
+                    updated_content,
+                    failed_patches,
+                    failure_reasons,
+                    config.writer_model,
+                    review_issues=review.issues,
+                    review_suggestions=review.suggestions,
+                    previous_writer_raw=raw,
+                    previous_patches=patches,
                 )
                 if correction:
                     updated_content, corr_failed, _, _ = apply_patches(updated_content, correction)
@@ -292,7 +300,7 @@ def run_content_loop(
             print(f"  [content] Guard correction: requesting for {guard_count} blocked patch(es)...")
             guard_correction = correct_guard_blocked_patches(
                 cached_content, lua_source, connected_content,
-                review, guard_blocked_patches, raw, config.writer_model,
+                review, guard_blocked_patches, raw, updated_content, config.writer_model,
             )
             if guard_correction:
                 # Guard-blocked old_text values are guaranteed to exist in updated_content
