@@ -134,3 +134,11 @@ Before writing the Returns field, mentally trace the function's return statement
 - **Listens to:** Events registered via `inst:ListenForEvent(event, fn)`.
 - **Pushes:** Events fired via `inst:PushEvent(event, data)`.
 - If there are no events or listeners, omit this entire section.
+
+**Completeness rule — BOTH subsections required when applicable:**
+If the component both pushes AND listens, BOTH subsections must be present. Do NOT document only "Pushes" and stop — scan the entire source for `inst:ListenForEvent` calls including those made inside constructors, `OnLoad`, and helper functions. A partial Events section is treated as an omission error.
+
+For each event entry, document:
+- Event name
+- Trigger condition (when it fires)
+- Event data payload: `Data: {field = type}` or `Data: none` — never omit the data shape.

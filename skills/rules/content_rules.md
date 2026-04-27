@@ -12,6 +12,17 @@ inject_into: [analyst, analyst_chunk, analyst_merge, analyst_intermediate, analy
 - Never repeat the same line or bullet point more than once.
 - No greetings, sign-offs, meta-commentary, or filler text.
 - No emojis or unicode symbols.
+- **No speculative language.** Do NOT write phrases like "may be legacy", "possibly unused", "might be for future use", "appears to be", or any other hedging about code purpose. If the usage is unclear from source, omit the note entirely rather than guess.
+
+## Task Callback Functions
+
+If a component starts a periodic or deferred task (via `DoPeriodicTask`, `DoTaskInTime`, or equivalent) and passes a named callback function, that callback MUST be documented as a Main function entry — even if it is declared as a local function inside the component.
+
+Detection: look for patterns like:
+- `inst:DoPeriodicTask(PERIOD, UpdateFoo)` — `UpdateFoo` must be documented
+- `self.decaytask = inst:DoPeriodicTask(period, function(inst) self:UpdateDomestication() end)` — `UpdateDomestication` must be documented
+
+These callbacks define the component's core periodic behavior. Omitting them means the decay/update logic is invisible to readers.
 
 ## File Type Classification
 
@@ -100,10 +111,14 @@ loop IS the definition. Readers cannot understand downstream accessors (e.g., `s
 Local constants defined at the top of a file that directly control function behavior MUST appear in the Properties table.
 This applies to all file types (components, brains, data configs, stategraphs).
 
-Detection: scan for `local NAME = <literal>` at file scope (outside any function body), where the constant is referenced inside a function to gate behavior (distance thresholds, count limits, time windows, multipliers).
+Detection: scan for `local NAME = <literal>` at file scope (outside any function body), where the constant is referenced inside a function to gate behavior (distance thresholds, count limits, time windows, multipliers, scheduler periods).
+
+This explicitly includes:
+- Scheduler period constants (e.g., `local DECAY_TASK_PERIOD = 60`) — even if the period value is passed to `DoPeriodicTask` and not visible in individual function signatures, readers cannot understand update frequency without it.
 
 Format in Properties table:
 | `START_FACE_DIST` | constant (local) | `20` | Maximum distance at which the entity begins facing a player. |
+| `DECAY_TASK_PERIOD` | constant (local) | `60` | Interval in seconds between periodic decay ticks. |
 
 Do NOT omit these — readers cannot understand function behavior limits without them.
 Do NOT include constants that are only used internally and not referenced by documented functions.
