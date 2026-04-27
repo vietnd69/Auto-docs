@@ -269,7 +269,7 @@ def run_content_loop(
             breakdown = []
             if guard_blocked_count:
                 breakdown.append(f"{guard_blocked_count} guard-blocked")
-            if len(failed_patches):
+            if failed_patches:
                 breakdown.append(f"{len(failed_patches)} not-found/ambiguous")
             if breakdown:
                 print(f"  [content]   Failure breakdown: {', '.join(breakdown)}")
