@@ -12,7 +12,7 @@ from validator.format.autofix import FixResult, autofix_file
 from validator.format.checks import validate_all, ValidationError
 from validator.format.section_filler import rewrite_document
 from validator.utils import resolve_lua_path
-from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY
+from llm.settings import CHUNKED_TOKEN_THRESHOLD, VALIDATOR_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY, MODEL_REVIEWER, MODEL_WRITER
 from validator.content.checkpoint import load_batch_checkpoint, save_batch_checkpoint
 
 
@@ -24,8 +24,8 @@ def _never_stop() -> bool:
 class PipelineConfig:
     """Configuration for the full validation pipeline."""
     content_max_iterations: int = VALIDATOR_MAX_ITERATIONS
-    writer_model: str = MODEL_MAIN
-    reviewer_model: str = MODEL_MAIN
+    writer_model: str = MODEL_WRITER
+    reviewer_model: str = MODEL_REVIEWER
     jury_model: str = MODEL_JURY
     skip_content: bool = False
     skip_format: bool = False
