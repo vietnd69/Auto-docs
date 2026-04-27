@@ -59,6 +59,15 @@ For brain files (files that call `Brain:new()` or extend Brain):
 - In Properties: document file-scope constants (e.g., `START_FACE_DIST`, `KEEP_FACE_DIST`) with
   their literal values and the behavior they gate. Without these, the `KeepFaceTargetFn` description
   is incomplete — readers cannot know the distance thresholds.
+
+**Two-phase brain initialization:**
+- `OnStart()` — constructs the BehaviorTree and assigns `self.bt`. Runs first.
+- `OnInitializationComplete()` — runs AFTER `OnStart()` completes and the BT is attached. Used for post-init logic that assumes the entity and BT are fully ready (e.g., `knownlocations:RememberLocation`). If present in source, MUST be documented as a separate Main functions entry.
+Document the distinction in the Description: "Called after OnStart(); safe to access components that require a fully-initialized entity."
+
+**Helper function pairs (getfn / keepfn):** Many behavior nodes use paired functions where `getfn(inst)` finds a target and `keepfn(inst, target)` validates it on each tick. Document these as a pair when they appear together:
+`### GetTraderFn(inst) (local)` — "Returns the leader if actively trading with Abigail."
+`### KeepTraderFn(inst, target) (local)` — "Returns true while target is still attempting a trade."
 <!-- /type -->
 <!-- type:behaviours -->
 ### Behaviour Files — Main Functions
@@ -79,6 +88,11 @@ For files in `widgets/` extending `Widget`:
 - Properties section lists child widgets created in `_ctor` (e.g., `icon`, `label`, `bg`) PLUS state values.
 - Usage example shows `screen:AddChild(MyWidget(...))` followed by 1-2 method calls.
 - Do NOT mention `inst.components` or ECS — widgets are pure UI.
+
+**Conditional child creation:** If `_ctor` creates child widgets conditionally (inside `if item:HasTag(...)` or similar blocks), the Properties table MUST document ALL child widgets that may be created, even conditionally. For each such widget, note the creation condition in the Description column:
+  | `spoilage` | ProgressBar | `nil` | Created only if item has `"spoilable"` tag. Displays item freshness. |
+  | `recharge` | UIAnim | `nil` | Created only if item has `"rechargeable"` tag. Shows recharge progress. |
+Never document only the "always created" widgets and omit conditional ones — readers building item tiles won't know these properties exist.
 <!-- /type -->
 <!-- type:screens -->
 ### Screen Files — Main Functions
@@ -88,6 +102,30 @@ For files in `screens/` extending `Screen`:
 - Properties section lists child widgets and screen-state values (selection index, mode flags).
 - Usage example shows `TheFrontEnd:PushScreen(MyScreen(...))`.
 - Mention modal vs non-modal behaviour and which controls the screen captures.
+<!-- /type -->
+<!-- type:stategraphs -->
+### Stategraph Files — Properties and State List
+
+For stategraph files (files calling `StateGraph(name, states, events, ...)`):
+- The Properties section MUST begin with a **State reference table** listing all states before any
+  file-scope local constants. This gives readers a map of the state machine before diving into
+  function details.
+
+  Format:
+  ```
+  | State name | Tags | Description |
+  |------------|------|-------------|
+  | `idle` | `idle` | Default resting state; loops idle animation. |
+  | `attack1` | `attack` | Initiates melee swing; transitions to attack1_pst on exit. |
+  | `torpedo` | `attack,busy` | Leap + dive sequence; exits to torpedo_pst or torpedo_dizzy. |
+  ```
+
+- After the state list, document file-scope local constants (arrays like `AOE_TARGET_MUSTHAVE_TAGS`, period constants, etc.)
+- For states with non-trivial `onenter`, `onexit`, or `ontimeout` logic, document them as `### onenter (statename)` entries in Main functions.
+- For local helper functions passed to states (DoAOEAttack, TryChatter, etc.), document them with `(local)` in the heading.
+- Events & listeners section lists `EventHandler(event, fn)` entries — these are stategraph-level event reactions, NOT `inst:ListenForEvent`.
+
+CommonStates additions: if the file calls `CommonStates.AddXxxStates(states, ...)`, list the states added with a group row in the state table noting they come from CommonStates.
 <!-- /type -->
 <!-- type:prefabs -->
 ### Prefab Files — Main Functions
@@ -133,10 +171,18 @@ Before writing the Returns field, mentally trace the function's return statement
 
 - **Listens to:** Events registered via `inst:ListenForEvent(event, fn)`.
 - **Pushes:** Events fired via `inst:PushEvent(event, data)`.
-- If there are no events or listeners, omit this entire section.
+- **World state watchers:** Variables watched via `inst:WatchWorldState("varname", fn)`.
+- If there are no events, listeners, or worldstate watchers, omit this entire section.
 
-**Completeness rule — BOTH subsections required when applicable:**
-If the component both pushes AND listens, BOTH subsections must be present. Do NOT document only "Pushes" and stop — scan the entire source for `inst:ListenForEvent` calls including those made inside constructors, `OnLoad`, and helper functions. A partial Events section is treated as an omission error.
+**WorldState watchers are a separate category** from events — use a distinct `**World state watchers:**` label, NOT under `**Listens to:**`. The callback receives the new value directly (not a data table). Example:
+```
+**World state watchers:**
+- `israining` -- triggers OnIsRaining; starts/stops the frog spawn update task
+- `season` -- triggers OnSeasonChanged; recalculates seasonal spawn parameters
+```
+
+**Completeness rule — ALL subsections required when applicable:**
+If the component uses pushes AND listens AND worldstate watchers, ALL three labels must be present. Do NOT document only one and stop — scan the entire source for all three patterns including those in constructors, `OnLoad`, and helper functions. A partial Events section is treated as an omission error.
 
 For each event entry, document:
 - Event name
