@@ -270,6 +270,8 @@ def run_content_loop(
             parts.append(f"{failed} failed")
         print(f"  [content] Patches: {', '.join(parts)}")
 
+        remaining_failed = failed
+
         # Multi-turn correction: when patches fail, tell writer which old_text didn't match
         if failed > 0:
             failed_patches, failure_reasons = _collect_failed_patches(cached_content, patches)
@@ -298,6 +300,7 @@ def run_content_loop(
                 if correction:
                     updated_content, corr_failed, _, _ = apply_patches(updated_content, correction)
                     corr_applied = len(correction) - corr_failed
+                    remaining_failed -= corr_applied
                     print(f"  [content] Not-found correction: applied {corr_applied}/{len(correction)} patches")
 
         if guard_blocked_patches:
@@ -315,10 +318,11 @@ def run_content_loop(
                 # patches generated against cached_content is safe here.
                 updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
                 gc_applied = len(guard_correction) - gc_failed
+                remaining_failed -= gc_applied
                 print(f"  [content] Guard correction: applied {gc_applied}/{len(guard_correction)} patches")
 
-        # Fallback warning if still majority failed after correction
-        if patches and failed > len(patches) / 2:
+        # Fallback warning if majority still failed after all corrections
+        if patches and remaining_failed > len(patches) / 2:
             print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
 
         previous_review = review
