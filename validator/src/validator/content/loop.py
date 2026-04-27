@@ -18,7 +18,7 @@ from rag.docs import safe_read_lua
 from validator.content.cache import CacheManager
 from validator.content.jury import run_jury
 from validator.content.reviewer import ReviewResult, review_document
-from validator.content.writer import rewrite_document, correct_failed_patches, apply_patches
+from validator.content.writer import rewrite_document, correct_failed_patches, correct_guard_blocked_patches, apply_patches
 from validator.utils import resolve_connected_content
 from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY, NORMAL_SLEEP
 
@@ -242,7 +242,7 @@ def run_content_loop(
 
         print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches...")
         # LLM1 fix — works on cached content
-        patches, _ = rewrite_document(
+        patches, raw = rewrite_document(
             cached_content, lua_source, connected_content, review, config.writer_model,
         )
 
@@ -255,7 +255,7 @@ def run_content_loop(
                 accepted_headings=accepted_headings,
             )
 
-        updated_content, failed, _ = apply_patches(cached_content, patches)
+        updated_content, failed, _, guard_blocked_patches = apply_patches(cached_content, patches)
         applied = len(patches) - failed
         print(f"  [content] Applied {applied}/{len(patches)} patches" +
               (f" ({failed} failed)" if failed else ""))
@@ -263,9 +263,9 @@ def run_content_loop(
         # Multi-turn correction: when patches fail, tell writer which old_text didn't match
         if failed > 0:
             failed_patches, failure_reasons = _collect_failed_patches(cached_content, patches)
-            guard_blocked = failed - len(failed_patches)
-            if guard_blocked:
-                print(f"  [content]   {guard_blocked} blocked by guard (use allow_drops for intentional removal), {len(failed_patches)} not found/ambiguous")
+            guard_blocked_count = failed - len(failed_patches)
+            if guard_blocked_count:
+                print(f"  [content]   {guard_blocked_count} blocked by guard (use allow_drops for intentional removal), {len(failed_patches)} not found/ambiguous")
             elif failed_patches:
                 print(f"  [content]   {len(failed_patches)} not found/ambiguous")
             if failed_patches:
@@ -276,9 +276,23 @@ def run_content_loop(
                     updated_content, failed_patches, failure_reasons, config.writer_model,
                 )
                 if correction:
-                    updated_content, corr_failed, _ = apply_patches(updated_content, correction)
+                    updated_content, corr_failed, _, _ = apply_patches(updated_content, correction)
                     corr_applied = len(correction) - corr_failed
                     print(f"  [content] Correction applied {corr_applied}/{len(correction)} patches")
+
+        if guard_blocked_patches:
+            guard_count = len(guard_blocked_patches)
+            print(f"  [content] Sleeping {NORMAL_SLEEP}s before guard correction...")
+            time.sleep(NORMAL_SLEEP)
+            print(f"  [content] Requesting guard correction for {guard_count} blocked patch(es)...")
+            guard_correction = correct_guard_blocked_patches(
+                updated_content, lua_source, connected_content,
+                review, guard_blocked_patches, raw, config.writer_model,
+            )
+            if guard_correction:
+                updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
+                gc_applied = len(guard_correction) - gc_failed
+                print(f"  [content] Guard correction applied {gc_applied}/{len(guard_correction)} patches")
 
         # Fallback warning if still majority failed after correction
         if patches and failed > len(patches) / 2:
