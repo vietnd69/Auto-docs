@@ -188,8 +188,15 @@ def run_content_loop(
                         "special_case_standard_heading": std_heading,
                         "special_case_reason": review.special_case_reason,
                         "findings": [
-                            {"issue": iss, "suggestion": sug}
-                            for iss, sug in zip(review.issues, review.suggestions or [])
+                            {
+                                "issue": iss,
+                                "suggestion": (
+                                    review.suggestions[idx]
+                                    if idx < len(review.suggestions or [])
+                                    else ""
+                                ),
+                            }
+                            for idx, iss in enumerate(review.issues)
                         ],
                     }, ensure_ascii=False)
                     jury_context_turns.extend([

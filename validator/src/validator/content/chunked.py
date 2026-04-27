@@ -139,8 +139,15 @@ def _call_reviewer(
 
     all_prev = (oscillation_fixed or []) + (oscillation_unfixed or [])
     if all_prev:
+        fixed_count = len(oscillation_fixed or [])
+        unfixed_count = len(oscillation_unfixed or [])
         prev_resp = {
             "approved": False,
+            "context": {
+                "type": "oscillation_handoff",
+                "fixed_findings_count": fixed_count,
+                "unfixed_findings_count": unfixed_count,
+            },
             "findings": [
                 {
                     "section": f.section,
@@ -148,6 +155,11 @@ def _call_reviewer(
                     "field": f.field,
                     "rule_id": f.rule_id,
                     "issue": f.issue,
+                    "status": (
+                        "fixed_in_previous_writer_call"
+                        if oscillation_fixed and f in oscillation_fixed
+                        else "unfixed_or_out_of_batch"
+                    ),
                 }
                 for f in all_prev
             ],
@@ -158,10 +170,15 @@ def _call_reviewer(
         })
         parts: list[str] = []
         if oscillation_fixed:
-            parts.append("The writer has applied fixes for some findings above — verify those issues are no longer present.")
+            parts.append(
+                "The findings marked status=fixed_in_previous_writer_call were patched by the writer "
+                "in the previous step — verify they are truly resolved before reporting them again."
+            )
         if oscillation_unfixed:
             parts.append(
-                "Other findings above could not be resolved or target functions not present in this batch — do not re-report them."
+                "The findings marked status=unfixed_or_out_of_batch could not be resolved in the last step "
+                "or target functions outside this batch — do not re-report unless they now clearly appear in "
+                "the current batch text."
             )
         parts.append("Review the current document carefully and only report issues that are clearly still present.")
         messages.append({"role": "user", "content": " ".join(parts)})
