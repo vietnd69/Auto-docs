@@ -212,6 +212,7 @@ def reviewer_oscillation_correction(
     current_review: ReviewResult,
     oscillating_issues: list[tuple[str, str]],
     model: str,
+    resolved_history: list[str] | None = None,
 ) -> ReviewResult:
     """Multi-turn reviewer self-correction for oscillating issues.
 
@@ -240,6 +241,15 @@ def reviewer_oscillation_correction(
             "  These two findings are contradictory — re-read the Lua source to determine which is correct.",
             "",
         ]
+    if resolved_history:
+        guard_lines += [
+            "Additionally, the following issues were resolved in earlier iterations and MUST NOT be re-raised.",
+            "Drop any finding that matches one of these resolved topics unless you have NEW concrete evidence from the Lua source:",
+            "",
+        ]
+        for iss in resolved_history[:20]:
+            guard_lines.append(f'  - "{iss[:150]}"')
+        guard_lines.append("")
     guard_lines += [
         "Action required:",
         "- Re-read the relevant Lua source lines carefully.",
