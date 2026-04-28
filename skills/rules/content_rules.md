@@ -111,7 +111,7 @@ BRAIN) since their few-shots/rules are stricter subsets.
 
 - If source is small or simple, keep docs proportionally short.
 - If a section has no content, write "Not applicable" or "None identified" — do not invent.
-- Events & listeners may be omitted if the component has none.
+- If a file has no events, listeners, or watchers, write `**None.**` in the Events & listeners section — NEVER omit the `## Events & listeners` heading.
 
 ## Properties Table
 

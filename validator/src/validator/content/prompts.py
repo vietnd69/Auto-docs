@@ -178,7 +178,8 @@ Rules:
 - To DELETE a single function: old_text = that function's block only, new_text = ""
 - To DELETE multiple contiguous functions at once (e.g., a group of local helpers): span all their ### blocks in old_text, set "allow_drops": true, new_text = "" to remove all of them. Only use allow_drops when the reviewer explicitly asks to remove functions (e.g., local/private functions not in public API).
 - To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
-- NEVER delete a ## section — never use empty new_text for a ## heading or its content. To rename a ## heading: old_text = the heading line only (e.g. "## OldName"), new_text = the new heading line (e.g. "## NewName")"""
+- NEVER delete a ## section — never use empty new_text for a ## heading or its content. To rename a ## heading: old_text = the heading line only (e.g. "## OldName"), new_text = the new heading line (e.g. "## NewName")
+- For ## Events & listeners with no real content: replace the section body with `**None.**` — the heading MUST stay. Never produce a patch that removes the `## Events & listeners` line."""
 
     exported_names = extract_lua_exported_names(lua_source)
     if exported_names:

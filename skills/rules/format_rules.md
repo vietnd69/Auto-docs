@@ -11,10 +11,9 @@ inject_into: [analyst, analyst_chunk, analyst_merge, analyst_merge_legacy]
 Never change this order:
 `## Overview` → `## Usage example` → `## Dependencies & tags` → `## Properties` → `## Main functions` → `## Events & listeners`
 
-Do NOT omit, reorder, or rename these sections.
+Do NOT omit, reorder, or rename these sections. If a section has no content, write `**None.**` — never drop the heading.
 
-**Allowed omissions:**
-- `## Events & listeners` may be omitted when the source file has no events (no `ListenForEvent` or `PushEvent` calls).
+Exception: `## Events & listeners` — if the source file has no `ListenForEvent`, `PushEvent`, or `WatchWorldState` calls, write `**None.**` as the section body (keep the `## Events & listeners` heading).
 
 `## Properties` is mandatory for all file types:
 - Non-stategraph files: use the `| None | | | No properties are defined. |` row when no properties exist.
