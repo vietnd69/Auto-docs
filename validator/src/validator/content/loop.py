@@ -41,31 +41,53 @@ def _find_oscillating_issues(
     current_review: ReviewResult,
     history: list[ReviewResult],
 ) -> list[tuple[str, str]]:
-    """Detect oscillating issues: current issues that contradict recently-resolved findings.
+    """Detect oscillating issues across the FULL history (not just the last 2 steps).
 
-    An issue oscillates when the current review re-raises a topic that was present in
-    history[-2] but absent from history[-1] (patched, then resurfaced).
+    An issue oscillates when the current review re-raises a topic that was resolved
+    at any prior point in history (present in history[i] but absent from history[i+1]).
     Returns list of (current_issue, contradicted_resolved_issue) pairs.
     """
     if len(history) < 2:
         return []
-    recently_fixed = [
-        issue for issue in history[-2].issues
-        if issue not in history[-1].issues
-    ]
-    if not recently_fixed:
+    # Collect all issues resolved at any prior step (full history, not just last 2)
+    ever_resolved: set[str] = set()
+    for i in range(len(history) - 1):
+        next_issue_set = set(history[i + 1].issues)
+        for issue in history[i].issues:
+            if issue not in next_issue_set:
+                ever_resolved.add(issue)
+    if not ever_resolved:
         return []
     oscillating: list[tuple[str, str]] = []
+    seen_curr: set[str] = set()
     for curr in current_review.issues:
+        if curr in seen_curr:
+            continue
         curr_kw = _extract_topic_keywords(curr)
         if not curr_kw:
             continue
-        for fixed in recently_fixed:
-            fixed_kw = _extract_topic_keywords(fixed)
-            if curr_kw & fixed_kw:
-                oscillating.append((curr, fixed))
+        for resolved in ever_resolved:
+            resolved_kw = _extract_topic_keywords(resolved)
+            if curr_kw & resolved_kw:
+                oscillating.append((curr, resolved))
+                seen_curr.add(curr)
                 break
     return oscillating
+
+
+def _collect_all_resolved_issues(history: list[ReviewResult]) -> list[str]:
+    """Collect all issues resolved at any point across the full review history.
+
+    Used to inform the oscillation correction so the reviewer knows which topics
+    have already been addressed and must not be re-raised.
+    """
+    resolved: set[str] = set()
+    for i in range(len(history) - 1):
+        next_issue_set = set(history[i + 1].issues)
+        for issue in history[i].issues:
+            if issue not in next_issue_set:
+                resolved.add(issue)
+    return list(resolved)
 
 
 _STANDARD_HEADINGS = [
@@ -314,6 +336,7 @@ def run_content_loop(
                 corrected = reviewer_oscillation_correction(
                     cached_content, lua_source, connected_content,
                     review, oscillating, config.reviewer_model,
+                    resolved_history=_collect_all_resolved_issues(review_history),
                 )
                 if corrected.approved:
                     print(f"  [content] Self-correction approved at iteration {i + 1}")

@@ -208,7 +208,15 @@ STATEGRAPH CONTEXT GUARANTEES — do NOT flag these as potential nil error state
 
 ### Prefab file checks
 - `fn()` and `master_postinit(inst)` documented as separate function entries.
-- Properties table lists `assets`, `prefabs` arrays + key TUNING constants consumed by the prefab.
+- **Properties table — INCLUDE these and ONLY these categories (in order):**
+  - `assets` and `prefabs` arrays (the Prefab() call arguments) — type: `table`
+  - File-scope `local NAME = <literal>` constants that gate function behavior (e.g., `local PHYSICS_RADIUS = 0.5`) — type: `constant`
+  - Key TUNING table references consumed by the prefab (e.g., `TUNING.SKILLS.WX78.BACKUPBODY_WORK_REQUIRED`). These are external globals, NOT file-scope locals, but for prefab files they ARE documented so API consumers know which tuning parameters govern behavior — type: `constant`. **This is an intentional prefab-specific exception to `content_rules`'s general "do not list external globals" principle.**
+- **Properties table — DO NOT include these:**
+  - Instance methods assigned onto `inst` in `fn()` (e.g., `inst.TryToAttachToOwner = TryToAttachToOwner`) — these are functions, not properties; they belong in Main functions
+  - Child entity handles set onto `inst` at runtime (e.g., `inst.wx78_classified`, `inst.wx78_backupbody_inventory`) — runtime entity references, not file-scope properties
+  - DST engine globals (e.g., `TheWorld`, `TheNet`, `STRINGS`, `ACTIONS`, `GLOBAL`) — engine globals, not prefab properties
+- **OSCILLATION GUARD — Properties section:** Do NOT oscillate between iterations about whether TUNING constants or instance methods belong in Properties. The rules are settled: TUNING constants MUST be listed (type: `constant`); instance methods MUST NOT be listed (they go in Main functions). These decisions are final — if a prior iteration told you otherwise, ignore it and follow these rules.
 - Dependencies & tags lists every component attached, the stategraph set, the brain set,
   and every tag added in fn() or master_postinit.
 - Usage example uses `SpawnPrefab("name")`.
