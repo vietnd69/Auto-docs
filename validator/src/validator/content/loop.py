@@ -9,6 +9,7 @@ Cache-based flow:
 """
 
 import json
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -17,7 +18,7 @@ from pathlib import Path
 from rag.docs import safe_read_lua
 from validator.content.cache import CacheManager
 from validator.content.jury import run_jury
-from validator.content.reviewer import ReviewResult, review_document
+from validator.content.reviewer import ReviewResult, review_document, reviewer_oscillation_correction
 from validator.content.writer import rewrite_document, correct_failed_patches, correct_guard_blocked_patches, apply_patches
 from validator.utils import resolve_connected_content
 from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY, NORMAL_SLEEP
@@ -25,6 +26,46 @@ from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY, 
 
 def _never_stop() -> bool:
     return False
+
+
+def _extract_topic_keywords(issue: str) -> frozenset[str]:
+    """Extract identifiable terms from an issue string for oscillation detection."""
+    quoted = re.findall(r"['\"`]([^'\"`\n]+)['\"`]", issue)
+    terms = {q.strip().lower() for q in quoted if 2 < len(q.strip()) < 60}
+    headings = re.findall(r'##\s+[\w\s]+', issue.lower())
+    terms.update(h.strip() for h in headings if len(h.strip()) > 3)
+    return frozenset(terms)
+
+
+def _find_oscillating_issues(
+    current_review: ReviewResult,
+    history: list[ReviewResult],
+) -> list[tuple[str, str]]:
+    """Detect oscillating issues: current issues that contradict recently-resolved findings.
+
+    An issue oscillates when the current review re-raises a topic that was present in
+    history[-2] but absent from history[-1] (patched, then resurfaced).
+    Returns list of (current_issue, contradicted_resolved_issue) pairs.
+    """
+    if len(history) < 2:
+        return []
+    recently_fixed = [
+        issue for issue in history[-2].issues
+        if issue not in history[-1].issues
+    ]
+    if not recently_fixed:
+        return []
+    oscillating: list[tuple[str, str]] = []
+    for curr in current_review.issues:
+        curr_kw = _extract_topic_keywords(curr)
+        if not curr_kw:
+            continue
+        for fixed in recently_fixed:
+            fixed_kw = _extract_topic_keywords(fixed)
+            if curr_kw & fixed_kw:
+                oscillating.append((curr, fixed))
+                break
+    return oscillating
 
 
 _STANDARD_HEADINGS = [
@@ -74,6 +115,33 @@ class ContentLoopResult:
     iterations: int
     final_issues: list[str]
     accepted_headings: set[str] = field(default_factory=set)  # standard headings jury accepted as replaced
+
+
+def _build_writer_prior_context(
+    prev_issues: list[str],
+    applied: int,
+    failed: int,
+    guard_blocked: int,
+) -> str:
+    """Compact user-turn summary of the previous writer iteration for multi-turn context.
+
+    Avoids repeating the full doc/Lua source — just describes what was requested,
+    what happened to the patches, and instructs the writer not to re-fix resolved issues.
+    """
+    issues_text = "\n".join(f"- {iss}" for iss in prev_issues) or "(none)"
+    result_parts = [f"{applied} applied"]
+    if failed:
+        result_parts.append(f"{failed} not found/ambiguous")
+    if guard_blocked:
+        result_parts.append(f"{guard_blocked} guard-blocked")
+    return (
+        "[CONTEXT: PREVIOUS WRITER ATTEMPT]\n"
+        f"In the previous iteration you were asked to fix:\n{issues_text}\n\n"
+        f"Patch application results: {', '.join(result_parts)}.\n"
+        "The document was updated with the applied patches. Your previous response is shown "
+        "above (assistant turn). Below you will receive the updated document and remaining issues.\n"
+        "Do NOT re-generate patches for issues already resolved — only fix what the new reviewer feedback flags."
+    )
 
 
 def _collect_failed_patches(
@@ -134,6 +202,8 @@ def run_content_loop(
     jury_verdicts: dict[str, bool] = {}  # std_heading → accepted (True) or rejected (False)
     jury_context_turns: list[dict] = []  # assistant+user turn pairs injected into reviewer after jury rejects
     accepted_headings: set[str] = set()  # standard headings jury accepted as replaced by non-standard names
+    review_history: list[ReviewResult] = []  # for oscillation detection
+    writer_prior_turns: list[dict] = []  # [compact_user, assistant] from last writer call
     for i in range(config.max_iterations):
         if config.stop_check():
             print(f"  [content] Stopped by Ctrl+C before iteration {i + 1}")
@@ -234,6 +304,30 @@ def run_content_loop(
                 accepted_headings=accepted_headings,
             )
 
+        # Oscillation correction: if reviewer re-raises contradictory issues,
+        # send its own response back as assistant turn + guard feedback as user turn
+        # so it can self-correct before the writer runs.
+        if review.raw_response:
+            oscillating = _find_oscillating_issues(review, review_history)
+            if oscillating:
+                print(f"  [content] Oscillation detected in {len(oscillating)} issue(s) — reviewer self-correction...")
+                corrected = reviewer_oscillation_correction(
+                    cached_content, lua_source, connected_content,
+                    review, oscillating, config.reviewer_model,
+                )
+                if corrected.approved:
+                    print(f"  [content] Self-correction approved at iteration {i + 1}")
+                    Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
+                    return ContentLoopResult(
+                        approved=True, iterations=i + 1, final_issues=[],
+                        accepted_headings=accepted_headings,
+                    )
+                if len(corrected.issues) < len(review.issues):
+                    print(f"  [content] Self-correction reduced: {len(review.issues)} → {len(corrected.issues)} issue(s)")
+                    review = corrected
+                else:
+                    print(f"  [content] Self-correction did not reduce issues — proceeding with original")
+
         print(f"  [content] Rejected — {len(review.issues)} issue(s): {', '.join(review.issues[:2])}" +
               (f" (+{len(review.issues) - 2} more)" if len(review.issues) > 2 else ""))
 
@@ -252,6 +346,7 @@ def run_content_loop(
         # LLM1 fix — works on cached content
         patches, raw = rewrite_document(
             cached_content, lua_source, connected_content, review, config.writer_model,
+            prior_turns=writer_prior_turns or None,
         )
 
         if not patches:
@@ -327,7 +422,23 @@ def run_content_loop(
         if patches and remaining_failed > len(patches) / 2:
             print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
 
+        # Build multi-turn context for the next writer call: compact summary of what was
+        # requested + patch outcome (user turn) + previous writer JSON (assistant turn).
+        # The writer sees this before the new user_content, giving it awareness of what
+        # it already tried and which patches succeeded, without repeating doc/Lua content.
+        final_applied = len(patches) - remaining_failed
+        writer_prior_turns = [
+            {"role": "user", "content": _build_writer_prior_context(
+                prev_issues=review.issues,
+                applied=final_applied,
+                failed=failed,
+                guard_blocked=len(guard_blocked_patches),
+            )},
+            {"role": "assistant", "content": raw},
+        ]
+
         previous_review = review
+        review_history.append(review)
         # Write updated content to cache (NOT to original file)
         cache.write(cache_id, updated_content)
 

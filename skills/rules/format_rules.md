@@ -15,9 +15,10 @@ Do NOT omit, reorder, or rename these sections.
 
 **Allowed omissions:**
 - `## Events & listeners` may be omitted when the source file has no events (no `ListenForEvent` or `PushEvent` calls).
-- `## Properties` may be omitted ONLY for stategraph files with no file-scope local tables/constants. If any file-scope local exists (e.g., `ATTACK_PROP_MUST_TAGS`, `START_FACE_DIST`), Properties section is REQUIRED.
 
-For all other file types, the Properties section is mandatory — use the `| None | | | No properties are defined. |` row when no properties exist.
+`## Properties` is mandatory for all file types:
+- Non-stategraph files: use the `| None | | | No properties are defined. |` row when no properties exist.
+- Stategraph files: include the state reference table first, then file-scope constants if present.
 
 ## Output Format
 
