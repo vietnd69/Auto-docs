@@ -56,6 +56,15 @@ Must contain EXACTLY these labels (in order):
 NOTE: "EXACTLY these labels" means the two mandatory labels (**Components used:** and **Tags:**) must
 always be present. **External dependencies:** is the only label that may be omitted when empty.
 
+UNUSED IMPORT RULE: If `local X = require("X")` appears in the file but the returned value is
+never called or indexed in any function body, it is an **unused import**.
+- Prefer listing it under **External dependencies:** with usage description `"imported but not referenced (unused import)"`.
+- Do NOT flag the documentation as wrong for listing an unused import — the listing is correct.
+- Do NOT flag the documentation as wrong for NOT listing an unused import — omission is also acceptable.
+- The ONLY valid finding: if the listed usage description is factually inaccurate (e.g., says the
+  module is actively used when it is never called in the file).
+- NEVER oscillate between "it must be listed" and "it must be removed" for the same unused import across iterations.
+
 ## Section: Properties
 
 Table with columns: Property | Type | Default Value | Description.
@@ -88,10 +97,10 @@ Each entry uses a ### heading with function name.
 Keep ALL functions — never drop trivial getters/setters.
 
 FIELD RULES:
-- **Error states:** is a valid field even when it describes conditional behavior or logic branches
-  (not just exceptions). Do NOT suggest renaming it to Notes, Behavior, or any other name.
-- If content inside **Error states:** is genuinely non-error (e.g. pure conditional logic with
-  no failure path), suggest incorporating that content into **Description:** instead.
+- **Error states:** must describe only real failure paths (crash, nil access without guard,
+  or silent corruption risk). Do NOT suggest renaming it to Notes, Behavior, or any other name.
+- If content inside **Error states:** is non-error behavior (e.g. pure conditional logic with
+  no failure path), suggest moving that content into **Description:** instead.
 - `* **Error states:** None` is a valid, correct value — do NOT flag it unless verification fails.
 - Do NOT introduce new field names. Only use: Description, Parameters, Returns, Error states.
 
@@ -110,6 +119,15 @@ ERROR STATES — VERIFICATION PROTOCOL (required before accepting `None`):
   {"issue": "Error states: None is incorrect. self.inst.components.X:Method() on line N has no nil guard — crashes if X is missing.", "suggestion": "Document the crash condition: 'Errors if inst.components.X is nil (no nil guard present).'"}
   Symmetric rule: if the doc claims an error state but the Lua source has a clear nil guard
   immediately before the access, flag the false error state and suggest removing it.
+
+INLINE NIL GUARD PATTERNS — all of these are valid guards; do NOT flag the wrapped call as "unguarded":
+- `if X ~= nil then X:Method() end` — explicit if-block guard
+- `X ~= nil and X:Method()` — short-circuit AND expression (guard and call on same line)
+- `X and X:Method()` — truthy short-circuit guard
+- `if X then X:Method() end` — truthy if-block guard
+- `local y = X ~= nil and X:Method()` — guarded assignment
+If ANY of these patterns wraps a method call, the call is guarded — do NOT report it as an unguarded access.
+This applies even when the guard and the method call appear on the SAME line.
 
 ERROR STATES — WHAT DOES NOT BELONG THERE (move to Description):
   BAD: "Returns false if entity is on specific island" — normal conditional return path
@@ -157,6 +175,11 @@ SCREEN / PREFAB).
   {"issue": "Properties section is missing the state reference table. The stategraph defines N states but there is no consolidated table listing them with their tags and roles.", "suggestion": "Add a state reference table at the top of ## Properties before any constant rows, with columns: State name | Tags | Description."}
 - Events & listeners lists EventHandler entries that react to ENGINE events, not state-internal handlers.
 - Usage example uses `inst.sg:GoToState(...)` / `inst.sg:HasStateTag(...)`, NOT `CreateEntity()` + `AddComponent()`.
+
+STATEGRAPH CONTEXT GUARANTEES — do NOT flag these as potential nil error states in state handler functions (onenter/onexit/ontimeout/timeline callbacks):
+- `inst.sg`, `inst.sg.statemem`, `inst.sg.mem` — initialized by the stategraph engine before any handler runs; always non-nil when a state handler executes.
+- `inst.AnimState`, `inst.Physics`, `inst.SoundEmitter`, `inst.Transform` — DST entity built-ins set up at entity creation, not via AddComponent. Never nil for a living entity with these built-ins active.
+- Entity built-ins are NOT components — do not apply component nil-guard checks to them. The component pattern `inst.components.X` requires a nil guard; entity built-ins (`inst.AnimState`, etc.) do not.
 
 ### Brain file checks
 - `OnStart()` is documented and the description names the root SelectorNode/SequenceNode children.

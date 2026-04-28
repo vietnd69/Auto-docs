@@ -173,6 +173,8 @@ Before writing the Returns field, mentally trace the function's return statement
 - **Pushes:** Events fired via `inst:PushEvent(event, data)`.
 - **World state watchers:** Variables watched via `inst:WatchWorldState("varname", fn)`.
 - If there are no events, listeners, or worldstate watchers, omit this entire section.
+- Include every applicable subsection. If source has all three patterns, document all three
+  labels (`Listens to`, `Pushes`, `World state watchers`) in the same section.
 
 **WorldState watchers are a separate category** from events — use a distinct `**World state watchers:**` label, NOT under `**Listens to:**`. The callback receives the new value directly (not a data table). Example:
 ```
@@ -182,7 +184,9 @@ Before writing the Returns field, mentally trace the function's return statement
 ```
 
 **Completeness rule — ALL subsections required when applicable:**
-If the component uses pushes AND listens AND worldstate watchers, ALL three labels must be present. Do NOT document only one and stop — scan the entire source for all three patterns including those in constructors, `OnLoad`, and helper functions. A partial Events section is treated as an omission error.
+If the source uses pushes AND listens AND worldstate watchers, ALL three labels must be present.
+Do NOT document only one and stop — scan the entire source for all three patterns including those
+in constructors, `OnLoad`, and helper functions. A partial Events section is treated as an omission error.
 
 For each event entry, document:
 - Event name

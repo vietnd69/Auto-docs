@@ -205,24 +205,30 @@ def rewrite_document(
     connected_content: str,
     review_feedback: ReviewResult,
     model: str,
+    prior_turns: list[dict] | None = None,
 ) -> tuple[list[Patch], str]:
     """Ask LLM1 to generate patches based on reviewer feedback.
 
     Returns (patches, raw_response). raw_response is needed by callers that
     want to do a multi-turn correction when patches fail to apply.
+
+    prior_turns: optional [user, assistant] pair from the previous writer iteration,
+    enabling multi-turn context so the writer can see what it tried before and
+    the patch outcome. Format: [{"role": "user", ...}, {"role": "assistant", ...}]
     """
     system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
     token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/writer] Write prompt: {token_count:,} tokens")
+    prior_info = f" (+{len(prior_turns)} prior turn(s))" if prior_turns else ""
+    print(f"  [content/writer] Write prompt: {token_count:,} tokens{prior_info}")
     if DEBUG_PROMPTS:
         _dump_prompt("writer", system_prompt + "\n\n" + user_content)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    if prior_turns:
+        messages.extend(prior_turns)
+    messages.append({"role": "user", "content": user_content})
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
