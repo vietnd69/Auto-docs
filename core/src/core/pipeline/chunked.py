@@ -785,6 +785,61 @@ def process_chunked_file(
 
     print(f"  [CHUNKED] Chia thành {total_chunks} chunks")
 
+    # ── SHORTCUT: 1 chunk → standard pipeline trực tiếp ──────────────────
+    # Khi chỉ có 1 chunk, không cần bước trung gian (chunk JSON → pre-synthesis).
+    # Dùng standard pipeline với per-chunk connected content để tiết kiệm 1 LLM call.
+    if total_chunks == 1:
+        print(f"  [1-CHUNK] Chỉ 1 chunk — dùng standard pipeline trực tiếp (tiết kiệm 1 LLM call)")
+        _own_filename = os.path.basename(display_filepath)
+        chunk_section, chunk_content, ref_count = extract_connected_for_chunk(
+            chunk_code=stripped_code,
+            own_filename=_own_filename,
+            full_refs=full_refs,
+            max_lines_per_file=100,
+            max_total_tokens=CONTEXT_RESERVE,
+        )
+        if chunk_content:
+            _func_mode = _detect_context_mode(chunk_content)
+            _has_req_full = "-- [REQUIRE FULL:" in chunk_content
+            _has_req_module = "-- [REQUIRE MODULE:" in chunk_content
+            _req_mode = "require_full" if _has_req_full else ("require_module" if _has_req_module else None)
+            if _req_mode:
+                print(f"    [CTX] {ref_count} refs, func_mode={_func_mode} | req_stubs={_req_mode}")
+            else:
+                print(f"    [CTX] {ref_count} refs, mode={_func_mode}")
+        elif ref_count > 0:
+            print(f"    [CTX] {ref_count} refs nhưng không extract được content")
+        else:
+            print(f"    [CTX] không có external context (file độc lập)")
+
+        from prompts.standard import build_prompt as _build_std_prompt
+        from core.pipeline.standard import generate_doc as _generate_doc
+
+        std_prompt = _build_std_prompt(
+            comp_name=comp_name,
+            comp_title=comp_title,
+            display_filepath=display_filepath,
+            lua_code=stripped_code,
+            connected_section=chunk_section,
+            connected_content=chunk_content,
+            source_hash=source_hash,
+            file_tree=file_tree,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+        )
+
+        if DEBUG_PROMPTS:
+            _dump_debug(f"1chunk_prompt_{os.path.basename(md_filepath)}", std_prompt)
+
+        return _generate_doc(
+            prompt=std_prompt,
+            md_filepath=md_filepath,
+            source_hash=source_hash,
+            model_name=model_name,
+            sleep_time=merge_sleep,
+        )
+
     # ── CHECKPOINT RESUME ──
     if fresh_start:
         clear_checkpoint(comp_name)
