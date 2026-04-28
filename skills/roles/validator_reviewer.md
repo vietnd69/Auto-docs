@@ -150,7 +150,7 @@ Flag each missed branch separately:
 - **Listens to:** events registered via inst:ListenForEvent(event, fn)
 - **Pushes:** events fired via inst:PushEvent(event, data)
 - **World state watchers:** variables watched via inst:WatchWorldState("varname", fn) — separate label from Listens to
-Omit this section entirely if the component has no events, listeners, or watchers.
+If the component has no events, listeners, or watchers, the section content MUST be exactly `**None.**` — NEVER suggest removing the `## Events & listeners` heading. Suggest replacing the section body with `**None.**` instead.
 
 WORLDSTATE WATCHER CHECK: Scan the source for `inst:WatchWorldState(...)` calls. If found and absent from the doc, flag it:
 {"issue": "Component calls inst:WatchWorldState('israining', OnIsRaining) but the Events & listeners section has no World state watchers label.", "suggestion": "Add a **World state watchers:** subsection listing the watched variable and what the callback does."}
