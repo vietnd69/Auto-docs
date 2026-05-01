@@ -217,6 +217,7 @@ STATEGRAPH CONTEXT GUARANTEES — do NOT flag these as potential nil error state
   - Child entity handles set onto `inst` at runtime (e.g., `inst.wx78_classified`, `inst.wx78_backupbody_inventory`) — runtime entity references, not file-scope properties
   - DST engine globals (e.g., `TheWorld`, `TheNet`, `STRINGS`, `ACTIONS`, `GLOBAL`) — engine globals, not prefab properties
 - **OSCILLATION GUARD — Properties section:** Do NOT oscillate between iterations about whether TUNING constants or instance methods belong in Properties. The rules are settled: TUNING constants MUST be listed (type: `constant`); instance methods MUST NOT be listed (they go in Main functions). These decisions are final — if a prior iteration told you otherwise, ignore it and follow these rules.
+- **OSCILLATION GUARD — Function heading `inst` param:** Do NOT oscillate between iterations about whether `inst` appears in a function heading. Apply the call-site rule from `function_format` skill ONCE and keep it: if the call site is `inst:X(args)` (method assignment) → no `inst` in heading; if the call site is `X(inst, args)` (callback/task) → `inst` IS in heading. Do not re-flag a heading that was already corrected to match the call-site rule.
 - Dependencies & tags lists every component attached, the stategraph set, the brain set,
   and every tag added in fn() or master_postinit.
 - Usage example uses `SpawnPrefab("name")`.

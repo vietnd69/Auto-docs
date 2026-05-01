@@ -92,6 +92,35 @@ Use EXACTLY these labels in ## Dependencies & tags:
 - For functions named exactly `_ctor` (Widget/Screen/Behaviour constructors), keep the
   underscore: `### \`_ctor(prompt, on_confirm)\``.
 
+## Method Assignment vs Callback — `inst` in Heading
+
+Two patterns exist in prefab/component files. They differ in whether `inst` appears as an
+explicit parameter:
+
+**Method assignment** — function is assigned onto `inst` and called via colon syntax:
+```lua
+inst.SetFXOwner = SetFXOwner   -- definition
+inst:SetFXOwner(owner)         -- call site
+```
+→ Heading: `### \`SetFXOwner(owner)\`` — do NOT include `inst`. The colon call passes
+`inst` as the implicit receiver, so it is not an explicit parameter.
+
+**Callback / task function** — local function is passed to an event/task handler and called
+with `inst` as a plain argument:
+```lua
+local function OnUpdate(inst, dt) ... end
+inst:DoPeriodicTask(0, OnUpdate)   -- called as OnUpdate(inst, dt)
+```
+→ Heading: `### \`OnUpdate(inst, dt)\`` — MUST include `inst`. The handler calls the
+function with `inst` passed explicitly, so it IS a listed parameter.
+
+**Quick rule:** look at the CALL SITE. If the call is `inst:X(args)` → no `inst` in heading.
+If the call is `X(inst, args)` → `inst` belongs in heading.
+
+**OSCILLATION GUARD:** Do NOT flip between iterations on whether `inst` belongs in a heading.
+Determine the call pattern from source once and keep it. If a prior iteration flagged this
+differently, ignore it and apply the call-site rule above.
+
 ## Constructors
 
 - Component constructors are passed to `Class(function(self, inst) ... end)` — they are
