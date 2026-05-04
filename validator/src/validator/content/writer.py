@@ -206,20 +206,26 @@ def rewrite_document(
     review_feedback: ReviewResult,
     model: str,
     prior_turns: list[dict] | None = None,
-) -> tuple[list[Patch], str]:
+    user_prefix: str = "",
+) -> tuple[list[Patch], str, str]:
     """Ask LLM1 to generate patches based on reviewer feedback.
 
-    Returns (patches, raw_response). raw_response is needed by callers that
-    want to do a multi-turn correction when patches fail to apply.
+    Returns (patches, raw_response, user_content). raw_response is needed by callers that
+    want to do a multi-turn correction when patches fail to apply. user_content is needed
+    to reconstruct the original request for multi-turn inner loop passes.
 
     prior_turns: optional [user, assistant] pair from the previous writer iteration,
     enabling multi-turn context so the writer can see what it tried before and
     the patch outcome. Format: [{"role": "user", ...}, {"role": "assistant", ...}]
+
+    user_prefix: optional text prepended to user_content before sending.
     """
     system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
+    if user_prefix:
+        user_content = user_prefix + user_content
     token_count = count_tokens(system_prompt + user_content)
     prior_info = f" (+{len(prior_turns)} prior turn(s))" if prior_turns else ""
     print(f"  [content/writer] Write prompt: {token_count:,} tokens{prior_info}")
@@ -253,7 +259,7 @@ def rewrite_document(
 
     if patches:
         print(f"  [content/writer] {len(patches)} patch(es) generated")
-    return patches, raw
+    return patches, raw, user_content
 
 
 def _find_doc_snippet(md_content: str, old_text: str, context_lines: int = 6) -> str:
@@ -274,6 +280,43 @@ def _extract_fn_headings(md_content: str) -> str:
     """Extract all ### function headings from the document as a reference list."""
     headings = re.findall(r'^(### .+)$', md_content, re.MULTILINE)
     return "\n".join(headings) if headings else "(no ### headings found)"
+
+
+def _extract_section_headings(md_content: str) -> str:
+    """Extract all ## section headings from the document."""
+    headings = re.findall(r'^(## .+)$', md_content, re.MULTILINE)
+    return "\n".join(headings) if headings else "(no ## headings found)"
+
+
+def _build_correction_feedback(
+    md_content: str,
+    failed_patches: list[Patch],
+    failure_reasons: list[str],
+) -> str:
+    """Correction user message for multi-turn NOT-FOUND correction (4th turn).
+    Does not include reviewer feedback or previous writer response — those are in history.
+    """
+    parts = []
+    for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons), 1):
+        snippet = _find_doc_snippet(md_content, p.old_text, context_lines=10)
+        part = (
+            f"--- Failed patch {i} ---\n"
+            f"Attempted old_text: {p.old_text[:300]!r}\n"
+            f"Failure reason: {reason}\n"
+            f"Intended new_text: {p.new_text[:300]!r}"
+        )
+        if snippet:
+            part += f"\nDocument region near target (EXACT whitespace):\n{snippet!r}"
+        parts.append(part)
+    section_headings = _extract_section_headings(md_content)
+    fn_headings = _extract_fn_headings(md_content)
+    return (
+        f"The following {len(failed_patches)} patch(es) from your previous response failed to apply:\n\n"
+        + "\n\n".join(parts)
+        + f"\n\n=== ## SECTION HEADINGS IN DOCUMENT ===\n{section_headings}"
+        + f"\n\n=== ### FUNCTION HEADINGS IN DOCUMENT (use for old_text anchors) ===\n{fn_headings or '(none)'}"
+        + f"\n\n=== CURRENT DOCUMENT ===\n{md_content}"
+    )
 
 
 def _build_targeted_correction_prompt(
@@ -379,31 +422,60 @@ def correct_failed_patches(
     review_suggestions: list[str] | None = None,
     previous_writer_raw: str = "",
     previous_patches: list[Patch] | None = None,
+    original_md_content: str = "",
+    lua_source: str = "",
+    connected_content: str = "",
 ) -> list[Patch]:
     """Targeted correction: ask writer to fix only the failed patches.
 
-    Uses a simple single-turn prompt showing only the failed patches and the
-    current document. Avoids the multi-turn + previous_raw structure, which
-    caused the writer to re-generate all patches (targeting the pre-patch document)
-    instead of correcting just the failed ones.
+    When original_md_content, lua_source, and previous_writer_raw are all provided,
+    uses multi-turn structure:
+        system:    writer system prompt
+        user:      original write request (built from original_md_content)
+        assistant: previous_writer_raw (what the writer tried)
+        user:      correction feedback (what failed + section headings + current doc)
+
+    Otherwise falls back to single-turn behavior using _build_targeted_correction_prompt.
     """
-    system_prompt, user_content = _build_targeted_correction_prompt(
-        md_content,
-        failed_patches,
-        failure_reasons,
-        review_issues=review_issues,
-        review_suggestions=review_suggestions,
-        previous_writer_raw=previous_writer_raw,
-        previous_patches=previous_patches,
-    )
-    token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens")
-    if DEBUG_PROMPTS:
-        _dump_prompt("writer_correction", system_prompt + "\n\n" + user_content)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    use_multi_turn = bool(original_md_content and lua_source and previous_writer_raw)
+
+    if use_multi_turn:
+        _issues = review_issues or []
+        _suggestions = review_suggestions or []
+        system_prompt, original_task_user = build_writer_prompt(
+            original_md_content, lua_source, connected_content,
+            _issues, _suggestions,
+        )
+        correction_user = _build_correction_feedback(md_content, failed_patches, failure_reasons)
+        token_count = count_tokens(system_prompt + original_task_user + previous_writer_raw + correction_user)
+        print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens (multi-turn)")
+        if DEBUG_PROMPTS:
+            full = system_prompt + "\n\n" + original_task_user + "\n\n[ASSISTANT]\n" + previous_writer_raw + "\n\n[USER]\n" + correction_user
+            _dump_prompt("writer_correction", full)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": original_task_user},
+            {"role": "assistant", "content": previous_writer_raw},
+            {"role": "user", "content": correction_user},
+        ]
+    else:
+        system_prompt, user_content = _build_targeted_correction_prompt(
+            md_content,
+            failed_patches,
+            failure_reasons,
+            review_issues=review_issues,
+            review_suggestions=review_suggestions,
+            previous_writer_raw=previous_writer_raw,
+            previous_patches=previous_patches,
+        )
+        token_count = count_tokens(system_prompt + user_content)
+        print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens")
+        if DEBUG_PROMPTS:
+            _dump_prompt("writer_correction", system_prompt + "\n\n" + user_content)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
 
     raw = ""
     patches: list[Patch] = []

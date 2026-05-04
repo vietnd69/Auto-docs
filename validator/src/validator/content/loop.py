@@ -139,30 +139,24 @@ class ContentLoopResult:
     accepted_headings: set[str] = field(default_factory=set)  # standard headings jury accepted as replaced
 
 
-def _build_writer_prior_context(
-    prev_issues: list[str],
-    applied: int,
-    failed: int,
-    guard_blocked: int,
-) -> str:
-    """Compact user-turn summary of the previous writer iteration for multi-turn context.
-
-    Avoids repeating the full doc/Lua source — just describes what was requested,
-    what happened to the patches, and instructs the writer not to re-fix resolved issues.
+def _build_patch_feedback_prefix(applied: int, failed: int, guard_blocked: int) -> str:
+    """Feedback prefix prepended to user_content for multi-turn inner writer loop passes.
+    Goes BEFORE the current document in the next writer call's user message.
     """
-    issues_text = "\n".join(f"- {iss}" for iss in prev_issues) or "(none)"
     result_parts = [f"{applied} applied"]
     if failed:
-        result_parts.append(f"{failed} not found/ambiguous")
+        result_parts.append(f"{failed} not-found/ambiguous")
     if guard_blocked:
         result_parts.append(f"{guard_blocked} guard-blocked")
+    if applied > 0:
+        doc_note = "The document was updated with the applied patches. Below is the current state."
+    else:
+        doc_note = "No patches were applied — the document is unchanged. Check old_text carefully against the document below."
     return (
-        "[CONTEXT: PREVIOUS WRITER ATTEMPT]\n"
-        f"In the previous iteration you were asked to fix:\n{issues_text}\n\n"
-        f"Patch application results: {', '.join(result_parts)}.\n"
-        "The document was updated with the applied patches. Your previous response is shown "
-        "above (assistant turn). Below you will receive the updated document and remaining issues.\n"
-        "Do NOT re-generate patches for issues already resolved — only fix what the new reviewer feedback flags."
+        "[PREVIOUS PATCH ATTEMPT RESULTS]\n"
+        f"Results: {', '.join(result_parts)}.\n"
+        f"{doc_note}\n"
+        "Fix only remaining issues — do NOT re-patch what was already applied.\n\n"
     )
 
 
@@ -225,7 +219,6 @@ def run_content_loop(
     jury_context_turns: list[dict] = []  # assistant+user turn pairs injected into reviewer after jury rejects
     accepted_headings: set[str] = set()  # standard headings jury accepted as replaced by non-standard names
     review_history: list[ReviewResult] = []  # for oscillation detection
-    writer_prior_turns: list[dict] = []  # [compact_user, assistant] from last writer call
     for i in range(config.max_iterations):
         if config.stop_check():
             print(f"  [content] Stopped by Ctrl+C before iteration {i + 1}")
@@ -367,14 +360,26 @@ def run_content_loop(
 
         # Inner writer loop: retry until all patches apply, no progress, or max passes
         current_content = cached_content
-        inner_prior_turns: list[dict] = writer_prior_turns[:]
+        inner_prior_turns: list[dict] = []
+        inner_first_user_content: str = ""
+        guard_blocked_for_prefix: int = 0
         for w_iter in range(VALIDATOR_WRITER_INNER_ITERATIONS):
             inner_suffix = f" (pass {w_iter + 1}/{VALIDATOR_WRITER_INNER_ITERATIONS})" if VALIDATOR_WRITER_INNER_ITERATIONS > 1 else ""
             print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches{inner_suffix}...")
-            patches, raw = rewrite_document(
+            user_prefix_for_this_pass = ""
+            if w_iter > 0 and inner_first_user_content:
+                user_prefix_for_this_pass = _build_patch_feedback_prefix(
+                    applied=iter_applied,
+                    failed=remaining_failed,
+                    guard_blocked=guard_blocked_for_prefix,
+                )
+            patches, raw, user_content_this_pass = rewrite_document(
                 current_content, lua_source, connected_content, review, config.writer_model,
                 prior_turns=inner_prior_turns or None,
+                user_prefix=user_prefix_for_this_pass,
             )
+            if w_iter == 0:
+                inner_first_user_content = user_content_this_pass
 
             if not patches:
                 if w_iter == 0:
@@ -419,6 +424,9 @@ def run_content_loop(
                         review_suggestions=review.suggestions,
                         previous_writer_raw=raw,
                         previous_patches=patches,
+                        original_md_content=current_content,
+                        lua_source=lua_source,
+                        connected_content=connected_content,
                     )
                     if correction:
                         updated_content, corr_failed, _, corr_guard_blocked = apply_patches(updated_content, correction)
@@ -429,6 +437,7 @@ def run_content_loop(
                         remaining_failed = max(remaining_failed, corr_failed)
                         print(f"  [content] Not-found correction: applied {corr_applied}/{len(correction)} patches")
 
+            gc_applied_count = 0
             if guard_blocked_patches:
                 guard_count = len(guard_blocked_patches)
                 print(f"  [content] Sleeping {NORMAL_SLEEP}s before guard correction...")
@@ -441,21 +450,18 @@ def run_content_loop(
                 if guard_correction:
                     updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
                     gc_applied = len(guard_correction) - gc_failed
+                    gc_applied_count = gc_applied
                     remaining_failed = max(0, remaining_failed - gc_applied)
                     remaining_failed = max(remaining_failed, gc_failed)
                     print(f"  [content] Guard correction: applied {gc_applied}/{len(guard_correction)} patches")
+            guard_blocked_for_prefix = max(0, len(guard_blocked_patches) - gc_applied_count)
 
             if patches and remaining_failed > len(patches) / 2:
                 print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
 
             iter_applied = len(patches) - remaining_failed
             inner_prior_turns = [
-                {"role": "user", "content": _build_writer_prior_context(
-                    prev_issues=review.issues,
-                    applied=iter_applied,
-                    failed=remaining_failed,
-                    guard_blocked=len(guard_blocked_patches),
-                )},
+                {"role": "user", "content": inner_first_user_content},
                 {"role": "assistant", "content": raw},
             ]
             current_content = updated_content
@@ -473,7 +479,6 @@ def run_content_loop(
                 print(f"  [content] Sleeping {NORMAL_SLEEP}s before next writer pass...")
                 time.sleep(NORMAL_SLEEP)
 
-        writer_prior_turns = inner_prior_turns
         previous_review = review
         review_history.append(review)
         # Write updated content to cache (NOT to original file)
