@@ -29,7 +29,7 @@ def _dump_debug(label: str, content: str) -> None:
     print(f"  [debug] {label} → {path.name}")
 from validator.format.autofix import autofix_file, get_mdx_errors
 
-CHANGELOG_PATH: Path = PROJECT_ROOT / "dst-api-webdocs" / "change-log.md"
+CHANGELOG_PATH: Path = PROJECT_ROOT / "dst-api-webdocs" / "getting-started" / "change-log.md"
 _CHANGELOG_HEADER = "# Scripts Changelog\n"
 
 
