@@ -479,6 +479,10 @@ def run_content_loop(
         # Write updated content to cache (NOT to original file)
         cache.write(cache_id, current_content)
 
+        if current_content == cached_content:
+            print(f"  [content] Writer unable to make progress — stopping loop early")
+            break
+
         print(f"  [content] Sleeping {NORMAL_SLEEP}s before next iteration...")
         time.sleep(NORMAL_SLEEP)
 
