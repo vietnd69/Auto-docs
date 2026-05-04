@@ -103,11 +103,53 @@ Re-render lại toàn bộ nội dung MD cho các file thay đổi theo pipeline
 
 ### Diff watcher
 
-Phát hiện file `.lua` thay đổi giữa các lần cập nhật `dst-scripts`:
+Phát hiện file `.lua` thay đổi giữa các lần cập nhật `dst-scripts`. Kết quả ghi vào `data/diff_report.json` và `data/diff_log.txt`, đồng thời tự động cập nhật vector store nếu có thay đổi.
+
+**Quy trình chuẩn khi có bản cập nhật game mới:**
+
+1. Copy Lua source mới vào `dst-scripts/` (thủ công)
+2. Cập nhật `data/version_log.txt` với version mới:
+
+```
+now version: <version_mới>
+previous version: <version_cũ>
+```
+
+3. Chạy watcher:
 
 ```bash
 .venv/Scripts/mod-watcher
 ```
+
+Output phân loại thay đổi thành 4 nhóm: `ADDED`, `MODIFIED`, `DELETED`, `MOVED`.
+
+### RAG / Vector search
+
+Index Lua source vào ChromaDB và tìm kiếm bằng vector similarity (local embedding, không gọi LLM).
+
+```bash
+# Chỉ index (không khởi động server) — chỉ index file mới/thay đổi
+.venv/Scripts/python -m rag.indexer
+
+# Khởi động search server (index trước, sau đó serve tại localhost:8000)
+.venv/Scripts/python -m rag.search
+```
+
+Server expose REST API:
+
+```bash
+# Query vector similarity search
+curl -X POST http://localhost:8000/query \
+  -H "Content-Type: application/json" \
+  -d '{"question": "combat damage calculation"}'
+
+# Swagger UI để test thủ công
+# http://localhost:8000/docs
+```
+
+Response trả về danh sách file Lua liên quan nhất, sắp xếp theo similarity score.
+
+> **Lưu ý:** `mod-watcher` tự động gọi `rag.indexer` sau khi scan nếu có thay đổi — thường không cần chạy `rag.indexer` thủ công.
 
 ### Chạy tests
 

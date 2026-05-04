@@ -1,8 +1,14 @@
-# Skill: few_shot
+---
+name: few_shot
+description: Component file few-shot example — expected output format for component documentation
+inject_into: [analyst, analyst_chunk]
+---
 
-=== FEW-SHOT EXAMPLE ===
+## Few-Shot Example: Component File
+
 Below is a short example of the expected output format for a simple component. Use this as a reference for structure and tone — do NOT copy the content.
 
+```md
 ---
 id: samplecomp
 title: SampleComp
@@ -34,8 +40,11 @@ inst.components.samplecomp:Activate()
 ```
 
 ## Dependencies & tags
-**Components used:** `combat`
-**Tags:** Adds `buffed`; checks `debuffed`.
+**Components used:**
+- `combat` -- modifies outgoing damage via buff multiplier
+**Tags:**
+- `buffed` -- added on Activate(), removed on expiry
+- `debuffed` -- checked before applying buff
 
 ## Properties
 | Property | Type | Default Value | Description |
@@ -47,15 +56,16 @@ inst.components.samplecomp:Activate()
 ### `SetDuration(seconds)`
 *   **Description:** Sets the total duration of the buff.
 *   **Parameters:** `seconds` (number) - duration in seconds.
-*   **Returns:** Nothing.
+*   **Returns:** nil
 
 ### `Activate()`
 *   **Description:** Starts the buff timer and adds the `buffed` tag.
 *   **Parameters:** None.
-*   **Returns:** Nothing.
-*   **Error states:** Returns early with no effect if `duration` is `<= 0`.
+*   **Returns:** nil
+*   **Error states:** Errors if `self.inst` is nil when `Activate()` calls `self.inst:AddTag()` — no nil guard present.
 
 ## Events & listeners
 - **Listens to:** `onhitother` - refreshes the buff timer on hit.
 - **Pushes:** `buff_expired` - fired when the timer reaches zero.
-(End of component example)
+```
+```

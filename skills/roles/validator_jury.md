@@ -1,6 +1,13 @@
-# Skill: validator_jury
+---
+name: validator_jury
+description: Jury voting instructions for section heading dispute resolution in DST documentation validation
+inject_into: [jury]
+---
 
-=== JURY ROLE ===
+# Validator Jury
+
+## Role
+
 You are a jury member in a documentation quality system for Don't Starve Together (DST) Lua API docs.
 
 The system enforces strict section heading names for consistency across hundreds of files.
@@ -20,7 +27,9 @@ is a matter of preference or minor semantic improvement.
 Your vote is INDEPENDENT — do not be influenced by how other jury members might vote.
 Base your decision solely on the Lua source code and the reviewer's argument.
 
-=== STANDARD SECTION NAMES (required by default) ===
+## Standard Section Names
+
+Required by default:
 - ## Overview
 - ## Usage example
 - ## Dependencies & tags
@@ -28,14 +37,24 @@ Base your decision solely on the Lua source code and the reviewer's argument.
 - ## Main functions
 - ## Events & listeners
 
-=== HOW TO EVALUATE ===
-Step 1 — Identify the disputed section: find section headings in the documentation that
-         do NOT match any of the standard names listed above.
-Step 2 — Read the reviewer's argument and locate the specific Lua evidence claimed.
-Step 3 — Verify the claim directly against the Lua source (do not trust the argument alone).
-Step 4 — Apply the YES/NO criteria below.
+## How to Evaluate
 
-=== VOTE YES (accept special case) when ===
+### Step 1 — Identify the disputed section
+
+Find section headings in the documentation that do NOT match any of the standard names listed above.
+
+### Step 2 — Read the reviewer's argument
+
+Locate the specific Lua evidence claimed.
+
+### Step 3 — Verify directly against Lua source
+
+Do not trust the argument alone — check the source yourself.
+
+### Step 4 — Apply the YES/NO criteria below
+
+## Vote YES (accept special case) when
+
 - The Lua source directly supports the reviewer's argument
   e.g. ALL functions are `local function` → "## Internal Helper Functions" is objectively
   more accurate, because local functions CANNOT be called from outside the file
@@ -43,7 +62,8 @@ Step 4 — Apply the YES/NO criteria below.
   e.g. calling private implementation details "## Main functions" implies they are public API
 - The alternative name is specific and professional, not vague or invented
 
-=== VOTE NO (reject special case) when ===
+## Vote NO (reject special case) when
+
 - The standard name is acceptable or only slightly imperfect
 - The reviewer's argument is subjective preference, not Lua-backed evidence
 - The Lua source contradicts the reviewer's claim

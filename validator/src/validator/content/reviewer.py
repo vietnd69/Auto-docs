@@ -11,6 +11,7 @@ from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
 from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
 from validator.content.prompts import build_reviewer_prompt
+from validator.content.schemas import REVIEW_SCHEMA
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -32,6 +33,7 @@ class ReviewResult:
     need_special_case: bool = False
     special_case_reason: str = ""
     special_case_standard_heading: str = ""  # the standard heading being replaced, e.g. "## Main functions"
+    raw_response: str = ""  # raw LLM JSON response — used for multi-turn correction
 
 
 @dataclass
@@ -141,28 +143,53 @@ def review_document(
     connected_content: str,
     model: str,
     previous_review: "ReviewResult | None" = None,
+    prior_turns: "list[dict] | None" = None,
 ) -> ReviewResult:
-    """Send document to LLM2 for review. Returns structured ReviewResult."""
+    """Send document to LLM2 for review. Returns structured ReviewResult.
+
+    prior_turns: optional list of {"role": ..., "content": ...} dicts injected as
+    conversation history before the current review request. Used to pass jury rejection
+    context so the reviewer doesn't re-request special cases that were already denied.
+    Structure expected: [..., assistant(prior_review_json), user(jury_verdict), ...]
+    The last turn must be a user message — it is merged with the current review request.
+    """
     system_prompt, user_content = build_reviewer_prompt(
         md_content, lua_source, connected_content,
         previous_issues=previous_review.issues if previous_review else None,
         previous_suggestions=previous_review.suggestions if previous_review else None,
     )
     token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/reviewer] Prompt: {token_count:,} tokens")
+    prior_info = f" + {len(prior_turns)} prior turn(s)" if prior_turns else ""
+    print(f"  [content/reviewer] Prompt: {token_count:,} tokens{prior_info}")
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    if prior_turns:
+        # Build multi-turn history so the reviewer "recalls" prior special-case attempts
+        # and the jury verdicts that followed. Structure:
+        #   system → user(doc) → [assistant(prior) → user(verdict)]* → user(verdict_n + current doc)
+        messages.append({"role": "user", "content": user_content})
+        messages.extend(prior_turns[:-1])
+        last = prior_turns[-1]
+        messages.append({
+            "role": last["role"],
+            "content": last["content"] + "\n\nNow re-review the updated document:\n\n" + user_content,
+        })
+    else:
+        messages.append({"role": "user", "content": user_content})
+
     if DEBUG_PROMPTS:
-        _dump_prompt("reviewer", system_prompt + "\n\n" + user_content)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+        full_dump = "\n\n".join(
+            f"=== [{m['role'].upper()}] ===\n{m['content']}" for m in messages
+        )
+        _dump_prompt("reviewer", full_dump)
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages)
+        response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA)
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_response", raw)
         result = parse_review_response(raw)
+        result.raw_response = raw
         is_parse_error = not raw.strip() or (result.issues and result.issues[0].startswith("Failed to parse"))
         is_invariant_violation = not result.approved and not result.issues
         is_bad = is_parse_error or is_invariant_violation
@@ -175,4 +202,93 @@ def review_document(
             print(f"  [content/reviewer] Bad response → retrying ({remaining} left)")
         else:
             print(f"  [content/reviewer] Bad response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
+    return result
+
+
+def reviewer_oscillation_correction(
+    md_content: str,
+    lua_source: str,
+    connected_content: str,
+    current_review: ReviewResult,
+    oscillating_issues: list[tuple[str, str]],
+    model: str,
+    resolved_history: list[str] | None = None,
+) -> ReviewResult:
+    """Multi-turn reviewer self-correction for oscillating issues.
+
+    Sends: system → user(doc) → assistant(current_review.raw_response) → user(guard message)
+    so the reviewer sees its own previous response and the contradiction, then re-reviews.
+
+    oscillating_issues: list of (current_issue, contradicted_resolved_issue) pairs.
+    """
+    system_prompt, user_content = build_reviewer_prompt(
+        md_content, lua_source, connected_content,
+    )
+
+    guard_lines = [
+        "[OSCILLATION GUARD — SYSTEM FEEDBACK]",
+        f"Your previous response found {len(current_review.issues)} issue(s), but {len(oscillating_issues)} of them",
+        "contradict issues that were resolved in a previous iteration, causing an infinite correction loop.",
+        "Please re-evaluate the following contradictions carefully:",
+        "",
+    ]
+    for idx, (curr_iss, fixed_iss) in enumerate(oscillating_issues, 1):
+        guard_lines += [
+            f"Contradiction {idx}:",
+            f'  You just flagged: "{curr_iss}"',
+            f'  This contradicts a previously-resolved issue: "{fixed_iss}"',
+            "  The document was already patched to address the earlier finding.",
+            "  These two findings are contradictory — re-read the Lua source to determine which is correct.",
+            "",
+        ]
+    if resolved_history:
+        guard_lines += [
+            "Additionally, the following issues were resolved in earlier iterations and MUST NOT be re-raised.",
+            "Drop any finding that matches one of these resolved topics unless you have NEW concrete evidence from the Lua source:",
+            "",
+        ]
+        for iss in resolved_history[:20]:
+            guard_lines.append(f'  - "{iss[:150]}"')
+        guard_lines.append("")
+    guard_lines += [
+        "Action required:",
+        "- Re-read the relevant Lua source lines carefully.",
+        "- Only flag an issue if you can point to a SPECIFIC LINE in the Lua source that contradicts the documentation.",
+        "- If you cannot find concrete evidence in the source, do NOT re-raise the issue.",
+        "- Provide a corrected review of the FULL document below (complete JSON response, not just the contradictions).",
+    ]
+    guard_message = "\n".join(guard_lines)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_content},
+        {"role": "assistant", "content": current_review.raw_response},
+        {"role": "user", "content": guard_message},
+    ]
+
+    token_count = count_tokens(system_prompt + user_content + current_review.raw_response + guard_message)
+    print(f"  [content/reviewer] Oscillation correction prompt: {token_count:,} tokens")
+    if DEBUG_PROMPTS:
+        full_dump = "\n\n".join(f"=== [{m['role'].upper()}] ===\n{m['content']}" for m in messages)
+        _dump_prompt("reviewer_oscillation_correction", full_dump)
+
+    result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
+    for attempt in range(BAD_RESPONSE_RETRIES + 1):
+        response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA)
+        raw = response["message"]["content"]
+        if DEBUG_PROMPTS:
+            _dump_prompt("reviewer_oscillation_correction_response", raw)
+        result = parse_review_response(raw)
+        result.raw_response = raw
+        is_parse_error = not raw.strip() or (result.issues and result.issues[0].startswith("Failed to parse"))
+        is_invariant_violation = not result.approved and not result.issues
+        if not (is_parse_error or is_invariant_violation):
+            return result
+        remaining = BAD_RESPONSE_RETRIES - attempt
+        if is_invariant_violation:
+            print(f"  [content/reviewer] Oscillation correction INVARIANT violation → retrying ({remaining} left)")
+        elif remaining > 0:
+            print(f"  [content/reviewer] Oscillation correction bad response → retrying ({remaining} left)")
+        else:
+            print(f"  [content/reviewer] Oscillation correction failed after {BAD_RESPONSE_RETRIES + 1} attempts")
     return result

@@ -15,16 +15,9 @@ import json
 
 from prompts.standard import build_prompt as build_single_prompt  # noqa: F401
 from prompts.pre_synthesis import PreSynthesisResult
-from prompts.skills_loader import load_skill
-
-# Skill content loaded once at module import — injected into f-string prompts below.
-# IMPORTANT: _FUNCTION_FORMAT_SPEC must keep this exact name — test_chunk_prompts.py
-# imports it directly: `from chunked_prompt import ..., _FUNCTION_FORMAT_SPEC`
-_FUNCTION_FORMAT_SPEC = load_skill("function_format")   # replaces inline constant; name preserved for test compat
-_DST_CONV             = load_skill("dst_conventions")
+from prompts.skills_loader import combine_skills, few_shot_excludes, load_trimmed_writing_guide
 
 
-# TODO(format-consistency): apply _FUNCTION_FORMAT_SPEC here when legacy path is retired
 def build_intermediate_merge_prompt(
     comp_name: str,
     display_filepath: str,
@@ -62,6 +55,9 @@ This output will be used as input for a final merge step — information lost he
 - Do NOT include greetings, sign-offs, or meta-commentary.
 - Wrap `<`, `>`, `<=`, `>=`, `{{`, `}}` in backticks.
 - IMPORTANT: Never repeat the same line or bullet point more than once. If you find yourself repeating, stop and move to the next item.
+
+=== SKILLS ===
+{combine_skills("analyst_intermediate")}
 
 === OUTPUT FORMAT ===
 Use EXACTLY this structure — do not add, remove, or rename sections:
@@ -110,12 +106,16 @@ def build_chunk_prompt(
     today_date: str = "",
     version: str = "",
     category_type: str = "",
+    lua_type: str = "",
 ) -> str:
     """
     Tạo prompt cho 1 chunk của file Lua.
     LLM output ONLY JSON matching the fixed schema — no markdown, no prose.
     JSON sẽ được parse bởi pre_synthesize() trong pre_synthesis.py.
     """
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_chunk", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer and a veteran mod developer for the game Don't Starve Together (DST).
 You are analyzing CHUNK {chunk_index} of {total_chunks} from the Lua source file: {display_filepath}
 
@@ -135,8 +135,8 @@ Your task is to extract ALL functions, properties, events, dependencies, and tag
 4. CONNECTED FILES — EXTRACTED SOURCE CODE
    {connected_content if connected_content else "No function source code available. Base your analysis solely on the target file's own code."}
 
-5. DST CODING CONVENTIONS
-{_DST_CONV}
+=== SKILLS ===
+{_skills}
 
 === OUTPUT FORMAT ===
 
@@ -216,6 +216,30 @@ JSON SCHEMA:
 """
 
 
+_LARGE_FUNC_LIST_THRESHOLD = 100
+
+
+def _compact_functions_json(functions: list[dict]) -> str:
+    """
+    Serialize functions list for merge prompt.
+    For large lists (>100 fns): strip always-None/false fields + use compact JSON.
+    Saves ~20K tokens for files like SGwilson (601 functions).
+    """
+    _NOISE_FIELDS = ("incomplete", "error_states")
+    _NULL_VALUES = {"none", "", "n/a", "null", "no", "false"}
+
+    def _strip(fn: dict) -> dict:
+        return {
+            k: v for k, v in fn.items()
+            if k not in _NOISE_FIELDS or str(v).strip().lower() not in _NULL_VALUES
+        }
+
+    if len(functions) > _LARGE_FUNC_LIST_THRESHOLD:
+        stripped = [_strip(f) for f in functions]
+        return json.dumps(stripped, ensure_ascii=False)
+    return json.dumps(functions, indent=2, ensure_ascii=False)
+
+
 def build_merge_prompt(
     comp_name: str,
     comp_title: str,
@@ -230,6 +254,7 @@ def build_merge_prompt(
     version: str = "",
     category_type: str = "",
     sidebar_position: int = 10,
+    lua_type: str = "",
 ) -> str:
     """
     Tạo prompt tổng hợp — nhận PreSynthesisResult đã pre-filled.
@@ -247,12 +272,15 @@ def build_merge_prompt(
     # JSON sections for LLM to format
     deps_json = json.dumps(presynthesis.dependencies, indent=2, ensure_ascii=False)
     props_json = json.dumps(presynthesis.constructor_properties, indent=2, ensure_ascii=False)
-    funcs_json = json.dumps(presynthesis.functions, indent=2, ensure_ascii=False)
+    funcs_json = _compact_functions_json(presynthesis.functions)
     events_json = json.dumps({
         "listens_to": presynthesis.events_listens,
         "pushes": presynthesis.events_pushes,
     }, indent=2, ensure_ascii=False)
 
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 You are creating the final documentation for the component "{comp_name}" from file {display_filepath}.
@@ -272,8 +300,8 @@ Your task is to format this data into a well-organized Markdown document and wri
 4. CONNECTED FILES — EXTRACTED SOURCE CODE
    {connected_content if connected_content else "No function source code available."}
 
-5. DST CODING CONVENTIONS
-{_DST_CONV}
+=== SKILLS ===
+{_skills}
 
 === PARTIAL DESCRIPTIONS (one per chunk) ===
 Synthesize these into a single description sentence for the YAML frontmatter.
@@ -318,8 +346,6 @@ YOUR TASKS:
 6. Format `## Events & listeners` — render the EVENTS JSON as bullet lists.
 7. Format `## Dependencies & tags` using EXACTLY the DEPENDENCY SECTION FORMAT defined in the FORMAT SPECIFICATION section below, including External dependencies from EXTERNAL DEPENDENCIES JSON (omit External dependencies bullet if empty).
 
-=== FORMAT SPECIFICATION ===
-{_FUNCTION_FORMAT_SPEC}
 ---
 id: {comp_name}
 title: {comp_title}
@@ -371,10 +397,282 @@ system_scope: <REVIEW hint {presynthesis.system_scope} — set the most accurate
 """
 
 
+# ── Multipass merge prompts (Pass 1a, 1b, 1c, 2) ──
+
+
+def build_deps_props_prompt(
+    comp_name: str,
+    display_filepath: str,
+    deps_json: str,
+    game_tags_json: str,
+    external_deps_json: str,
+    props_json: str,
+    lua_type: str = "",
+) -> str:
+    """
+    Pass 1a — format `## Dependencies & tags` and `## Properties` from JSON.
+    Output ONLY those 2 sections, no YAML frontmatter, no overview.
+    """
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
+    return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
+
+You are formatting 2 sections for the component "{comp_name}" from file {display_filepath}.
+No prose is needed — format the provided JSON data into the exact Markdown structure specified.
+
+=== FORMAT SPECIFICATION ===
+{_skills}
+
+=== DEPENDENCIES (pre-extracted) ===
+{deps_json}
+
+=== GAME TAGS (pre-extracted) ===
+{game_tags_json}
+
+=== EXTERNAL DEPENDENCIES (pre-extracted) ===
+{external_deps_json}
+
+=== PROPERTIES (pre-extracted) ===
+{props_json}
+
+=== OUTPUT INSTRUCTIONS ===
+
+Output ONLY these 2 sections in this exact order:
+
+1. `## Dependencies & tags` — format using EXACTLY the DEPENDENCY SECTION FORMAT from the FORMAT SPECIFICATION section above.
+   Include External dependencies bullet only if external_deps JSON is non-empty.
+
+2. `## Properties` — render the PROPERTIES JSON as a markdown table with columns: Property | Type | Default Value | Description.
+   If the PROPERTIES JSON array is empty ([]), write the table header and separator row only (no data rows):
+   `| Property | Type | Default Value | Description |`
+   `|----------|------|---------------|-------------|`
+
+=== CRITICAL INSTRUCTIONS ===
+- Output ONLY the 2 sections above. No YAML frontmatter, no ## Overview, no ## Main functions.
+- ALL data must come from the JSON provided above. Do NOT invent entries.
+- MDX COMPATIBILITY: Wrap `<`, `>`, `<=`, `>=`, `{{{{`, `}}}}` in backticks.
+- NO filler text, greetings, or sign-offs.
+- NO emojis or unicode symbols.
+- IMPORTANT: Never repeat the same line or bullet point more than once.
+"""
+
+
+def build_functions_batch_prompt(
+    comp_name: str,
+    display_filepath: str,
+    functions_batch: list[dict],
+    batch_index: int,
+    total_batches: int,
+    lua_type: str = "",
+) -> str:
+    """
+    Pass 1b — format a batch of functions into ### FunctionName(params) headings.
+    Output ONLY the ### entries — no section header, no YAML, no prose.
+    """
+    funcs_json = _compact_functions_json(functions_batch)
+
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
+    return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
+
+You are formatting batch {batch_index}/{total_batches} of `## Main functions` for the component "{comp_name}" from file {display_filepath}.
+
+=== FORMAT SPECIFICATION ===
+{_skills}
+
+=== FUNCTIONS (this batch) ===
+{funcs_json}
+
+=== OUTPUT INSTRUCTIONS ===
+
+Format each function from the JSON above using EXACTLY the FUNCTION FORMAT defined in the FORMAT SPECIFICATION section above.
+- Use `### FunctionName(params)` as the heading (use the `name` and `params` fields).
+- For `* **Parameters:**`: use the `parameters` array from the JSON (one entry per param, name + description). Write `None` if the array is empty or absent.
+- For `* **Returns:**`: use the `returns` field.
+- For `* **Error states:**`: use the `error_states` field. Omit this bullet entirely if the value is "None", empty, or absent.
+- If the same function name appears more than once, deduplicate — keep the entry with more detail (more parameters or longer description).
+
+=== CRITICAL INSTRUCTIONS ===
+- Output ONLY the `### ...` function entries. Do NOT write a `## Main functions` section header.
+- Do NOT write YAML frontmatter, ## Overview, ## Usage example, or any other section.
+- ALL data must come from the JSON provided above. Do NOT invent functions.
+- MDX COMPATIBILITY: Wrap `<`, `>`, `<=`, `>=`, `{{{{`, `}}}}` in backticks.
+- NO filler text, greetings, or sign-offs.
+- NO emojis or unicode symbols.
+- IMPORTANT: Never repeat the same function entry more than once.
+"""
+
+
+def build_events_prompt(
+    comp_name: str,
+    display_filepath: str,
+    events_json: str,
+    lua_type: str = "",
+) -> str:
+    """
+    Pass 1c — format `## Events & listeners` from JSON.
+    Output ONLY the ## Events & listeners section.
+    """
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
+    return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
+
+You are formatting the `## Events & listeners` section for the component "{comp_name}" from file {display_filepath}.
+
+=== SKILLS ===
+{_skills}
+
+=== EVENTS (pre-extracted) ===
+{events_json}
+
+=== OUTPUT INSTRUCTIONS ===
+
+Format the EVENTS JSON into the `## Events & listeners` section:
+- Under `**Listens to:**`, list each entry from the `listens_to` array as: `- \`event_name\` — description`
+- Under `**Pushes:**`, list each entry from the `pushes` array as: `- \`event_name\` — description`
+- If both `listens_to` and `pushes` arrays are empty, write exactly:
+
+```
+## Events & listeners
+
+None.
+```
+
+=== CRITICAL INSTRUCTIONS ===
+- Output ONLY the `## Events & listeners` section.
+- Do NOT write YAML frontmatter, ## Overview, ## Main functions, or any other section.
+- ALL data must come from the JSON provided above. Do NOT invent events.
+- MDX COMPATIBILITY: Wrap `<`, `>`, `<=`, `>=`, `{{{{`, `}}}}` in backticks.
+- NO filler text, greetings, or sign-offs.
+- NO emojis or unicode symbols.
+- IMPORTANT: Never repeat the same event entry more than once.
+"""
+
+
+def build_prose_prompt(
+    comp_name: str,
+    comp_title: str,
+    display_filepath: str,
+    presynthesis: "PreSynthesisResult",
+    function_names: list[str],
+    *,
+    file_tree: str = "",
+    connected_section: str = "",
+    connected_content: str = "",
+    today_date: str = "",
+    version: str = "",
+    category_type: str = "",
+    sidebar_position: int = 10,
+    source_hash: str = "",
+    lua_type: str = "",
+) -> str:
+    """
+    Pass 2 — write YAML frontmatter + ## Overview + ## Usage example.
+    Output stops after ## Usage example — structured sections are assembled separately.
+    """
+    # Partial descriptions — numbered list
+    descs_section = "\n".join(
+        f"{i}. {d}" for i, d in enumerate(presynthesis.partial_descriptions, 1)
+    ) or "No descriptions available."
+
+    # Function names — flat list
+    fn_names_list = "\n".join(f"- {name}" for name in (function_names or [])) or "No functions found."
+
+    # Brief game_tags and external_deps for overview context
+    game_tags_json = json.dumps(presynthesis.game_tags, ensure_ascii=False)
+    external_deps_json = json.dumps(presynthesis.external_deps, ensure_ascii=False)
+
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
+    return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
+
+You are writing the document header for the component "{comp_name}" from file {display_filepath}.
+Your task: write ONLY the YAML frontmatter, title heading, version line, ## Overview, and ## Usage example.
+Stop after ## Usage example. Do NOT write ## Dependencies & tags or any section below it.
+
+=== SKILLS ===
+{_skills}
+
+=== CONTEXT ===
+
+1. PROJECT FILE TREE
+{file_tree}
+
+2. TARGET FILE: {display_filepath}
+
+3. CONNECTED FILES AND FUNCTIONS
+   {connected_section if connected_section else "No external references found."}
+
+4. CONNECTED FILES — EXTRACTED SOURCE CODE
+   {connected_content if connected_content else "No function source code available."}
+
+=== PARTIAL DESCRIPTIONS (one per chunk) ===
+Synthesize these into a single description sentence for the YAML frontmatter.
+{descs_section}
+
+=== ALL FUNCTION NAMES ===
+Use this list to inform the Overview and Usage example. Do not document each function here.
+{fn_names_list}
+
+=== GAME TAGS (brief — for overview context) ===
+{game_tags_json}
+
+=== EXTERNAL DEPENDENCIES (brief — for overview context) ===
+{external_deps_json}
+
+=== OUTPUT INSTRUCTIONS ===
+
+Produce ONLY the document top in this exact order:
+
+1. YAML frontmatter — copy the pre-filled values exactly, then write `description`, `tags`, and `system_scope`:
+
+---
+id: {comp_name}
+title: {comp_title}
+description: <WRITE: one sentence synthesized from the partial descriptions above>
+tags: <WRITE: 2-5 lowercase tags categorizing this component for docs search. Choose domain terms (e.g. [actions, combat, player]). Do NOT list game entity tags. Maximum 5 entries.>
+sidebar_position: {sidebar_position}
+
+last_updated: {today_date}
+build_version: {version}
+change_status: stable
+category_type: {category_type}
+source_hash: {source_hash}
+system_scope: <REVIEW hint {presynthesis.system_scope} — set the most accurate value from the allowed list based on the Overview you are writing>
+---
+
+2. Title heading:
+# {comp_title}
+
+3. Version line:
+> Based on game build **{version}** | Last updated: {today_date}
+
+4. ## Overview — comprehensive summary of the entire component (what it does, when it is used, key behaviors).
+
+5. ## Usage example — 5-15 lines of Lua code demonstrating typical usage of this component.
+
+=== CRITICAL INSTRUCTIONS ===
+- Output ONLY the 5 elements above (YAML + title + version line + ## Overview + ## Usage example).
+- Stop immediately after ## Usage example. Do NOT write ## Dependencies & tags or any section below it.
+- Write YAML tags freely (2-5 doc-category keywords). Review the system_scope hint and set the most accurate value.
+- Output ONLY valid Markdown starting with `---`.
+- Generate exactly ONE frontmatter block. No extra `---` dividers in the body.
+- ALL data must come from the pre-extracted sections above. Do NOT invent APIs.
+- MDX COMPATIBILITY: Wrap `<`, `>`, `<=`, `>=`, `{{{{`, `}}}}` in backticks.
+- NO code fences around the output.
+- NO filler text, greetings, or sign-offs.
+- NO emojis or unicode symbols.
+- IMPORTANT: Never repeat the same line or bullet point more than once.
+"""
+
+
 # ── Legacy merge prompt (kept for hierarchical/rolling backward compat) ──
 
 
-# TODO(format-consistency): apply _FUNCTION_FORMAT_SPEC here when legacy path is retired
 def _build_merge_prompt_legacy(
     comp_name: str,
     comp_title: str,
@@ -390,6 +688,7 @@ def _build_merge_prompt_legacy(
     category_type: str = "",
     sidebar_position: int = 10,
     input_label: str = "CHUNK",
+    lua_type: str = "",
 ) -> str:
     """
     Legacy text-based merge prompt — used by hierarchical_merge() and rolling_merge_to_one().
@@ -405,6 +704,9 @@ def _build_merge_prompt_legacy(
         f"You have previously analyzed a large Lua source file. Below are {len(chunk_results)} intermediate group analyses."
     )
 
+    _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
+    _skills = combine_skills("analyst_merge_legacy", exclude=_exclude)
+    _skills += "\n\n=== SKILL: writing_guide ===\n" + load_trimmed_writing_guide(lua_type)
     return f"""You are an expert technical writer for Don't Starve Together (DST) modding documentation.
 
 {desc_line}
@@ -423,8 +725,8 @@ Below are the analysis results from each portion. Your task is to MERGE them int
 4. CONNECTED FILES — EXTRACTED SOURCE CODE
    {connected_content if connected_content else "No function source code available."}
 
-5. DST CODING CONVENTIONS
-{_DST_CONV}
+=== SKILLS ===
+{_skills}
 
 === CHUNK ANALYSIS RESULTS ===
 {merged_chunks}

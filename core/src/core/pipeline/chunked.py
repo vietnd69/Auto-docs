@@ -14,13 +14,25 @@ Functions:
 """
 
 import os
+import sys
 import time
 import json
 from pathlib import Path
 from llm import client as config
+from llm.paths import PROJECT_ROOT
+from llm.settings import DEBUG_PROMPTS, BAD_RESPONSE_RETRIES
 from core.utils import shutdown
 
 from core.config import CHECKPOINT_DIR
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_debug(label: str, content: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = _DEBUG_DIR / f"{label}_{int(time.time())}.txt"
+    path.write_text(content, encoding="utf-8")
+    print(f"  [debug] {label} → {path.name}")
 
 
 def _detect_context_mode(content: str) -> str:
@@ -71,13 +83,21 @@ from core.pipeline.chunking import (
     MERGE_TOKEN_LIMIT,
     CONTEXT_RESERVE,
 )
+from llm.settings import CHUNK_PROMPT_TOKEN_LIMIT
 from prompts.chunked import (
     build_chunk_prompt,
     build_merge_prompt,
     build_intermediate_merge_prompt,
     _build_merge_prompt_legacy,
+    build_deps_props_prompt,
+    build_functions_batch_prompt,
+    build_events_prompt,
+    build_prose_prompt,
 )
 from prompts.pre_synthesis import pre_synthesize
+from prompts.type_detect import detect_lua_type
+
+_MULTIPASS_FUNC_THRESHOLD = 100
 
 # ── Checkpoint System ──────────────────────────────────────────
 
@@ -208,33 +228,49 @@ def generate_chunk_analysis(
         sleep_time: Nghỉ giữa các lần gọi (giây).
         label: Nhãn hiển thị ("Chunk", "Group", "Rolling").
     """
-    try:
-        print(f"    [{label} {chunk_index}/{total_chunks}] Đang xử lý...")
+    print(f"    [{label} {chunk_index}/{total_chunks}] Đang xử lý...")
 
-        response = config.ollama_chat(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-        )
+    if DEBUG_PROMPTS:
+        _dump_debug(f"chunk_{label.lower()}{chunk_index}_prompt", prompt)
 
-        result = response["message"]["content"]
-        result = clean_model_output(result)
+    for attempt in range(1, BAD_RESPONSE_RETRIES + 2):
+        try:
+            response = config.ollama_chat(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            result = response["message"]["content"]
+            if DEBUG_PROMPTS:
+                _dump_debug(f"chunk_{label.lower()}{chunk_index}_response", result)
+            result = clean_model_output(result)
 
-        if not result:
-            print(f"    [{label} {chunk_index}/{total_chunks}] Thất bại — model trả về rỗng")
-            return None
+            if not result:
+                remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+                if remaining > 0:
+                    print(f"    [{label} {chunk_index}/{total_chunks}] Model trả về rỗng → retry ({remaining} left)")
+                    continue
+                print(f"    [{label} {chunk_index}/{total_chunks}] Thất bại — model trả về rỗng sau {attempt} lần")
+                return None
 
-        lines_count = result.count("\n") + 1
-        print(f"    [{label} {chunk_index}/{total_chunks}] Xong — {lines_count} dòng kết quả")
+            lines_count = result.count("\n") + 1
+            print(f"    [{label} {chunk_index}/{total_chunks}] Xong — {lines_count} dòng kết quả")
 
-        if sleep_time > 0 and not shutdown.stop_requested:
-            print(f"    Đang nghỉ {sleep_time} giây...")
-            shutdown.interruptible_sleep(sleep_time)
+            if sleep_time > 0 and not shutdown.stop_requested:
+                print(f"    Đang nghỉ {sleep_time} giây...")
+                shutdown.interruptible_sleep(sleep_time)
 
-        return result
+            return result
 
-    except Exception as e:
-        print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e}")
-        return None
+        except Exception as e:
+            remaining = BAD_RESPONSE_RETRIES + 1 - attempt
+            if remaining > 0:
+                print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} → retry ({remaining} left)")
+                shutdown.interruptible_sleep(5)
+            else:
+                print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} — giving up")
+                return None
+
+    return None
 
 
 def generate_merged_doc(
@@ -270,12 +306,17 @@ def generate_merged_doc(
             else:
                 print(f"    [Merge retry {attempt}/{max_retries}] Đang thử lại...")
 
+            if DEBUG_PROMPTS and attempt == 1:
+                _dump_debug(f"merge_prompt_{md_filename}", prompt)
+
             response = config.ollama_chat(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
             )
 
             md_content = response["message"]["content"]
+            if DEBUG_PROMPTS:
+                _dump_debug(f"merge_response_{md_filename}", md_content)
             md_content = clean_model_output(md_content)
 
             # Guard: model trả về rỗng (chỉ có thinking block hoặc lỗi)
@@ -320,6 +361,179 @@ def generate_merged_doc(
 
     print(f"    [Lỗi] Merge thất bại cho {md_filename} sau {max_retries} lần thử")
     return None
+
+
+def multipass_merge(
+    comp_name: str,
+    comp_title: str,
+    display_filepath: str,
+    presynthesis,                # PreSynthesisResult
+    source_hash: str,
+    md_filepath: str,
+    *,
+    file_tree: str = "",
+    connected_section: str = "",
+    connected_content: str = "",
+    today_date: str = "",
+    version: str = "",
+    category_type: str = "",
+    lua_type: str = "",
+    sidebar_position: int = 10,
+    model_name: str = "qwen3-coder-next:cloud",
+    sleep_time: int = 10,
+    max_retries: int = 3,
+    retry_delay: int = 30,
+    functions_batch_size: int = 150,
+) -> str | None:
+    """
+    Multipass merge strategy for large files with many functions.
+    Splits merge into 4 focused LLM passes:
+      Pass 1a: deps + props section
+      Pass 1b: function batches (N passes, each up to functions_batch_size)
+      Pass 1c: events section
+      Pass 2:  prose (YAML frontmatter + Overview + Usage example)
+    Then assembles and writes the final file.
+    """
+    # ── Checkpoint resume ──
+    ckpt = load_merge_checkpoint(comp_name)
+    if ckpt and ckpt["stage"] == "multipass":
+        completed_sections = ckpt["results"]
+        print(f"  [MULTIPASS] Resume từ section {ckpt['last_index'] + 2}")
+    else:
+        completed_sections = []
+
+    # Pre-compute structure
+    functions = presynthesis.functions
+    batches = [functions[i:i + functions_batch_size] for i in range(0, len(functions), functions_batch_size)]
+    total_batches = len(batches)
+    # Section order in completed_sections:
+    #   0        → deps_props
+    #   1..N     → function batch 1..N
+    #   N+1      → events
+    #   N+2      → prose
+    total_sections = 1 + total_batches + 1 + 1  # deps_props + batches + events + prose
+    events_section_idx = 1 + total_batches       # 0-based index in completed_sections
+    prose_section_idx = events_section_idx + 1
+
+    section_counter = 0  # tracks 1-based index for generate_chunk_analysis display
+
+    print(f"  [MULTIPASS] {total_sections} sections total ({total_batches} fn batches of {functions_batch_size})")
+
+    # ── Pass 1a: deps + props ──
+    if len(completed_sections) <= 0:
+        print(f"  [MULTIPASS] Pass 1a: deps+props...")
+        deps_json = json.dumps(presynthesis.dependencies, indent=2, ensure_ascii=False)
+        game_tags_json = json.dumps(presynthesis.game_tags, indent=2, ensure_ascii=False)
+        external_deps_json = json.dumps(presynthesis.external_deps, indent=2, ensure_ascii=False)
+        props_json = json.dumps(presynthesis.constructor_properties, indent=2, ensure_ascii=False)
+        prompt = build_deps_props_prompt(
+            comp_name, display_filepath, deps_json, game_tags_json, external_deps_json, props_json,
+            lua_type=lua_type,
+        )
+        section_counter += 1
+        result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+        if result is None:
+            return None
+        completed_sections.append(result)
+        save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+    else:
+        section_counter += 1
+
+    # ── Pass 1b: function batches ──
+    if total_batches > 0:
+        print(f"  [MULTIPASS] Pass 1b: functions ({total_batches} batches)...")
+        for batch_idx, batch in enumerate(batches, 1):
+            completed_idx = batch_idx  # completed_sections index = 1-based batch index (0 is deps_props)
+            if len(completed_sections) > completed_idx - 1 + 1:
+                # Already done
+                section_counter += 1
+                continue
+            prompt = build_functions_batch_prompt(
+                comp_name, display_filepath, batch, batch_idx, total_batches,
+                lua_type=lua_type,
+            )
+            section_counter += 1
+            result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+            if result is None:
+                return None
+            completed_sections.append(result)
+            save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+    else:
+        section_counter += total_batches
+
+    # ── Pass 1c: events ──
+    if len(completed_sections) <= events_section_idx:
+        print(f"  [MULTIPASS] Pass 1c: events...")
+        events_json = json.dumps(
+            {"listens_to": presynthesis.events_listens, "pushes": presynthesis.events_pushes},
+            indent=2,
+            ensure_ascii=False,
+        )
+        prompt = build_events_prompt(comp_name, display_filepath, events_json, lua_type=lua_type)
+        section_counter += 1
+        result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+        if result is None:
+            return None
+        completed_sections.append(result)
+        save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+    else:
+        section_counter += 1
+
+    # ── Pass 2: prose ──
+    if len(completed_sections) <= prose_section_idx:
+        print(f"  [MULTIPASS] Pass 2: prose...")
+        function_names = [f["name"] for f in presynthesis.functions]
+        prompt = build_prose_prompt(
+            comp_name,
+            comp_title,
+            display_filepath,
+            presynthesis,
+            function_names,
+            file_tree=file_tree,
+            connected_section=connected_section,
+            connected_content=connected_content,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+            lua_type=lua_type,
+            sidebar_position=sidebar_position,
+            source_hash=source_hash,
+        )
+        section_counter += 1
+        result = generate_chunk_analysis(prompt, section_counter, total_sections, model_name, sleep_time, label="Multipass")
+        if result is None:
+            return None
+        completed_sections.append(result)
+        save_merge_checkpoint(comp_name, "multipass", completed_sections, len(completed_sections) - 1)
+
+    # ── Assemble ──
+    prose_result = completed_sections[prose_section_idx]
+    deps_props_result = completed_sections[0]
+    fn_batch_results = completed_sections[1:events_section_idx]
+    events_result = completed_sections[events_section_idx]
+
+    assembled = prose_result.rstrip()
+    assembled += "\n\n" + deps_props_result.strip()
+    assembled += "\n\n## Main functions\n\n" + "\n\n".join(fn.strip() for fn in fn_batch_results)
+    assembled += "\n\n" + events_result.strip()
+
+    assembled = _ensure_events_section(assembled)
+
+    if source_hash:
+        assembled = inject_frontmatter_field(assembled, "source_hash", source_hash)
+
+    if DEBUG_PROMPTS:
+        _dump_debug(f"multipass_assembled_{os.path.basename(md_filepath)}", assembled)
+
+    dir_name = os.path.dirname(md_filepath)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
+    with open(md_filepath, "w", encoding="utf-8") as f:
+        f.write(assembled)
+    md_filename = os.path.basename(md_filepath)
+    print(f"    [Multipass] Đã tạo {md_filename}")
+
+    return md_filename
 
 
 def hierarchical_merge(
@@ -421,6 +635,9 @@ def hierarchical_merge(
         )
         if rolled is None:
             return None # checkpoint đã lưu trong rolling, lần sau resume
+        rolled_tokens = estimate_merge_tokens([rolled])
+        if rolled_tokens > MERGE_TOKEN_LIMIT:
+            print(f"  [HIERARCHICAL] Cảnh báo: rolled result vẫn lớn ({rolled_tokens:,} tok > {MERGE_TOKEN_LIMIT:,} limit) — tiếp tục merge tầng 2")
         intermediate_results = [rolled]
 
     # Tầng 2: final merge (legacy text-based prompt)
@@ -518,10 +735,12 @@ def process_chunked_file(
     today_date: str = "",
     version: str = "",
     category_type: str = "",
+    lua_type: str = "",
     model_name: str = "qwen3-coder-next:cloud",
     chunk_sleep: int = 10,
     merge_sleep: int = 20,
     sidebar_position: int = 10,
+    fresh_start: bool = False,
 ) -> str | None:
     """
     Pipeline đầy đủ cho file Lua dài với Checkpoint và Hierarchical Merge.
@@ -530,6 +749,7 @@ def process_chunked_file(
         full_refs: Refs của toàn bộ file Lua, dùng làm fallback trong
                    extract_connected_for_chunk() cho các chunk không có local refs.
                    Nếu None: smart fallback không hoạt động (graceful degrade).
+        fresh_start: Nếu True, xóa checkpoint cũ trước khi chạy (không resume).
     """
     # Bước 1: Strip dữ liệu số hàng loạt (tile data)
     stripped_code = strip_bulk_data(lua_code)
@@ -540,6 +760,8 @@ def process_chunked_file(
         print(f"  [STRIP] Đã loại bỏ {saved:,} ký tự tile/map data ({saved*100//original_chars}% file)")
 
     # Bước 2: Tính token budget động (không có connected — CONTEXT_RESERVE trừ bên trong)
+    # Dùng CHUNK_PROMPT_TOKEN_LIMIT thay vì PROMPT_TOKEN_LIMIT để per-chunk budget đủ lớn.
+    # PROMPT_TOKEN_LIMIT chỉ dùng để trigger chunking, không phải giới hạn kích thước chunk.
     token_budget = calc_token_budget(
         comp_name=comp_name,
         comp_title=comp_title,
@@ -551,6 +773,7 @@ def process_chunked_file(
         today_date=today_date,
         version=version,
         category_type=category_type,
+        prompt_token_limit=CHUNK_PROMPT_TOKEN_LIMIT,
     )
 
     # Bước 3: Chia chunks theo token budget
@@ -562,7 +785,65 @@ def process_chunked_file(
 
     print(f"  [CHUNKED] Chia thành {total_chunks} chunks")
 
+    # ── SHORTCUT: 1 chunk → standard pipeline trực tiếp ──────────────────
+    # Khi chỉ có 1 chunk, không cần bước trung gian (chunk JSON → pre-synthesis).
+    # Dùng standard pipeline với per-chunk connected content để tiết kiệm 1 LLM call.
+    if total_chunks == 1:
+        print(f"  [1-CHUNK] Chỉ 1 chunk — dùng standard pipeline trực tiếp (tiết kiệm 1 LLM call)")
+        _own_filename = os.path.basename(display_filepath)
+        chunk_section, chunk_content, ref_count = extract_connected_for_chunk(
+            chunk_code=stripped_code,
+            own_filename=_own_filename,
+            full_refs=full_refs,
+            max_lines_per_file=100,
+            max_total_tokens=CONTEXT_RESERVE,
+        )
+        if chunk_content:
+            _func_mode = _detect_context_mode(chunk_content)
+            _has_req_full = "-- [REQUIRE FULL:" in chunk_content
+            _has_req_module = "-- [REQUIRE MODULE:" in chunk_content
+            _req_mode = "require_full" if _has_req_full else ("require_module" if _has_req_module else None)
+            if _req_mode:
+                print(f"    [CTX] {ref_count} refs, func_mode={_func_mode} | req_stubs={_req_mode}")
+            else:
+                print(f"    [CTX] {ref_count} refs, mode={_func_mode}")
+        elif ref_count > 0:
+            print(f"    [CTX] {ref_count} refs nhưng không extract được content")
+        else:
+            print(f"    [CTX] không có external context (file độc lập)")
+
+        from prompts.standard import build_prompt as _build_std_prompt
+        from core.pipeline.standard import generate_doc as _generate_doc
+
+        std_prompt = _build_std_prompt(
+            comp_name=comp_name,
+            comp_title=comp_title,
+            display_filepath=display_filepath,
+            lua_code=stripped_code,
+            connected_section=chunk_section,
+            connected_content=chunk_content,
+            source_hash=source_hash,
+            file_tree=file_tree,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+        )
+
+        if DEBUG_PROMPTS:
+            _dump_debug(f"1chunk_prompt_{os.path.basename(md_filepath)}", std_prompt)
+
+        return _generate_doc(
+            prompt=std_prompt,
+            md_filepath=md_filepath,
+            source_hash=source_hash,
+            model_name=model_name,
+            sleep_time=merge_sleep,
+        )
+
     # ── CHECKPOINT RESUME ──
+    if fresh_start:
+        clear_checkpoint(comp_name)
+        clear_merge_checkpoint(comp_name)
     resume = load_checkpoint(comp_name)
     if resume:
         chunk_results, resume_from, pending_retries = resume
@@ -571,6 +852,24 @@ def process_chunked_file(
         chunk_results: dict[int, str] = {}
         resume_from = -1
         pending_retries: list[int] = []
+
+    # Validate shape of loaded checkpoint entries — stale entries from before fix may have wrong shape
+    if chunk_results:
+        stale_bad: list[int] = []
+        clean_results: dict[int, str] = {}
+        for k, v in chunk_results.items():
+            try:
+                p = json.loads(v)
+                if isinstance(p, dict) and "functions" in p:
+                    clean_results[k] = v
+                else:
+                    stale_bad.append(k)
+            except (json.JSONDecodeError, ValueError):
+                stale_bad.append(k)
+        if stale_bad:
+            print(f"  [CHECKPOINT] {len(stale_bad)} checkpoint entries có shape sai, sẽ retry: {stale_bad}")
+            pending_retries = list(set(pending_retries) | set(stale_bad))
+            chunk_results = clean_results
 
     # ── PER-CHUNK CONTEXT SETUP ──
     own_filename = os.path.basename(display_filepath)
@@ -621,6 +920,7 @@ def process_chunked_file(
             today_date=today_date,
             version=version,
             category_type=category_type,
+            lua_type=lua_type,
             file_tree=file_tree,
             connected_section=chunk_section,
             connected_content=chunk_content,
@@ -637,11 +937,13 @@ def process_chunked_file(
 
         if result:
             try:
-                json.loads(result)
+                parsed = json.loads(result)
+                if not isinstance(parsed, dict) or "functions" not in parsed:
+                    raise ValueError("chunk JSON missing required shape")
                 chunk_results[i] = result
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
-            except json.JSONDecodeError:
-                print(f"    [Cảnh báo] Chunk {i} JSON không hợp lệ, sẽ retry.")
+            except (json.JSONDecodeError, ValueError):
+                print(f"    [Cảnh báo] Chunk {i} JSON không hợp lệ hoặc sai schema, sẽ retry.")
                 failed_indices.append(i)
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
         else:
@@ -694,6 +996,7 @@ def process_chunked_file(
                 today_date=today_date,
                 version=version,
                 category_type=category_type,
+                lua_type=lua_type,
                 file_tree=file_tree,
                 connected_section=chunk_section,
                 connected_content=chunk_content,
@@ -712,15 +1015,17 @@ def process_chunked_file(
                 )
                 if result:
                     try:
-                        json.loads(result)
+                        parsed = json.loads(result)
+                        if not isinstance(parsed, dict) or "functions" not in parsed:
+                            raise ValueError("chunk JSON missing required shape")
                         chunk_results[chunk_i] = result
                         save_checkpoint(comp_name, chunk_results, total_chunks - 1, still_failing)
                         print(f"    [Retry] Chunk {chunk_i} thành công ở lần {attempt}.")
                         success = True
                         break
-                    except json.JSONDecodeError:
+                    except (json.JSONDecodeError, ValueError):
                         if attempt < 3:
-                            print(f"    [Retry] Lần {attempt} JSON không hợp lệ, thử lại...")
+                            print(f"    [Retry] Lần {attempt} JSON không hợp lệ hoặc sai schema, thử lại...")
                 elif attempt < 3:
                     print(f"    [Retry] Lần {attempt} thất bại, thử lại sau 30s...")
 
@@ -736,6 +1041,10 @@ def process_chunked_file(
         print(f"  Tài liệu sẽ bị thiếu nội dung từ các chunk này.")
         save_checkpoint(comp_name, chunk_results, total_chunks - 1, failed_indices)
 
+        if not sys.stdin.isatty():
+            print(f"  [HEADLESS] Không thể nhận input (stdin không phải TTY). Dừng pipeline.")
+            print(f"  [HEADLESS] {len(failed_indices)} chunk vẫn thất bại. Chạy lại thủ công để tiếp tục.")
+            return None
         confirm = input("\n  Tiếp tục merge với dữ liệu hiện có? [y/N]: ").strip().lower()
         if confirm != "y":
             print(f"  [DỪNG] Tiến trình đã lưu. Chạy lại để retry {len(failed_indices)} chunk còn lại.")
@@ -762,29 +1071,52 @@ def process_chunked_file(
           f"{len(presynthesis.functions)} functions, "
           f"scope={presynthesis.system_scope}")
 
-    # ── MERGE — always direct, PreSynthesisResult is small ──
-    print(f"  [MERGE STRATEGY] Direct merge (JSON pipeline)")
-    merge_prompt = build_merge_prompt(
-        comp_name=comp_name,
-        comp_title=comp_title,
-        display_filepath=display_filepath,
-        presynthesis=presynthesis,
-        source_hash=source_hash,
-        today_date=today_date,
-        version=version,
-        category_type=category_type,
-        sidebar_position=sidebar_position,
-        file_tree=file_tree,
-        connected_section=connected_section,
-        connected_content=connected_content,
-    )
-    result_filename = generate_merged_doc(
-        prompt=merge_prompt,
-        md_filepath=md_filepath,
-        source_hash=source_hash,
-        model_name=model_name,
-        sleep_time=merge_sleep,
-    )
+    # ── MERGE ──
+    if len(presynthesis.functions) > _MULTIPASS_FUNC_THRESHOLD:
+        n_funcs = len(presynthesis.functions)
+        print(f"  [MERGE STRATEGY] Multipass merge ({n_funcs} functions)")
+        result_filename = multipass_merge(
+            comp_name=comp_name,
+            comp_title=comp_title,
+            display_filepath=display_filepath,
+            presynthesis=presynthesis,
+            source_hash=source_hash,
+            md_filepath=md_filepath,
+            file_tree=file_tree,
+            connected_section=connected_section,
+            connected_content=connected_content,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+            lua_type=lua_type,
+            sidebar_position=sidebar_position,
+            model_name=model_name,
+            sleep_time=merge_sleep,
+        )
+    else:
+        print(f"  [MERGE STRATEGY] Direct merge (JSON pipeline)")
+        merge_prompt = build_merge_prompt(
+            comp_name=comp_name,
+            comp_title=comp_title,
+            display_filepath=display_filepath,
+            presynthesis=presynthesis,
+            source_hash=source_hash,
+            today_date=today_date,
+            version=version,
+            category_type=category_type,
+            lua_type=lua_type,
+            sidebar_position=sidebar_position,
+            file_tree=file_tree,
+            connected_section=connected_section,
+            connected_content=connected_content,
+        )
+        result_filename = generate_merged_doc(
+            prompt=merge_prompt,
+            md_filepath=md_filepath,
+            source_hash=source_hash,
+            model_name=model_name,
+            sleep_time=merge_sleep,
+        )
 
     if result_filename:
         # Giữ lại chunk checkpoint để kiểm tra lại nếu output LLM bị lỗi.

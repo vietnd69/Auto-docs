@@ -1,10 +1,16 @@
-# Skill: few_shot_data
+---
+name: few_shot_data
+description: Data config file few-shot example — expected output format for data configuration documentation
+inject_into: [analyst, analyst_chunk, analyst_merge]
+---
 
-=== FEW-SHOT EXAMPLE (DATA CONFIG FILE) ===
+## Few-Shot Example: Data Config File
+
 HOW TO DETECT: source file has NO Class() constructor, no self.inst,
 and returns a plain table/array at top level → use this example, NOT the component example.
 Use this structure when the source file defines a static data table with no constructor. Mirror this format only — do NOT copy the content.
 
+```md
 ---
 id: sampleregistry
 title: SampleRegistry
@@ -62,4 +68,5 @@ print(first.id.psn)   -- 1
 
 ## Events & listeners
 None.
-(End of data config example)
+```
+```

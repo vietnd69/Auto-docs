@@ -1,5 +1,6 @@
 # llm/src/llm/client.py
 import os
+import concurrent.futures as _futures
 from pathlib import Path
 from dotenv import load_dotenv
 import httpx
@@ -61,9 +62,9 @@ def _is_timeout_error(error: Exception) -> bool:
 
 
 def _is_retryable_error(error: Exception) -> bool:
-    """Kiểm tra xem lỗi có thể retry không (500, 502 — transient server errors)."""
+    """Kiểm tra xem lỗi có thể retry không (500, 502, 504 — transient server errors)."""
     if isinstance(error, ollama.ResponseError):
-        return error.status_code in (500, 502)
+        return error.status_code in (500, 502, 504)
     return False
 
 
@@ -108,19 +109,35 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
     for timeout_attempt in range(OLLAMA_TIMEOUT_RETRIES + 1):
         # Inner loop: failover across available accounts
         tried_this_round: set[int] = set()
+        had_timeout = False
         for _ in range(n):
             idx = select_key(n, tried_this_round)
             if idx < 0:
                 break  # không còn key khả dụng
             tried_this_round.add(idx)
+            print(f"  [TRY] Account {idx + 1}...")
             try:
                 client = _make_client(idx)
-                response = client.chat(model=model, messages=messages, options=opts, think=think, stream=False, **chat_extra, **kwargs)
-                record_call(idx)
+                # Wall-clock timeout: httpx read-timeout resets on each streamed token,
+                # so a degraded server can stall forever. A thread-based hard limit prevents this.
+                _wall = OLLAMA_TIMEOUT * 3
+                _pool = _futures.ThreadPoolExecutor(max_workers=1)
+                _fut = _pool.submit(
+                    client.chat,
+                    model=model, messages=messages, options=opts,
+                    think=think, stream=False, **chat_extra, **kwargs,
+                )
+                _pool.shutdown(wait=False)
+                try:
+                    response = _fut.result(timeout=_wall)
+                except _futures.TimeoutError:
+                    raise httpx.ReadTimeout(f"wall-clock timeout {_wall:.0f}s")
+                tokens = (getattr(response, "prompt_eval_count", None) or 0) + (getattr(response, "eval_count", None) or 0)
+                record_call(idx, tokens)
                 stats = get_stats()
-                recent = stats.get(idx, {}).get("recent_1h", 0)
                 total = stats.get(idx, {}).get("total", 0)
-                print(f"  [ROUTER] Account {idx + 1} | call #{total} (1h: {recent})")
+                tokens_1h = stats.get(idx, {}).get("tokens_1h", 0)
+                print(f"  [ROUTER] Account {idx + 1} | call #{total} | tokens_1h: {tokens_1h:,} (+{tokens:,})")
                 return response
             except Exception as e:
                 if _is_rate_limit_error(e):
@@ -130,21 +147,20 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                     print(f"  [RATE LIMIT] Account {idx + 1} bị 429 → cooldown 5h ({available} còn lại)")
                     errors.append(f"Account {idx + 1}: 429")
                 elif _is_timeout_error(e):
+                    had_timeout = True
                     remaining = OLLAMA_TIMEOUT_RETRIES - timeout_attempt
-                    print(f"  [TIMEOUT] Account {idx + 1} timeout sau {OLLAMA_TIMEOUT:.0f}s → retry ({remaining} còn lại)")
+                    print(f"  [TIMEOUT] Account {idx + 1} timeout sau {OLLAMA_TIMEOUT:.0f}s → switch account ({remaining} retry còn lại)")
                     errors.append(f"Account {idx + 1}: timeout")
-                    break  # exit inner loop → outer loop retries
+                    # Không break — tiếp tục thử account khác trong round này
                 elif _is_retryable_error(e):
                     status = e.status_code  # type: ignore[attr-defined]
                     print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → switch account")
                     errors.append(f"Account {idx + 1}: {status}")
-                    continue
                 else:
                     raise
-        else:
-            continue  # inner loop finished without break → try next timeout round
-        # inner loop broke (timeout or no keys) → check if timeout retry
-        if timeout_attempt < OLLAMA_TIMEOUT_RETRIES:
+        # Tất cả account trong round đã thử — nếu có timeout, retry toàn bộ
+        if had_timeout and timeout_attempt < OLLAMA_TIMEOUT_RETRIES:
+            print(f"  [RETRY] Tất cả account đã thử, retry lần {timeout_attempt + 1}/{OLLAMA_TIMEOUT_RETRIES}...")
             continue
         break
 

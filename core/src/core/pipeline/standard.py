@@ -1,17 +1,37 @@
 import os
+import re
 import time
+from pathlib import Path
 from llm import client as config
+from llm.paths import PROJECT_ROOT
+from llm.settings import DEBUG_PROMPTS
 from rag.docs import clean_model_output, inject_frontmatter_field
+from validator.format.section_filler import _REQUIRED_HEADINGS, rewrite_document
+
+_DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _dump_debug(label: str, content: str) -> None:
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = _DEBUG_DIR / f"{label}_{int(time.time())}.txt"
+    path.write_text(content, encoding="utf-8")
+    print(f"  [debug] {label} → {path.name}")
+
+
+def _check_missing_sections(md_content: str) -> list[str]:
+    return [h for h in _REQUIRED_HEADINGS if not re.search(r'^' + re.escape(h), md_content, re.MULTILINE)]
 
 
 def generate_doc(
     prompt: str,
     md_filepath: str,
     source_hash: str = "",
+    lua_filepath: str = "",
     model_name: str = "qwen3-coder-next:cloud",
     sleep_time: int = 0,
     max_retries: int = 3,
     retry_delay: int = 30,
+    max_section_retries: int = 2,
 ) -> str | None:
     """
     Gọi Ollama để tạo tài liệu từ prompt, ghi kết quả ra file .md.
@@ -35,12 +55,17 @@ def generate_doc(
             if attempt > 1:
                 print(f"  [Retry {attempt}/{max_retries}] {md_filename}...")
 
+            if DEBUG_PROMPTS:
+                _dump_debug(f"standard_prompt_{md_filename}", prompt)
+
             response = config.ollama_chat(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
             )
 
             md_content = response["message"]["content"]
+            if DEBUG_PROMPTS:
+                _dump_debug(f"standard_response_{md_filename}", md_content)
 
             # Làm sạch output (thinking block + code fence)
             md_content = clean_model_output(md_content)
@@ -70,6 +95,26 @@ def generate_doc(
             if attempt > 1:
                 print(f"  [Retry] Thành công ở lần {attempt}")
             print(f"  Đã tạo {md_filename}")
+
+            # Kiểm tra sections sau khi gen lần đầu
+            if lua_filepath:
+                missing = _check_missing_sections(md_content)
+                if missing:
+                    print(f"  [sections] Thiếu {len(missing)} section(s): {', '.join(missing)}")
+                    for sec_attempt in range(1, max_section_retries + 1):
+                        print(f"  [sections] Rewrite lần {sec_attempt}/{max_section_retries}...")
+                        ok = rewrite_document(md_filepath, missing, lua_filepath, model=model_name, original_prompt=prompt)
+                        if not ok:
+                            print(f"  [sections] Rewrite thất bại lần {sec_attempt}")
+                            continue
+                        new_content = Path(md_filepath).read_text(encoding="utf-8")
+                        missing = _check_missing_sections(new_content)
+                        if not missing:
+                            print(f"  [sections] Đủ sections sau rewrite lần {sec_attempt}")
+                            break
+                        print(f"  [sections] Vẫn thiếu: {', '.join(missing)}")
+                    if missing:
+                        print(f"  [sections] Cảnh báo: vẫn thiếu {', '.join(missing)} sau {max_section_retries} lần rewrite")
 
             # Nghỉ giữa các lần gọi
             if sleep_time > 0:

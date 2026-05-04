@@ -201,7 +201,7 @@ def delete_fn_block(text: str, fn_name: str) -> str:
     """
     escaped = re.escape(fn_name)
     pattern = re.compile(
-        rf'^### `?{escaped}\b[^\n]*\n'   # heading line
+        rf'^### `?{escaped}(?=[^a-zA-Z0-9_.])[^\n]*\n'   # heading line
         rf'(?:(?!^##(?:#)? ).*\n?)*',    # body lines until next ## or ### or EOF
         re.MULTILINE,
     )
@@ -388,22 +388,47 @@ def prefilter_fn_blocks(
 
     for block in fn_blocks:
         heading = block.split("\n", 1)[0]
-        m = re.match(r'^### `?([^`(\n]+)', heading)
-        if not m:
-            kept.append(block)  # unparseable heading — keep as fail-safe
-            continue
-        name = m.group(1).strip()
 
-        # Existence check (hallucination filter)
-        patterns = _def_patterns(name)
-        if not any(p.search(lua_source) for p in patterns):
-            stripped.append(name)
-            continue
+        # Extract full name from backtick-quoted heading (e.g. `onenter (fishing_nibble)`)
+        m_full = re.match(r'^### `([^`\n]+)`', heading)
+        if m_full:
+            full_name = m_full.group(1).strip()
+        else:
+            m = re.match(r'^### `?([^`\n]+)', heading)
+            if not m:
+                kept.append(block)  # unparseable heading — keep as fail-safe
+                continue
+            full_name = m.group(1).strip()
 
-        # Locality check
-        if classification.get(name) == "local":
-            stripped.append(name)
-            continue
+        # For "base (state_name)" compound names (space before paren = state variant),
+        # check both base function and state name exist in Lua source.
+        m_compound = re.match(r'^([\w.:]+)\s+\(([^)]+)\)', full_name)
+        if m_compound:
+            base_name = m_compound.group(1)
+            state_name = m_compound.group(2)
+            if not any(p.search(lua_source) for p in _def_patterns(base_name)):
+                stripped.append(full_name)
+                continue
+            # State name not in Lua source → the whole state variant is hallucinated
+            if state_name not in lua_source:
+                stripped.append(full_name)
+                continue
+            if classification.get(base_name) == "local":
+                stripped.append(full_name)
+                continue
+        else:
+            # Simple name — strip params (e.g. "GetState(inst)" → "GetState")
+            name = re.match(r'^[\w.:]+', full_name)
+            if not name:
+                kept.append(block)
+                continue
+            name = name.group(0)
+            if not any(p.search(lua_source) for p in _def_patterns(name)):
+                stripped.append(name)
+                continue
+            if classification.get(name) == "local":
+                stripped.append(name)
+                continue
 
         kept.append(block)
 
@@ -427,6 +452,26 @@ def ensure_required_fields(fn_blocks: list[str]) -> list[str]:
 
 
 # ── Apply engine ──────────────────────────────────────────────────────────────
+
+def _canonical_fn_name(raw: str) -> str:
+    """Return canonical function name for precise heading matching.
+
+    Strips trailing (params) when a state-name group also exists, preserving
+    the state name so stategraph handlers match precisely:
+      "onupdate (attack_recoil)(inst)" → "onupdate (attack_recoil)"
+      "onenter (idle)"                 → "onenter (idle)"
+      "GetState(inst)"                 → "GetState"
+    """
+    groups = re.findall(r'\([^)]*\)', raw)
+    if len(groups) >= 2:
+        return raw[:raw.rfind('(')].rstrip()
+    if len(groups) == 1:
+        idx = raw.rfind('(')
+        if idx > 0 and raw[idx - 1] == ' ':
+            return raw.strip()
+        return raw[:idx].rstrip()
+    return raw.strip()
+
 
 def _update_field_in_text(text: str, field: str, value: str) -> str:
     """Replace single-line '* **{field}:** ...' with '* **{field}:** {value}'.
@@ -459,20 +504,22 @@ def apply_typed_ops(
     for op in ops:
         if not isinstance(op, TypedOp):
             continue
-        idx = next((i for i, s in enumerate(result) if s.heading == op.section), None)
+        idx = next((i for i, s in enumerate(result) if s.heading.strip().lower() == op.section.strip().lower()), None)
         if idx is None:
             continue  # section not found — silent no-op
         section = result[idx]
 
         if op.op == "update_section":
-            section.text = op.content or ""
+            if not op.content:
+                continue  # null/empty content — no-op to avoid wiping the section
+            section.text = normalize_fn_headings(op.content)
 
         elif op.op == "update_field" and op.function:
             preamble, fn_blocks = split_section_blocks(section.text)
-            op_fn_name = re.sub(r'\s*\(.*$', '', op.function).strip()
+            op_fn_name = _canonical_fn_name(op.function)
             for j, block in enumerate(fn_blocks):
-                bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-                if bm and bm.group(1).strip() == op_fn_name:
+                m = re.match(r'^### `([^`\n]+)`', block.split("\n", 1)[0]) or re.match(r'^### `?([^`\n]+)', block.split("\n", 1)[0])
+                if m and _canonical_fn_name(m.group(1)) == op_fn_name:
                     fn_blocks[j] = _update_field_in_text(block, op.field or "", op.value or "")
                     break
             section.text = preamble + "".join(fn_blocks)
@@ -481,12 +528,14 @@ def apply_typed_ops(
             section.text = _update_field_in_text(section.text, op.field or "", op.value or "")
 
         elif op.op == "rewrite_function" and op.function:
+            if not op.content:
+                continue  # null/empty content — no-op to avoid wiping the function block
             preamble, fn_blocks = split_section_blocks(section.text)
-            op_fn_name = re.sub(r'\s*\(.*$', '', op.function).strip()
+            op_fn_name = _canonical_fn_name(op.function)
             for j, block in enumerate(fn_blocks):
-                bm = re.match(r'^### `?([^`(\n]+)', block.split("\n", 1)[0])
-                if bm and bm.group(1).strip() == op_fn_name:
-                    fn_blocks[j] = op.content or ""
+                m = re.match(r'^### `([^`\n]+)`', block.split("\n", 1)[0]) or re.match(r'^### `?([^`\n]+)', block.split("\n", 1)[0])
+                if m and _canonical_fn_name(m.group(1)) == op_fn_name:
+                    fn_blocks[j] = normalize_fn_headings(op.content)
                     break
             # If function not found: no-op (loop completes without modifying)
             section.text = preamble + "".join(fn_blocks)

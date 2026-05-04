@@ -16,10 +16,11 @@ def test_apply_patches_success():
         Patch(old_text="Hello", new_text="Hi", reason="greeting"),
         Patch(old_text="Goodbye", new_text="Bye", reason="farewell"),
     ]
-    result, failed, ambiguous = apply_patches(content, patches)
+    result, failed, ambiguous, guard_blocked = apply_patches(content, patches)
     assert result == "Hi world. Bye world."
     assert failed == 0
     assert ambiguous == []
+    assert guard_blocked == []
 
 
 def test_apply_patches_partial_failure():
@@ -28,28 +29,49 @@ def test_apply_patches_partial_failure():
         Patch(old_text="Hello", new_text="Hi", reason="ok"),
         Patch(old_text="NONEXISTENT", new_text="X", reason="fail"),
     ]
-    result, failed, ambiguous = apply_patches(content, patches)
+    result, failed, ambiguous, guard_blocked = apply_patches(content, patches)
     assert result == "Hi world."
     assert failed == 1
     assert ambiguous == []
+    assert guard_blocked == []
 
 
 def test_apply_patches_empty():
     content = "Hello"
-    result, failed, ambiguous = apply_patches(content, [])
+    result, failed, ambiguous, guard_blocked = apply_patches(content, [])
     assert result == "Hello"
     assert failed == 0
     assert ambiguous == []
+    assert guard_blocked == []
 
 
 def test_apply_patches_ambiguous_skipped():
     # When old_text appears multiple times, patch is skipped and returned as ambiguous
     content = "foo foo foo"
     p = Patch(old_text="foo", new_text="bar", reason="test")
-    result, failed, ambiguous = apply_patches(content, [p])
+    result, failed, ambiguous, guard_blocked = apply_patches(content, [p])
     assert result == "foo foo foo"  # unchanged
     assert failed == 1
     assert ambiguous == [p]
+    assert guard_blocked == []
+
+
+def test_apply_patches_guard_blocked_tracked():
+    """Guard-blocked patches are returned as 4th element with lost fn names."""
+    content = "### `foo`\nfoo content\n\n### `bar`\nbar content\n"
+    # A patch that spans both ### blocks and drops one function
+    p = Patch(
+        old_text="### `foo`\nfoo content\n\n### `bar`\nbar content\n",
+        new_text="### `foo`\nfoo content\n",
+        reason="drops bar",
+    )
+    result, failed, ambiguous, guard_blocked = apply_patches(content, [p])
+    assert result == content  # unchanged
+    assert failed == 1
+    assert len(guard_blocked) == 1
+    blocked_patch, lost_fns = guard_blocked[0]
+    assert blocked_patch is p
+    assert "bar" in lost_fns
 
 
 def test_parse_writer_response_valid():

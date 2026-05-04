@@ -35,9 +35,12 @@ MODEL_UPDATE: str   = _get("model", "update",   "qwen3-coder-next:cloud")
 MODEL_EMBED: str    = _get("model", "embed",    "BAAI/bge-small-en-v1.5")
 MODEL_COMPRESS: str = _get("model", "compress", "qwen3.5:cloud")
 MODEL_JURY: str     = _get("model", "jury",     "qwen3.5:cloud")
+MODEL_REVIEWER: str = _get("model", "reviewer", MODEL_MAIN)
+MODEL_WRITER: str   = _get("model", "writer",   MODEL_MAIN)
 
 # === Tokens ===
 PROMPT_TOKEN_LIMIT: int      = _get("tokens", "prompt_limit",     16000)
+CHUNK_PROMPT_TOKEN_LIMIT: int = _get("tokens", "chunk_prompt_limit", 20000)  # per-chunk budget (larger than trigger)
 MERGE_TOKEN_LIMIT: int       = _get("tokens", "merge_limit",      20000)
 CONTEXT_RESERVE: int         = _get("tokens", "context_reserve",  7000)
 STUB_FULL_THRESHOLD: int     = _get("tokens", "stub_threshold",   400)

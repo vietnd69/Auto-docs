@@ -265,6 +265,28 @@ def test_prefilter_unrecognized_heading_kept():
     assert stripped == []
 
 
+def test_prefilter_strips_hallucinated_state_variant():
+    """onenter (fishing_nibble) stripped when state name absent from Lua source."""
+    lua = "onenter = function(inst) end\nontimeout = function(inst) end\n"
+    blocks = [
+        "### `onenter (fishing_nibble)`\n* **Description:** d\n",
+        "### `ontimeout`\n* **Description:** d\n",
+    ]
+    kept, stripped = prefilter_fn_blocks(blocks, lua)
+    assert len(kept) == 1
+    assert kept[0].startswith("### `ontimeout`")
+    assert "onenter (fishing_nibble)" in stripped
+
+
+def test_prefilter_keeps_valid_state_variant():
+    """onenter (idle) kept when state name 'idle' is present in Lua source."""
+    lua = 'onenter = function(inst) end\nname = "idle"\n'
+    blocks = ["### `onenter (idle)`\n* **Description:** d\n"]
+    kept, stripped = prefilter_fn_blocks(blocks, lua)
+    assert len(kept) == 1
+    assert stripped == []
+
+
 # ── ensure_required_fields tests ─────────────────────────────────────────────
 
 def test_ensure_required_fields_adds_missing():

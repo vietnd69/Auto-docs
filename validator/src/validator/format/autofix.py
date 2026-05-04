@@ -2,11 +2,21 @@
 import json
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from llm.settings import MDX_NODE_TIMEOUT
 from validator.format.checks import ValidationError
+
+
+def _print(msg: str) -> None:
+    """Print safely on narrow Windows terminals (e.g. CP1252) by replacing unencodable chars."""
+    try:
+        print(msg)
+    except UnicodeEncodeError:
+        enc = sys.stdout.encoding or "utf-8"
+        print(msg.encode(enc, errors="replace").decode(enc, errors="replace"))
 
 @dataclass
 class FixResult:
@@ -385,9 +395,11 @@ def fix_reference_errors(text: str, identifier: str) -> tuple[str, int]:
     count = 0
     in_code_block = False
 
-    # Pattern: tìm {…} chứa identifier, không nằm trong backtick
+    # Pattern: tìm {…} chứa identifier, không nằm trong backtick.
+    # Cho phép một cấp lồng {} bên trong (ví dụ: { staticdecorations = {} }).
+    _inner = r'(?:[^{}`\n]|\{[^{}`\n]*\})'
     brace_pattern = re.compile(
-        r'(?<!`)\{([^{}`\n]*\b' + re.escape(identifier) + r'\b[^{}`\n]*)\}(?!`)'
+        r'(?<!`)' + r'\{(' + _inner + r'*\b' + re.escape(identifier) + r'\b' + _inner + r'*)\}(?!`)'
     )
 
     for idx, line in enumerate(lines):
@@ -535,6 +547,30 @@ def fix_malformed_multiline_backticks(text: str) -> tuple[str, int]:
                 i = end_idx
         i += 1
     return "".join(lines), count
+
+def fix_unclosed_code_fence_before_heading(text: str) -> tuple[str, int]:
+    """Close unclosed code fences immediately before ## / ### headings.
+
+    When a ## heading appears inside an open code fence (missing closing ```),
+    Docusaurus renders the entire following section as raw code — headings become invisible.
+    Fix: insert a closing ``` + blank line before the affected heading.
+    """
+    lines = text.splitlines(keepends=True)
+    in_fence = False
+    insertions = 0
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].strip()
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+        elif in_fence and re.match(r"^#{2,3}\s+", lines[i]):
+            lines.insert(i, "```\n")
+            in_fence = False
+            insertions += 1
+            i += 1  # skip the ``` we just inserted; next iteration sees the heading
+        i += 1
+    return "".join(lines), insertions
+
 
 def fix_empty_properties_section(text: str) -> tuple[str, bool]:
     """
@@ -793,27 +829,47 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
         text = new_text
         applied.append("Đã thêm bảng None vào ## Properties section trống.")
 
+    # Collapse excessive blank lines (3+ → 2) in prose sections
+    new_text, excess_blank_count = fix_excessive_blank_lines(text)
+    if excess_blank_count > 0:
+        text = new_text
+        applied.append(f"Đã rút gọn {excess_blank_count} đoạn thừa blank line (3+ → 2).")
+
     # Fix missing blank line before ## / ### headings
     new_text, heading_fixes = fix_missing_blank_line_before_headings(text)
     if heading_fixes > 0:
         text = new_text
         applied.append(f"Đã thêm blank line trước {heading_fixes} heading(s) bị thiếu.")
 
+    # Fix unclosed code fences that swallow ## headings (renders sections invisible in Docusaurus)
+    new_text, fence_fixes = fix_unclosed_code_fence_before_heading(text)
+    if fence_fixes > 0:
+        text = new_text
+        applied.append(f"Đã đóng {fence_fixes} code fence bị thiếu ``` trước heading.")
+
     # Ghi file một lần duy nhất cho Phase 1 nếu có thay đổi
     if not dry_run and text != original_text:
         path.write_text(text, encoding="utf-8")
+
+    # Log Phase 1 fixes
+    for fix in applied:
+        print(f"  [autofix] {fix}")
 
     # --- PHASE 2: MDX Loop (Iterative write for Node validator) ---
 
     lines = text.splitlines(keepends=True)
 
     # Loop: fix → re-validate → fix tiếp cho đến khi hết lỗi
+    last_mdx_errors: list[dict] = []
     for attempt in range(10):  # max 10 vòng tránh loop vô hạn
-        errors = get_mdx_errors(filepath)
-        if not errors:
+        last_mdx_errors = get_mdx_errors(filepath)
+        if not last_mdx_errors:
+            if attempt > 0:
+                print(f"  [autofix/mdx] Clean after {attempt} pass(es)")
             break
+        print(f"  [autofix/mdx] Pass {attempt + 1}: {len(last_mdx_errors)} error(s)")
 
-        for err in errors:
+        for err in last_mdx_errors:
             line_no = err["line"] - 1  # 0-indexed
             col_no  = err["col"] - 1
 
@@ -824,12 +880,14 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
                 new_text, ref_count = fix_reference_errors(current_text, err["identifier"])
                 if ref_count > 0:
                     lines = new_text.splitlines(keepends=True)
-                    applied.append(
-                        f"Đã wrap {ref_count} bare {{...{err['identifier']}...}} expression(s) bằng backtick."
-                    )
+                    msg = f"Đã wrap {ref_count} bare {{...{err['identifier']}...}} expression(s) bằng backtick."
+                    applied.append(msg)
                     if not dry_run:
                         path.write_text(new_text, encoding="utf-8")
                     text = new_text
+                    _print(f"  [autofix] {msg}")
+                else:
+                    _print(f"  [autofix/mdx] Cannot fix ReferenceError: '{err['identifier']}' not found in any {{...}} expression")
                 continue
 
             # Unclosed expected tag: `<tag>`
@@ -838,16 +896,22 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
                 tag = err["unclosed_tag"]
                 if line_no >= 0 and line_no < len(lines):
                     original = lines[line_no]
-                    # Simply try replacing `<tag>` with `` `<tag>` ``
                     fixed = original.replace(f"<{tag}>", f"`<{tag}>`")
                     if fixed != original:
                         lines[line_no] = fixed
-                        applied.append(f"Line {line_no+1}: Wrapped unclosed tag `<{tag}>` in backticks.")
+                        msg = f"Line {line_no+1}: Wrapped unclosed tag `<{tag}>` in backticks."
+                        applied.append(msg)
                         if not dry_run:
                             path.write_text("".join(lines), encoding="utf-8")
+                        _print(f"  [autofix] {msg}")
+                    else:
+                        _print(f"  [autofix/mdx] Cannot fix unclosed tag <{tag}> at line {line_no+1}: pattern not found")
+                else:
+                    _print(f"  [autofix/mdx] Cannot fix unclosed tag <{tag}>: line {err['line']} out of range")
                 continue
 
             if line_no >= len(lines) or line_no < 0:
+                _print(f"  [autofix/mdx] Cannot fix line {err['line']}: out of range (file has {len(lines)} lines)")
                 continue
 
             original = lines[line_no]
@@ -855,18 +919,47 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
 
             if fixed != original:
                 lines[line_no] = fixed
-                applied.append(
+                msg = (
                     f"Line {err['line']}: {original.strip()!r}\n"
-                    f"          -> {fixed.strip()!r}"
+                    f"           -> {fixed.strip()!r}"
                 )
+                applied.append(msg)
                 # Ghi file ngay để vòng sau validate lại
                 if not dry_run:
                     path.write_text("".join(lines), encoding="utf-8")
+                _print(f"  [autofix] {msg}")
+            else:
+                _print(f"  [autofix/mdx] Cannot fix line {err['line']}: no operator match at col {err['col']}")
+    else:
+        # for-else: loop exhausted all 10 passes without break
+        print(f"  [autofix/mdx] Gave up after 10 passes, {len(last_mdx_errors)} MDX error(s) unfixed:")
+        for e in last_mdx_errors:
+            print(f"  [autofix/mdx]   {e['message'][:120]}")
 
     # Get remaining errors via unified validate_all()
     from validator.format.checks import validate_all
     remaining = validate_all(filepath, accepted_headings=accepted_headings) if not dry_run else []
     return FixResult(changes=applied, remaining_errors=remaining)
+
+
+def fix_excessive_blank_lines(text: str) -> tuple[str, int]:
+    """Collapse runs of 3+ consecutive blank lines to 2 in prose sections.
+
+    Code blocks (``` fences) are left untouched.
+    Returns (fixed_text, number_of_collapsed_runs).
+    """
+    # Split on fenced code blocks to avoid touching them
+    parts = re.split(r'(```[\s\S]*?```)', text)
+    count = 0
+
+    for i in range(len(parts)):
+        if i % 2 == 1:  # inside a code block → skip
+            continue
+        fixed, n = re.subn(r'\n{3,}', '\n\n', parts[i])
+        parts[i] = fixed
+        count += n
+
+    return "".join(parts), count
 
 
 def fix_missing_blank_line_before_headings(text: str) -> tuple[str, int]:

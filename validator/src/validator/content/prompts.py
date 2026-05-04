@@ -1,12 +1,33 @@
 """Prompt templates for content validation writer and reviewer."""
 
 import re
-from prompts.skills_loader import load_skill
+from prompts.skills_loader import load_skill, combine_skills
 
-# Doc-writing skills reused by validator
-_QUALITY_RULES = load_skill("quality_rules")
 
-# Validator-specific skills (separate from doc generation)
+def extract_lua_exported_names(lua_source: str) -> str:
+    """Extract the module-level return table from a Lua file and return a formatted name list.
+
+    Returns a compact string like:
+        Exported API (return table keys): ShouldKnockout, ConfigurePlayerLocomotor, ...
+    or empty string if no module-level return table is found.
+
+    Uses the LAST `return { ... }` match to avoid matching early return-inside-function bodies.
+    Handles one level of nested tables (sufficient for DST utility modules).
+    """
+    # Find ALL `return { ... }` blocks; take the LAST one (module-level export, not inner returns)
+    matches = re.findall(r'\breturn\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}', lua_source, re.DOTALL)
+    if not matches:
+        return ""
+    body = matches[-1]
+    # Each entry is like "    FuncName = FuncName," — we want the KEY (exported name)
+    names = re.findall(r'^\s+(\w+)\s*=', body, re.MULTILINE)
+    if not names:
+        return ""
+    return "Exported API (return table keys): " + ", ".join(names)
+
+# Module-level constants -- used by dead code functions (build_section_reviewer_prompt,
+# build_section_writer_prompt). These functions are NOT refactored in this restructure.
+_QUALITY_RULES = load_skill("content_rules")   # was "quality_rules" -- split in restructure
 _REVIEWER_SKILL = load_skill("validator_reviewer")
 _WRITER_SKILL = load_skill("validator_writer")
 _JURY_SKILL = load_skill("validator_jury")
@@ -58,8 +79,8 @@ def build_reviewer_prompt(
     system_prompt = f"""You are a documentation reviewer for Don't Starve Together (DST) Lua API documentation.
 Your task: verify the documentation is accurate and complete against the Lua source.
 
-=== REVIEW RULES ===
-{_REVIEWER_SKILL}
+=== SKILLS ===
+{combine_skills("reviewer_full")}
 
 === RESPONSE FORMAT ===
 Respond in JSON only:
@@ -84,6 +105,14 @@ INVARIANT: approved=false requires findings to be non-empty. Never return approv
 When need_special_case=true: special_case_standard_heading MUST be the exact standard heading being
 replaced (e.g. "## Main functions"). This tells the system which specific heading check to bypass."""
 
+    exported_names = extract_lua_exported_names(lua_source)
+    if exported_names:
+        exported_block = f"\n3. {exported_names}\n"
+        doc_label = "4."
+    else:
+        exported_block = ""
+        doc_label = "3."
+
     user_content = f"""=== CONTEXT ===
 
 1. LUA SOURCE CODE (ground truth)
@@ -93,8 +122,8 @@ replaced (e.g. "## Main functions"). This tells the system which specific headin
 
 2. CONNECTED CONTENT (referenced files)
 {connected_block}
-{previous_section}
-3. DOCUMENTATION TO REVIEW
+{exported_block}{previous_section}
+{doc_label} DOCUMENTATION TO REVIEW
 {md_content}"""
 
     return system_prompt, user_content
@@ -121,6 +150,9 @@ def build_writer_prompt(
     system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API documentation.
 Your task: fix the documentation based on reviewer feedback. Return ONLY targeted patches, not the entire document.
 
+=== SKILLS ===
+{combine_skills("writer_full")}
+
 === PATCH FORMAT ===
 Return a JSON array of patches. Each patch replaces a specific text segment:
 ```json
@@ -128,19 +160,34 @@ Return a JSON array of patches. Each patch replaces a specific text segment:
     {{
         "old_text": "exact text to find in the document",
         "new_text": "replacement text",
-        "reason": "why this change is needed"
+        "reason": "why this change is needed",
+        "allow_drops": false
     }}
 ]
 ```
 
 Rules:
 - old_text must be an EXACT substring of the current document
+- CRITICAL: Copy old_text VERBATIM character-by-character from the CURRENT DOCUMENTATION section.
+  The document may use "*   **Description:**" (3 spaces after *) or "* **Description:**" (1 space).
+  You MUST match exactly what the document has — never reconstruct from memory or skill examples.
 - Keep patches minimal — only change what's needed to fix the issues
 - Do NOT modify YAML frontmatter
 - Preserve markdown formatting and structure
-- old_text must NOT span more than one ### function block — never include two or more ### headings in the same old_text
+- old_text should target ONE ### function block — prefer one patch per function
+- To DELETE a single function: old_text = that function's block only, new_text = ""
+- To DELETE multiple contiguous functions at once (e.g., a group of local helpers): span all their ### blocks in old_text, set "allow_drops": true, new_text = "" to remove all of them. Only use allow_drops when the reviewer explicitly asks to remove functions (e.g., local/private functions not in public API).
 - To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
-- To DELETE a function: target only that function's own block, never include surrounding functions in old_text"""
+- NEVER delete a ## section — never use empty new_text for a ## heading or its content. To rename a ## heading: old_text = the heading line only (e.g. "## OldName"), new_text = the new heading line (e.g. "## NewName")
+- For ## Events & listeners with no real content: replace the section body with `**None.**` — the heading MUST stay. Never produce a patch that removes the `## Events & listeners` line."""
+
+    exported_names = extract_lua_exported_names(lua_source)
+    if exported_names:
+        exported_block = f"\n3. {exported_names}\n"
+        doc_label = "4."
+    else:
+        exported_block = ""
+        doc_label = "3."
 
     user_content = f"""=== CONTEXT ===
 
@@ -151,8 +198,8 @@ Rules:
 
 2. CONNECTED CONTENT (referenced files)
 {connected_block}
-
-3. CURRENT DOCUMENTATION
+{exported_block}
+{doc_label} CURRENT DOCUMENTATION
 {md_content}
 
 === REVIEWER FEEDBACK ===
@@ -293,8 +340,8 @@ def build_jury_prompt(
     """Build (system_prompt, user_content) for a single jury member voting on a format special case request."""
     connected_block = connected_content if connected_content else "(none)"
 
-    system_prompt = f"""=== JURY VOTING INSTRUCTIONS ===
-{_JURY_SKILL}
+    system_prompt = f"""=== SKILLS ===
+{combine_skills("jury")}
 
 === YOUR VOTE ===
 Based on the Lua source and the reviewer's argument above, cast your vote.
@@ -348,6 +395,7 @@ def build_typed_reviewer_prompt(
     section_heading: str = "",
     rule_ids: list[str] | None = None,
     file_type: str = "component",
+    reviewed_context: str = "",
 ) -> tuple[str, str]:
     """Reviewer prompt that emits typed Finding objects.
 
@@ -359,17 +407,22 @@ def build_typed_reviewer_prompt(
     file_desc = _FILE_TYPE_DESC.get(file_type, _FILE_TYPE_DESC["component"])
 
     is_main_fns = section_heading == "## Main functions"
-    batch_scope_note = (
-        "\n=== SCOPE NOTE ===\n"
-        f"You are reviewing a BATCH of ### function entries from '{section_heading}'. "
-        "Do NOT flag missing ## sections (## Overview, ## Usage example, etc.) — "
-        "they exist elsewhere in the document and are out of scope here.\n"
-        "CRITICAL: Only report findings for functions that appear as ### headings in the "
-        "'=== SECTION TO REVIEW ===' block below. Do NOT report findings for functions "
-        "you see in the Lua context but that have no ### entry in the section — those "
-        "belong to other batches.\n"
-        if is_main_fns else ""
-    )
+    if is_main_fns:
+        fn_names = re.findall(r'^### `([^`\n]+)`', section_text, re.MULTILINE)
+        if not fn_names:
+            fn_names = re.findall(r'^### (.+)', section_text, re.MULTILINE)
+        fn_list = "\n".join(f"  - {fn.strip()}" for fn in fn_names)
+        batch_scope_note = (
+            "\n=== SCOPE NOTE ===\n"
+            f"You are reviewing a BATCH of ### function entries from '{section_heading}'. "
+            "Do NOT flag missing ## sections (## Overview, ## Usage example, etc.) — "
+            "they exist elsewhere in the document and are out of scope here.\n"
+            f"IN-SCOPE FUNCTIONS — only report findings for these exact names:\n{fn_list}\n"
+            "CRITICAL: Do NOT report findings for any function not listed above, even if "
+            "you see it in the Lua context — those belong to other batches.\n"
+        )
+    else:
+        batch_scope_note = ""
 
     lua_block = f"```lua\n{lua_context}\n```" if lua_context else "(none)"
 
@@ -384,7 +437,9 @@ File type: {file_type} ({file_desc})
 {lua_block}
 {batch_scope_note}
 === SECTION REQUIREMENTS ===
-{section_ctx}{_REVIEWER_SKILL}
+{section_ctx}
+=== SKILLS ===
+{combine_skills("reviewer_typed")}
 
 === ALLOWED rule_id VALUES ===
 {rule_ids_str}
@@ -407,7 +462,14 @@ approved=true with empty findings if accurate. One Finding per (function, field)
 
 IMPORTANT: Report ALL issues you find in this single pass. Do not limit or defer findings — every content error must appear now, not in a later round."""
 
-    user_content = f"=== SECTION TO REVIEW ===\n{section_text}"
+    if reviewed_context:
+        user_content = (
+            f"=== REVIEWED SECTIONS (already validated against Lua source) ===\n"
+            f"{reviewed_context}\n\n"
+            f"=== SECTION TO REVIEW ===\n{section_text}"
+        )
+    else:
+        user_content = f"=== SECTION TO REVIEW ===\n{section_text}"
     return system_prompt, user_content
 
 
@@ -427,14 +489,16 @@ def build_typed_writer_prompt(
     system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API docs.
 Fix ONE specific issue by returning ONE typed operation. Return JSON only.
 
-=== FORMAT RULES ===
-{_WRITER_SKILL}
+=== SKILLS ===
+{combine_skills("writer_typed")}
 
 === OPERATION TYPES ===
 - update_section:   replace the full section text (Overview, Usage example rewrites)
 - update_field:     replace one field's inline value (single-line field label only)
 - rewrite_function: replace the entire ### function block for the named function
-- delete_function:  remove the ### function block (use for hallucinated functions)
+- delete_function:  remove the ### function block (use ONLY for hallucinated functions — not in Lua source at all)
+
+CRITICAL: WRONG_DESCRIPTION and WRONG_ERROR_STATE always require rewrite_function or update_field — NEVER delete_function.
 
 === RESPONSE FORMAT ===
 Return a single JSON object:
@@ -466,5 +530,78 @@ issue:    {issue_val}
 
 === TARGET TEXT ===
 {target_text}"""
+
+    return system_prompt, user_content
+
+
+def build_typed_writer_batch_prompt(
+    batch_text: str,
+    lua_context: str,
+    findings: list,  # list of Finding
+    section_heading: str = "",
+    file_type: str = "component",
+) -> tuple[str, str]:
+    """Writer prompt that fixes multiple Findings in one LLM call, returning a list of TypedOps.
+
+    Returns (system_prompt, user_content) for multi-role conversation.
+    """
+    lua_block = f"```lua\n{lua_context}\n```" if lua_context else "(none)"
+
+    system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API docs.
+Fix ALL listed issues by returning a JSON array of typed operations. Return JSON only.
+
+=== SKILLS ===
+{combine_skills("writer_typed")}
+
+=== OPERATION TYPES ===
+- update_section:   replace the full section text (Overview, Usage example rewrites)
+- update_field:     replace one field's inline value (single-line field label only)
+- rewrite_function: replace the entire ### function block for the named function
+- delete_function:  remove the ### function block (use ONLY for hallucinated functions — not in Lua source at all)
+
+CRITICAL op selection rules:
+- WRONG_DESCRIPTION, INACCURATE_DESCRIPTION → rewrite_function (never delete_function)
+- WRONG_ERROR_STATE, MISPLACED_ERROR_STATE → update_field field="Error states" (never delete_function)
+- delete_function is NEVER correct for any content accuracy rule_id — only for genuine hallucinations
+
+IMPORTANT for update_section on "## Main functions": the content field MUST contain ONLY the
+function blocks that appear in the === SECTION TEXT === block shown to you. Do NOT expand it
+to include functions from other batches or the full file. If you need to fix all functions,
+emit one rewrite_function op per function instead.
+
+=== RESPONSE FORMAT ===
+Return a JSON array — one object per issue (may merge issues targeting the same function):
+[
+  {{
+    "op": "update_section | update_field | rewrite_function | delete_function",
+    "section": "## Section heading",
+    "function": "FunctionName or null",
+    "field": "FieldName or null",
+    "value": "new single-line field value or null",
+    "content": "full replacement content or null"
+  }}
+]"""
+
+    issue_lines: list[str] = []
+    for i, finding in enumerate(findings, 1):
+        fn_val  = getattr(finding, "function", None)
+        fld_val = getattr(finding, "field", None)
+        rule_val  = getattr(finding, "rule_id", "")
+        issue_val = getattr(finding, "issue", "")
+        section_val = getattr(finding, "section", section_heading)
+        issue_lines.append(
+            f"{i}. section={section_val}  function={fn_val or '(none)'}  "
+            f"field={fld_val or '(none)'}  rule_id={rule_val}\n   issue: {issue_val}"
+        )
+    issues_block = "\n".join(issue_lines)
+
+    user_content = f"""=== LUA CONTEXT (ground truth) ===
+{lua_block}
+
+=== ISSUES TO FIX ({len(findings)} total) ===
+{issues_block}
+
+=== SECTION TEXT ===
+{batch_text}"""
 
     return system_prompt, user_content

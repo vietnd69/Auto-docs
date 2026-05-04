@@ -5,11 +5,11 @@ description: Registers skin mappings, DLC assets, scrapbook entries, and texture
 tags: [inventory, skin, ui, texture]
 sidebar_position: 10
 
-last_updated: 2026-04-04
-build_version: 718694
+last_updated: 2026-04-28
+build_version: 722832
 change_status: data_patched
 category_type: root
-source_hash: 256020ba
+source_hash: 0c6d689e
 system_scope: inventory
 ---
 

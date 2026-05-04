@@ -32,8 +32,8 @@ def build_changelog_prompt(
     file_list = "\n".join(lines)
 
     return f"""You are a technical writer documenting changes in the Don't Starve Together game API.
-Given the list of changed files between two game builds, write a concise, high-level
-changelog entry in Markdown.
+Given the list of changed files between two game builds, write a concise changelog entry
+in commit-message style.
 
 BUILD: {old_ver} → {new_ver} | DATE: {date}
 
@@ -46,8 +46,30 @@ STATISTICS:
 CHANGED FILES:
 {file_list}
 
-OUTPUT FORMAT: Markdown section starting with ## Build {new_ver}
-- Write a 3-5 sentence "Highlights" paragraph identifying the most significant changes
-- List files grouped by action (Added / Modified / Deleted / Moved)
-- Be concise. Do not speculate beyond what file names and diff stats suggest.
+OUTPUT FORMAT:
+## Build {new_ver}
+
+<Subject: imperative sentence summarizing the overall theme of changes>
+
+- <one bullet per meaningful change; group trivial renames or micro-fixes into a single bullet>
+
+<Closing paragraph summarizing the overall impact — length proportional to the scope of changes>
+
+### Added
+- <file path>   (omit this section entirely if no files were added)
+
+### Modified
+- <file path>   (omit this section entirely if no files were modified)
+
+### Deleted
+- <file path>   (omit this section entirely if no files were deleted)
+
+### Moved
+- <old path> → <new path>   (omit this section entirely if no files were moved)
+
+RULES:
+- Subject: imperative mood, no period
+- Bullets: start with a verb, be specific about what changed and why it matters
+- Do not speculate beyond what file names and diff stats suggest
+- File lists must be complete — include every file from CHANGED FILES above
 """

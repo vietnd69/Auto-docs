@@ -7,7 +7,7 @@ from pathlib import Path
 import core.config as config
 from core.utils import shutdown
 from llm.settings import MODEL_MAIN as MODEL_NAME
-from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR, DATA_DIR
+from llm.paths import BASE_LUA_DIR, BASE_DOCS_DIR, PROJECT_ROOT
 from rag.content import extract_connected_content
 from rag.docs import (
     extract_lua_references,
@@ -17,6 +17,7 @@ from rag.docs import (
     get_lua_files,
 )
 from prompts.standard import build_prompt
+from prompts.type_detect import detect_lua_type
 from core.pipeline.standard import generate_doc
 from core.pipeline.chunking import needs_chunking
 from core.pipeline.chunked import process_chunked_file
@@ -51,8 +52,8 @@ class _TeeWriter:
 
 
 def main():
-    # === SESSION LOG — mirror all stdout to data/logs/run_<timestamp>.log ===
-    logs_dir = Path(DATA_DIR) / "logs"
+    # === SESSION LOG — mirror all stdout to .cache/logs/run_<timestamp>.log ===
+    logs_dir = PROJECT_ROOT / ".cache" / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
     log_filename = datetime.now().strftime("run_%Y-%m-%d_%H-%M-%S.log")
     log_path = str(logs_dir / log_filename)
@@ -85,6 +86,11 @@ def _main_impl():
         action="store_true",
         help="Skip validation (generate only, no content loop or format fix)",
     )
+    parser.add_argument(
+        "--resume-validate",
+        action="store_true",
+        help="Skip generation, resume validation from last section checkpoint (single-file mode)",
+    )
     args = parser.parse_args()
 
     # === CONFIGURATION — Lấy từ config.py và tuỳ chỉnh ===
@@ -92,7 +98,6 @@ def _main_impl():
     LUA_DIR = os.path.join(BASE_LUA_DIR, "")
     DOCS_DIR = os.path.join(BASE_DOCS_DIR, "")
     VERSION = config.VERSION
-    CATEGORY_TYPE = "root"
     TODAY_DATE = config.TODAY_DATE
     FILE_TREE = config.get_shared_file_tree()
 
@@ -156,6 +161,37 @@ def _main_impl():
         # Đảm bảo thư mục con tồn tại
         os.makedirs(os.path.dirname(md_filepath), exist_ok=True)
 
+        # --resume-validate: bỏ qua generation, chỉ chạy lại validator từ checkpoint
+        if args.resume_validate and os.path.exists(md_filepath):
+            print(f"  [resume-validate] Bỏ qua generation, validate lại {md_filename}...")
+            generated_path = md_filepath
+            try:
+                file_result = process_file(generated_path, PipelineConfig(
+                    writer_model=MODEL_NAME,
+                    reviewer_model=MODEL_NAME,
+                    stop_check=lambda: shutdown.stop_requested,
+                    resume=True,
+                ))
+            except KeyboardInterrupt:
+                stats["failed"] += 1
+                stats["validate_failed"] += 1
+                stats["failed_list"].append(filename)
+                shutdown.request_stop()
+                continue
+            except Exception as e:
+                print(f"  [Lỗi validate] {filename}: {e}")
+                stats["failed"] += 1
+                stats["validate_failed"] += 1
+                stats["failed_list"].append(filename)
+                continue
+            if file_result.final_status == "ok":
+                stats["processed"] += 1
+            else:
+                stats["failed"] += 1
+                stats["validate_failed"] += 1
+                stats["failed_list"].append(filename)
+            continue
+
         # Bỏ qua file đã có docs (trừ khi force hoặc single file mode)
         if not force_regen and os.path.exists(md_filepath):
             print(f"  Bỏ qua {md_filename} (đã tồn tại)")
@@ -164,6 +200,7 @@ def _main_impl():
 
         filepath = os.path.join(LUA_DIR, filename)
         display_filepath = filepath.replace("./dst-scripts", ".").replace("\\", "/")
+        category_type = detect_lua_type(display_filepath)
 
         lua_code = safe_read_lua(filepath)
         if lua_code is None:
@@ -203,7 +240,7 @@ def _main_impl():
             file_tree=FILE_TREE,
             today_date=TODAY_DATE,
             version=VERSION,
-            category_type=CATEGORY_TYPE,
+            category_type=category_type,
         )
 
         # Đếm token toàn bộ prompt
@@ -228,7 +265,8 @@ def _main_impl():
                     file_tree=FILE_TREE,
                     today_date=TODAY_DATE,
                     version=VERSION,
-                    category_type=CATEGORY_TYPE,
+                    category_type=category_type,
+                    lua_type=category_type,
                     model_name=MODEL_NAME,
                     chunk_sleep=10,
                     merge_sleep=20,
@@ -239,6 +277,7 @@ def _main_impl():
                     prompt=prompt_text,
                     md_filepath=md_filepath,
                     source_hash=source_hash,
+                    lua_filepath=filepath,
                     model_name=MODEL_NAME,
                     sleep_time=20,
                 )
