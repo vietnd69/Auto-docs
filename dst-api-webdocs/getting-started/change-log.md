@@ -15,10 +15,10 @@ change_status: updated
 
 Introduce comprehensiveWX-78 upgrades, shadow-mechanics integration, and extensive localization updates across game core, components, prefabs, and UI systems  
 
-- Add WX-78’s new *Possessed Body* ability with dedicated brain, stategraphs, and prefabs, including support for package-less operation  
+- Add WX-78's new *Possessed Body* ability with dedicated brain, stategraphs, and prefabs, including support for package-less operation  
 - Implement *Shadow Socket System* via new `socketable`, `socketholder`, `socket_shadow_*` components and prefabs for Harvester, Heart, and Mimicry  
-- Redesign WX-78’s gameplay via `wx78*.lua` and `wx78_*.lua` files, including drone delivery/scout/zap prefabs, drone Scout tracking, shield, taser buildup, ability cooldowns, and scanner enhancements  
-- Overhaul WX-78’s stategraphs and brains (e.g., `SGwx78_*`, `wx78_*brain.lua`, `wx78_scannerbrain.lua`) with new abilities and behaviors  
+- Redesign WX-78's gameplay via `wx78*.lua` and `wx78_*.lua` files, including drone delivery/scout/zap prefabs, drone Scout tracking, shield, taser buildup, ability cooldowns, and scanner enhancements  
+- Overhaul WX-78's stategraphs and brains (e.g., `SGwx78_*`, `wx78_*brain.lua`, `wx78_scannerbrain.lua`) with new abilities and behaviors  
 - Extend inventory and container systems with `container`, `inventory`, `equippable`, `stackable`, and `replica` component refactors; add `inventory_classified`, `container_classified`, `player_classified`  
 - Revamp upgrade modules system with `upgrademoduleowner`, `upgrademoduleremover`, `socket_shadow_harvester`, and new UI display widgets (`upgrademodulesdisplay`, `upgrademodulesdisplay_inspecting`)  
 - Add `aoediminishingreturns`, `clockworktracker`, `globaltrackingicon`, `mapdeliverable`, `wanderer ability cooldowns`, and `leaderrollcall` components  
