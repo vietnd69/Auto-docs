@@ -57,6 +57,7 @@ OLLAMA_TIMEOUT_RETRIES: int = _get("timing", "timeout_retries", 2)
 # === Validator ===
 VALIDATOR_MAX_ITERATIONS: int      = _get("validator", "max_iterations",      10)
 VALIDATOR_LOOP_MAX_ITERATIONS: int = _get("validator", "loop_max_iterations", 5)
+VALIDATOR_WRITER_INNER_ITERATIONS: int = _get("validator", "writer_inner_iterations", 3)
 MDX_NODE_TIMEOUT: int              = _get("validator", "mdx_timeout",         20)
 LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  8000)
 SECTION_TOKEN_THRESHOLD: int      = _get("validator", "section_token_threshold",    4000)
