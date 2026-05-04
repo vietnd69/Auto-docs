@@ -426,6 +426,7 @@ def run_content_loop(
                             guard_blocked_patches.extend(corr_guard_blocked)
                         corr_applied = len(correction) - corr_failed
                         remaining_failed = max(0, remaining_failed - corr_applied)
+                        remaining_failed = max(remaining_failed, corr_failed)
                         print(f"  [content] Not-found correction: applied {corr_applied}/{len(correction)} patches")
 
             if guard_blocked_patches:
@@ -441,6 +442,7 @@ def run_content_loop(
                     updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
                     gc_applied = len(guard_correction) - gc_failed
                     remaining_failed = max(0, remaining_failed - gc_applied)
+                    remaining_failed = max(remaining_failed, gc_failed)
                     print(f"  [content] Guard correction: applied {gc_applied}/{len(guard_correction)} patches")
 
             if patches and remaining_failed > len(patches) / 2:
