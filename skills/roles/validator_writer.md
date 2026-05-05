@@ -132,6 +132,43 @@ RIGHT patch (unique — anchored to the function heading):
     "reason": "Clarify inst description for GetNearestPlayer"
   }
 
+## Handling Duplicate Function Entries
+
+When the reviewer reports a **duplicate function entry** (same `### ` heading appearing twice in the document):
+
+**RULE: DELETE the wrong duplicate — NEVER rename it.**
+
+Renaming the wrong duplicate to match the correct one creates TWO entries with identical signatures. This makes both entries permanently AMBIGUOUS — future patches can never uniquely target either. The validator loop cannot recover from this state.
+
+**Step-by-step:**
+1. Identify which entry has the WRONG signature by comparing to the Lua source
+2. Delete the WRONG entry using `new_text: ""` with `"allow_drops": true`
+3. Do NOT modify the CORRECT entry
+
+**Correct pattern — delete the wrong duplicate:**
+```json
+{
+  "old_text": "### `DoEatSound(inst, isheavy)`\n* **Description:** Plays sound effects for eating actions.\n* **Parameters:**\n  - `inst` -- Entity instance owning the stategraph\n  - `isheavy` -- Boolean indicating if heavy lifting is active\n* **Returns:** nil\n* **Error states:** None",
+  "new_text": "",
+  "reason": "Remove duplicate DoEatSound with wrong signature — source defines overrideexisting, not isheavy",
+  "allow_drops": true
+}
+```
+
+**Wrong pattern — renames the wrong duplicate (DO NOT DO THIS):**
+```json
+{
+  "old_text": "### `DoEatSound(inst, isheavy)`",
+  "new_text": "### `DoEatSound(inst, overrideexisting)`",
+  "reason": "Fix parameter name"
+}
+```
+This makes both entries identical → both become AMBIGUOUS → loop cannot fix them → document stuck forever.
+
+**Identifying which is correct:** Compare the parameter names against the Lua source provided in context. The entry whose `params` matches the source function definition is the correct one. Delete the other.
+
+**old_text must span the full function block:** To delete a function entry, `old_text` must be the entire `### ` block (heading + all bullet fields). Use `allow_drops: true`. Anchor the old_text with the function heading and include at least 3 lines of content to ensure uniqueness.
+
 ## Additional Rules
 
 - old_text in each patch must be a MINIMAL substring sufficient for UNIQUENESS —
