@@ -279,10 +279,23 @@ def _find_doc_snippet(md_content: str, old_text: str, context_lines: int = 6) ->
     """
     first_line = old_text.split("\n")[0]
     idx = md_content.find(first_line)
-    if idx == -1:
-        return ""
-    snippet = "\n".join(md_content[idx:].split("\n")[:context_lines])
-    return snippet
+    if idx != -1:
+        snippet = "\n".join(md_content[idx:].split("\n")[:context_lines])
+        return snippet
+
+    # Fuzzy fallback: extract the core function name (strip ### backticks and parameters)
+    # e.g. "### `onenter (dance)(inst)`" → "onenter (dance)"
+    name_match = re.search(r'###\s*`?([^`(\n]+)', first_line)
+    if name_match:
+        core = name_match.group(1).strip().lower()
+        # Try to find any ### heading in the document that contains the core name
+        for line in md_content.splitlines():
+            if line.startswith("### ") and core in line.lower():
+                idx = md_content.find(line)
+                if idx != -1:
+                    snippet = "\n".join(md_content[idx:].split("\n")[:context_lines])
+                    return f"(approximate match — heading format differs)\n{snippet}"
+    return ""
 
 
 def _extract_fn_headings(md_content: str) -> str:
@@ -343,11 +356,13 @@ def _build_targeted_correction_prompt(
     those caused the writer to re-generate all patches (most already applied)
     instead of fixing only the failed ones.
     """
+    n = len(failed_patches)
     system_prompt = (
         "You are a documentation writer fixing failed patch applications.\n\n"
         "Some patches could not be applied because old_text was not found verbatim in the document.\n"
-        "Your ONLY task: for each failed patch, return a corrected version with an exact old_text.\n\n"
-        "Return a JSON array — one corrected patch per failed patch:\n"
+        f"Your ONLY task: return EXACTLY {n} corrected patch(es) — one per failed patch listed below.\n"
+        "Do NOT generate patches for anything else. Do NOT re-patch sections already applied.\n\n"
+        "Return a JSON array:\n"
         '[{"old_text": "exact text from document", "new_text": "replacement", "reason": "why"}]\n\n'
         "Rules:\n"
         "- old_text MUST be an EXACT substring of the CURRENT DOCUMENT shown below\n"
@@ -356,8 +371,11 @@ def _build_targeted_correction_prompt(
         "'* **Description:**' (1 space). Match exactly.\n"
         "- CRITICAL: old_text must stay within a SINGLE ### function block — never let it span two "
         "or more ### headings. If you need a broader change, split into multiple patches (one per ### block).\n"
-        "- Use the '### HEADINGS IN DOCUMENT' list below to find the exact heading name, then copy "
-        "it verbatim as the start of old_text.\n"
+        "- AMBIGUOUS fix: if the failure reason says 'appears N times', the old_text is not unique. "
+        "Start old_text with the exact `### heading line` from the '### HEADINGS IN DOCUMENT' list below, "
+        "then include the field content. This guarantees uniqueness.\n"
+        "- NOT FOUND fix: use the '### HEADINGS IN DOCUMENT' list to find the correct heading spelling. "
+        "Copy it verbatim as the first line of old_text.\n"
         "- Do NOT generate patches for anything not listed as a failed patch below\n"
         "- Do NOT re-patch sections that were already successfully applied"
     )
@@ -521,7 +539,12 @@ def correct_failed_patches(
             print(f"  [content/writer] Correction no patches after {BAD_RESPONSE_RETRIES + 1} attempts")
 
     if patches:
-        print(f"  [content/writer] Correction: {len(patches)} patch(es) generated")
+        expected = len(failed_patches)
+        if len(patches) > expected:
+            print(f"  [content/writer] Correction: {len(patches)} patch(es) generated (expected {expected}) — trimming to {expected}")
+            patches = patches[:expected]
+        else:
+            print(f"  [content/writer] Correction: {len(patches)} patch(es) generated")
     else:
         print(f"  [content/writer] Correction returned no patches")
     return patches
