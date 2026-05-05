@@ -495,9 +495,12 @@ def run_content_loop(
 
         print(f"  [content] Sleeping {NORMAL_SLEEP}s before next iteration...")
         time.sleep(NORMAL_SLEEP)
+    else:
+        i = config.max_iterations - 1  # loop completed naturally
 
-    # Max iterations reached — do final review to get current status
-    print(f"  [content] Max iterations reached, running final review...")
+    actual_iterations = i + 1
+    stop_reason = "max iterations reached" if actual_iterations == config.max_iterations else f"stopped early at iteration {actual_iterations}"
+    print(f"  [content] {stop_reason.capitalize()}, running final review...")
     final_content = cache.read(cache_id)
     final_review = review_document(
         final_content, lua_source, connected_content, config.reviewer_model,
@@ -548,7 +551,7 @@ def run_content_loop(
 
     return ContentLoopResult(
         approved=final_review.approved,
-        iterations=config.max_iterations,
+        iterations=actual_iterations,
         final_issues=final_review.issues,
         accepted_headings=accepted_headings,
     )
