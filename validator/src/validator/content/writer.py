@@ -17,7 +17,7 @@ from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
 from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
-from validator.content.prompts import build_writer_prompt
+from validator.content.prompts import build_writer_prompt, build_writer_system_prompt, build_writer_slim_user
 from validator.content.reviewer import ReviewResult
 from validator.content.schemas import PATCHES_SCHEMA
 
@@ -207,6 +207,7 @@ def rewrite_document(
     model: str,
     prior_turns: list[dict] | None = None,
     user_prefix: str = "",
+    slim_context: bool = False,
 ) -> tuple[list[Patch], str, str]:
     """Ask LLM1 to generate patches based on reviewer feedback.
 
@@ -219,12 +220,20 @@ def rewrite_document(
     the patch outcome. Format: [{"role": "user", ...}, {"role": "assistant", ...}]
 
     user_prefix: optional text prepended to user_content before sending.
+
+    slim_context: when True and prior_turns is set, omit lua_source/connected_content from
+    user_content — they are already available in the prior_turns conversation history.
     """
     system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
-    if user_prefix:
+    if slim_context and prior_turns:
+        user_content = build_writer_slim_user(
+            md_content, review_feedback.issues, review_feedback.suggestions,
+            user_prefix=user_prefix,
+        )
+    elif user_prefix:
         user_content = user_prefix + user_content
     token_count = count_tokens(system_prompt + user_content)
     prior_info = f" (+{len(prior_turns)} prior turn(s))" if prior_turns else ""
@@ -437,24 +446,37 @@ def correct_failed_patches(
 
     Otherwise falls back to single-turn behavior using _build_targeted_correction_prompt.
     """
-    use_multi_turn = bool(original_md_content and lua_source and previous_writer_raw)
+    use_multi_turn = bool(original_md_content and previous_writer_raw)
 
     if use_multi_turn:
         _issues = review_issues or []
         _suggestions = review_suggestions or []
-        system_prompt, original_task_user = build_writer_prompt(
-            original_md_content, lua_source, connected_content,
-            _issues, _suggestions,
+        # Focused system prompt for correction — no writer skills needed, just find old_text
+        system_prompt, _ = _build_targeted_correction_prompt(
+            md_content, failed_patches, failure_reasons,
+            review_issues=_issues, review_suggestions=_suggestions,
+        )
+        # Lightweight first user turn — reviewer feedback + original doc, no lua/connected
+        feedback_lines = []
+        for i, issue in enumerate(_issues, 1):
+            suggestion = _suggestions[i - 1] if i - 1 < len(_suggestions) else ""
+            feedback_lines.append(f"{i}. Issue: {issue}")
+            if suggestion:
+                feedback_lines.append(f"   Suggestion: {suggestion}")
+        feedback_block = "\n".join(feedback_lines) if feedback_lines else "(none)"
+        first_user = (
+            f"=== REVIEWER FEEDBACK ===\n{feedback_block}\n\n"
+            f"=== ORIGINAL DOCUMENT ===\n{original_md_content}"
         )
         correction_user = _build_correction_feedback(md_content, failed_patches, failure_reasons)
-        token_count = count_tokens(system_prompt + original_task_user + previous_writer_raw + correction_user)
+        token_count = count_tokens(system_prompt + first_user + previous_writer_raw + correction_user)
         print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens (multi-turn)")
         if DEBUG_PROMPTS:
-            full = system_prompt + "\n\n" + original_task_user + "\n\n[ASSISTANT]\n" + previous_writer_raw + "\n\n[USER]\n" + correction_user
+            full = system_prompt + "\n\n" + first_user + "\n\n[ASSISTANT]\n" + previous_writer_raw + "\n\n[USER]\n" + correction_user
             _dump_prompt("writer_correction", full)
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": original_task_user},
+            {"role": "user", "content": first_user},
             {"role": "assistant", "content": previous_writer_raw},
             {"role": "user", "content": correction_user},
         ]
@@ -557,29 +579,45 @@ def correct_guard_blocked_patches(
     """Multi-turn correction for patches blocked by the regression guard.
 
     Uses the multi-turn structure:
-        system:    writer prompt system
-        user:      writer prompt user (shows md_content as current document — pre-patch snapshot,
-                   kept for coherence with the assistant turn that follows)
+        system:    writer system prompt (skills + patch rules)
+        user:      lua source + connected content + reviewer feedback (no md_content —
+                   the current document state is already in the rejection message)
         assistant: previous_raw (the writer's original JSON response)
-        user:      guard rejection message (includes updated_content — the real current doc state
-                   after all non-guard-blocked patches were applied)
+        user:      guard rejection message (includes updated_content — real current doc state)
 
     updated_content must be passed so the correction writer sees the actual document state when
     generating old_text values to split the guard-blocked patches.
     """
-    system_prompt, user_content = build_writer_prompt(
-        md_content, lua_source, connected_content,
-        review_feedback.issues, review_feedback.suggestions,
+    system_prompt = build_writer_system_prompt()
+    # Lightweight initial user: lua + connected + reviewer feedback only.
+    # The rejection_message already contains updated_content (current document after applied patches),
+    # so including md_content here would duplicate the document at a stale pre-patch state.
+    feedback_lines = []
+    for i, issue in enumerate(review_feedback.issues, 1):
+        suggestion = (
+            review_feedback.suggestions[i - 1]
+            if review_feedback.suggestions and i - 1 < len(review_feedback.suggestions)
+            else ""
+        )
+        feedback_lines.append(f"{i}. Issue: {issue}")
+        if suggestion:
+            feedback_lines.append(f"   Suggestion: {suggestion}")
+    feedback_block = "\n".join(feedback_lines)
+    connected_block = connected_content if connected_content else "(none)"
+    initial_user = (
+        f"1. LUA SOURCE CODE (ground truth)\n```lua\n{lua_source}\n```\n\n"
+        f"2. CONNECTED CONTENT (referenced files)\n{connected_block}\n\n"
+        f"=== REVIEWER FEEDBACK ===\n{feedback_block}"
     )
     rejection_message = _build_guard_rejection_message(guard_blocked, updated_content)
-    token_count = count_tokens(system_prompt + user_content + previous_raw + rejection_message)
+    token_count = count_tokens(system_prompt + initial_user + previous_raw + rejection_message)
     print(f"  [content/writer] Guard correction prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
-        full = system_prompt + "\n\n" + user_content + "\n\n[ASSISTANT]\n" + previous_raw + "\n\n[USER]\n" + rejection_message
+        full = system_prompt + "\n\n" + initial_user + "\n\n[ASSISTANT]\n" + previous_raw + "\n\n[USER]\n" + rejection_message
         _dump_prompt("writer_guard_correction", full)
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
+        {"role": "user", "content": initial_user},
         {"role": "assistant", "content": previous_raw},
         {"role": "user", "content": rejection_message},
     ]

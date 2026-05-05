@@ -172,7 +172,7 @@ def review_document(
         last = prior_turns[-1]
         messages.append({
             "role": last["role"],
-            "content": last["content"] + "\n\nNow re-review the updated document:\n\n" + user_content,
+            "content": last["content"] + "\n\nNow re-review the document.",
         })
     else:
         messages.append({"role": "user", "content": user_content})

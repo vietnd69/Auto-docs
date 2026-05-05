@@ -360,26 +360,35 @@ def run_content_loop(
 
         # Inner writer loop: retry until all patches apply, no progress, or max passes
         current_content = cached_content
-        inner_prior_turns: list[dict] = []
         inner_first_user_content: str = ""
+        inner_prev_raw: str = ""
         guard_blocked_for_prefix: int = 0
         for w_iter in range(VALIDATOR_WRITER_INNER_ITERATIONS):
             inner_suffix = f" (pass {w_iter + 1}/{VALIDATOR_WRITER_INNER_ITERATIONS})" if VALIDATOR_WRITER_INNER_ITERATIONS > 1 else ""
             print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches{inner_suffix}...")
+            inner_prior_turns: list[dict] | None = None
             user_prefix_for_this_pass = ""
-            if w_iter > 0 and inner_first_user_content:
+            if w_iter > 0 and inner_first_user_content and inner_prev_raw:
                 user_prefix_for_this_pass = _build_patch_feedback_prefix(
                     applied=iter_applied,
                     failed=remaining_failed,
                     guard_blocked=guard_blocked_for_prefix,
                 )
+                # Multi-turn: pass prior context so writer can see what it did before.
+                # slim_context=True means the new user turn only sends current doc (no lua/connected).
+                inner_prior_turns = [
+                    {"role": "user", "content": inner_first_user_content},
+                    {"role": "assistant", "content": inner_prev_raw},
+                ]
             patches, raw, user_content_this_pass = rewrite_document(
                 current_content, lua_source, connected_content, review, config.writer_model,
-                prior_turns=inner_prior_turns or None,
+                prior_turns=inner_prior_turns,
                 user_prefix=user_prefix_for_this_pass,
+                slim_context=(w_iter > 0),
             )
             if w_iter == 0:
                 inner_first_user_content = user_content_this_pass
+            inner_prev_raw = raw
 
             if not patches:
                 if w_iter == 0:
@@ -460,10 +469,6 @@ def run_content_loop(
                 print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
 
             iter_applied = len(patches) - remaining_failed
-            inner_prior_turns = [
-                {"role": "user", "content": inner_first_user_content},
-                {"role": "assistant", "content": raw},
-            ]
             current_content = updated_content
 
             if remaining_failed == 0:
