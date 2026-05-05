@@ -161,6 +161,7 @@ Rules:
 - Do NOT modify YAML frontmatter
 - Preserve markdown formatting and structure
 - old_text should target ONE ### function block — prefer one patch per function
+- UNIQUENESS RULE: When patching a field inside a function (e.g., "Error states", "Returns", "Description"), START old_text with the exact `### heading line` of that function, not just the field value. A bare field line like `* **Returns:** nil` appears in dozens of functions and will be AMBIGUOUS — always anchor from the `### heading`.
 - To DELETE a single function: old_text = that function's block only, new_text = ""
 - To DELETE multiple contiguous functions at once (e.g., a group of local helpers): span all their ### blocks in old_text, set "allow_drops": true, new_text = "" to remove all of them. Only use allow_drops when the reviewer explicitly asks to remove functions (e.g., local/private functions not in public API).
 - To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
