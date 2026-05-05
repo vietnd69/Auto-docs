@@ -185,6 +185,47 @@ def _collect_failed_patches(
     return failed, reasons
 
 
+def _remove_duplicate_fn_headings(content: str) -> tuple[str, list[str]]:
+    """Remove duplicate ### function headings, keeping only the first occurrence.
+
+    For each heading that appears more than once, the SECOND (and later) occurrences
+    are removed along with their entire function block (up to the next ### or ## heading).
+    Returns (cleaned_content, list_of_removed_heading_lines).
+    """
+    removed: list[str] = []
+    # Find all unique headings that appear more than once
+    heading_re = re.compile(r'^(### .+)$', re.MULTILINE)
+    heading_counts: dict[str, int] = {}
+    for m in heading_re.finditer(content):
+        h = m.group(1)
+        heading_counts[h] = heading_counts.get(h, 0) + 1
+
+    duplicate_headings = [h for h, count in heading_counts.items() if count > 1]
+    if not duplicate_headings:
+        return content, []
+
+    # Remove second+ occurrences for each duplicate heading
+    # Use a block-end regex that matches the start of the next ### or ## heading
+    next_heading_re = re.compile(r'\n(?=#{2,3} )', re.MULTILINE)
+    for heading in duplicate_headings:
+        while content.count(heading) > 1:
+            first_pos = content.find(heading)
+            second_pos = content.find(heading, first_pos + len(heading))
+            if second_pos == -1:
+                break
+            # Find end of the block starting at second_pos
+            search_from = second_pos + len(heading)
+            next_match = next_heading_re.search(content, search_from)
+            if next_match:
+                end_pos = next_match.start()
+            else:
+                end_pos = len(content)
+            content = content[:second_pos] + content[end_pos:]
+            removed.append(heading)
+
+    return content, removed
+
+
 def run_content_loop(
     md_filepath: str,
     lua_filepath: str,
@@ -216,6 +257,13 @@ def run_content_loop(
     cache_id = "full"
     cache.create(cache_id, md_content)
     print(f"  [content] Cache created: {cache.cache_dir}")
+
+    # Pre-scan: remove duplicate ### headings before validation starts
+    md_content, removed = _remove_duplicate_fn_headings(md_content)
+    if removed:
+        for h in removed:
+            print(f"  [content] Pre-scan removed duplicate: {h!r}")
+        cache.write(cache_id, md_content)
 
     previous_review = None
     jury_verdicts: dict[str, bool] = {}  # std_heading → accepted (True) or rejected (False)

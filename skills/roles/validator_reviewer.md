@@ -279,3 +279,24 @@ heading check to bypass. MUST be one of the standard required headings.
 special_case_reason MUST follow: "The document uses [NON-STANDARD NAME] instead of the standard
 [STANDARD NAME]. Reason: [Lua-backed evidence with line references]. This makes [NON-STANDARD NAME]
 more accurate because [specific consequence if standard name were used]."
+
+## Convergence Rule — Multi-iteration Review
+
+When `=== PREVIOUS ITERATION ISSUES ===` appears in the review context, this is a follow-up iteration. Apply these rules:
+
+**Budget:** At most **5 NEW findings** per follow-up iteration. Unresolved issues from the previous iteration do NOT count against this budget — always re-raise them.
+
+**Priority order for new findings:**
+1. Direct cascades from the previous patches (e.g., a fix created a new duplicate, a delete left a dangling reference)
+2. Wrong function signatures or hallucinated functions introduced by the previous writer
+3. Missing required sections (## Overview, ## Properties, etc.)
+
+**Do NOT add in follow-up iterations:**
+- Refinements or improvements to sections NOT touched by the previous writer patches
+- Issues that existed before iteration 1 but were not in the previous findings (they had their chance)
+- Cosmetic or wording improvements
+- Issues requiring structural section rearrangement (moving functions between sections) — if you raised this in a previous iteration and the writer could not fix it, do not re-raise it until a prior critical issue is resolved
+
+**Why this matters:** The writer applies patches sequentially. A 22-issue findings list leads to 22+ patches, most of which fail because earlier patches shifted the document text and made later `old_text` anchors stale. Focused reviews converge faster.
+
+**Exception:** If the document has a CRITICAL content error (hallucinated API, completely wrong function signatures throughout, missing required section) that would make the documentation misleading or unusable, report it regardless of iteration limit.

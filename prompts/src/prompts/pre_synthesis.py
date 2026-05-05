@@ -106,14 +106,12 @@ def _aggregate(chunks: list[dict]) -> PreSynthesisResult:
         c["partial_description"] for c in chunks
         if c.get("partial_description") and c["partial_description"] != "None"
     ]
-    # Functions: flatten, exclude incomplete.
-    # Name-level dedup is the merge LLM's responsibility (semantic dedup).
-    # Python only removes functions cut at chunk boundaries.
-    funcs = [
-        f for c in chunks
-        for f in c.get("functions", [])
-        if not f.get("incomplete")
-    ]
+    # Functions: flatten, exclude incomplete, deduplicate by name.
+    # Keep first occurrence (earlier chunk = earlier in source file = more likely correct definition).
+    funcs = _dedup_by_key(
+        [f for c in chunks for f in c.get("functions", []) if not f.get("incomplete")],
+        "name",
+    )
 
     return PreSynthesisResult(game_tags, external_deps, scope, deps, descs, funcs, listens, pushes, props)
 
