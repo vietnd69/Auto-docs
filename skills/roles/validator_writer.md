@@ -69,7 +69,7 @@ whenever the target line is repeated across functions.
 These strings appear in nearly every function that takes common arguments.
 Using them alone as old_text will ALWAYS fail. You MUST anchor them:
 
-  WRONG — will be skipped (appears 5–11 times):
+  WRONG — will be skipped (appears 5–24 times):
     "old_text": "  - `inst` (entity) -- Entity instance"
     "old_text": "  - `inst` -- entity instance"
     "old_text": "  - `self` -- component instance"
@@ -85,6 +85,8 @@ Using them alone as old_text will ALWAYS fail. You MUST anchor them:
     "old_text": "* **Returns:** number"
     "old_text": "* **Returns:** string"
     "old_text": "* **Returns:** string (sound path)"
+    "old_text": "* **Error states:** None."
+    "old_text": "* **Error states:** None"
 
   RIGHT — anchored to a specific function (unique):
     "old_text": "### `SomeFunction`\n* **Parameters:**\n  - `inst` (entity) -- Entity instance"
