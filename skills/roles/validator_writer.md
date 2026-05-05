@@ -91,6 +91,28 @@ Using them alone as old_text will ALWAYS fail. You MUST anchor them:
   RIGHT — anchored to a specific function (unique):
     "old_text": "### `SomeFunction`\n* **Parameters:**\n  - `inst` (entity) -- Entity instance"
 
+  RIGHT — Error states anchored via the preceding Returns line (always adjacent):
+    "old_text": "* **Returns:** nil\n* **Error states:** None"  ← if unique in document
+    OR include more context if Returns line is also repeated:
+    "old_text": "### `SomeFunction`\n* **Description:** ...\n* **Parameters:** ...\n* **Returns:** nil\n* **Error states:** None"
+
+## CRITICAL: old_text Must Be Contiguous
+
+old_text is a SUBSTRING match — it must appear verbatim as consecutive characters in the document.
+You CANNOT skip lines. Every line between your start and end lines MUST be included.
+
+WRONG — heading + Error states with lines skipped in between:
+  "old_text": "### `onenter (spawn)`\n* **Error states:** None"
+
+This FAILS because the document has Description, Parameters, Returns BETWEEN the heading and
+Error states. The heading is NOT immediately followed by Error states.
+
+RIGHT — use the line that immediately precedes Error states as the anchor:
+  "old_text": "* **Returns:** nil\n* **Error states:** None"
+
+OR include the full block if Returns line is repeated:
+  "old_text": "### `onenter (spawn)`\n* **Description:** ...\n* **Parameters:** ...\n* **Returns:** nil\n* **Error states:** None"
+
 ## Anchoring Example
 
 You want to fix the `inst` parameter description in function `GetNearestPlayer`.
