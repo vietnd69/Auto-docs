@@ -156,7 +156,10 @@ def _build_patch_feedback_prefix(applied: int, failed: int, guard_blocked: int) 
         "[PREVIOUS PATCH ATTEMPT RESULTS]\n"
         f"Results: {', '.join(result_parts)}.\n"
         f"{doc_note}\n"
-        "Fix only remaining issues — do NOT re-patch what was already applied.\n\n"
+        "Fix only remaining issues — do NOT re-patch what was already applied.\n"
+        "CRITICAL: old_text MUST come verbatim from the === CURRENT DOCUMENT === in this message.\n"
+        "Do NOT use old_text from the document shown in an earlier turn — it may have changed significantly.\n"
+        "If a function or section mentioned in the feedback is absent from the current document, skip it.\n\n"
     )
 
 

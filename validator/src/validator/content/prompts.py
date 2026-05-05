@@ -186,8 +186,14 @@ def build_writer_slim_user(
             feedback_lines.append(f"   Suggestion: {suggestion}")
     feedback = "\n".join(feedback_lines)
     prefix = user_prefix + "\n" if user_prefix else ""
+    section_headings = re.findall(r'^(## .+)$', md_content, re.MULTILINE)
+    fn_headings = re.findall(r'^(### .+)$', md_content, re.MULTILINE)
+    headings_block = "\n".join(section_headings + fn_headings) if (section_headings or fn_headings) else "(none)"
     return (
-        f"{prefix}=== CURRENT DOCUMENT ===\n{md_content}\n\n"
+        f"{prefix}"
+        f"=== HEADINGS IN CURRENT DOCUMENT (ONLY generate old_text from headings that appear here) ===\n"
+        f"{headings_block}\n\n"
+        f"=== CURRENT DOCUMENT ===\n{md_content}\n\n"
         f"=== REVIEWER FEEDBACK ===\n{feedback}"
     )
 
