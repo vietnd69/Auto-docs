@@ -219,12 +219,14 @@ cache.create(sec_cache_id, section.text)
 
 **File:** `validator/src/validator/content/prompts.py`
 
+**Scope: chunked path only.** `_RULE_IDS_BY_SECTION` is consumed exclusively by `build_typed_reviewer_prompt`, which is called only from `chunked.py`. The standard path uses `build_reviewer_prompt` (no rule IDs parameter) — for the standard path, `## Action Handlers` detection relies entirely on the skill rules added in Component 4.
+
 ```python
 _RULE_IDS_BY_SECTION: dict[str, list[str]] = {
     # existing entries ...
     "## Events & listeners":  ["MISSING_EVENT", "WRONG_EVENT_NAME"],  # unchanged — EXTRA_EVENT NOT added
     "## Action Handlers":     ["MISSING_ACTION_HANDLER", "WRONG_ACTION_HANDLER",
-                               "EXTRA_ACTION_HANDLER"],  # NEW
+                               "EXTRA_ACTION_HANDLER"],  # NEW — chunked path only
 }
 ```
 
