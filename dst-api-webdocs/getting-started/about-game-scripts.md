@@ -11,7 +11,7 @@ change_status: stable
 
 # About Don't Starve Together Game Scripts
 
-:::note AI-Generated Documentation
+:::note[AI-Generated Documentation]
 This documentation is generated from the base scripts of Don't Starve Together, located at:
 
 `SteamLibrary\steamapps\common\Don't Starve Together\data\databundles\scripts.zip`
