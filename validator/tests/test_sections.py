@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch
 from validator.content.sections import DocSection, split_md_sections, join_md_sections, extract_function_names
-from validator.content.sections import extract_lua_context
+from validator.content.sections import extract_lua_context, extract_section_lua_context
 
 
 def test_split_no_frontmatter():
@@ -558,8 +558,6 @@ def test_check_events_null_none_itself_bolded():
 
 
 # ── extract_section_lua_context — Events branch ─────────────────────────────
-
-from validator.content.sections import extract_section_lua_context
 
 _STATEGRAPH_EVENTS_LUA = '''\
 StateGraph("sg_test", states, events, "idle", {})
