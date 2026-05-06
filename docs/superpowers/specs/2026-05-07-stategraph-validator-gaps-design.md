@@ -167,14 +167,16 @@ Adding it to `_STRUCTURAL_HEADINGS` means: if the section exists in the doc, it 
 
 ### Stategraph events guard pre-pass
 
-In `run_chunked_content_loop`, for the `## Events & listeners` section, **before** the cache is created and **before** `_run_typed_loop` is called, inject a deterministic correction:
+In `run_chunked_content_loop`, for the `## Events & listeners` section, **before** the cache is created and **before** `_run_typed_loop` is called, inject a deterministic correction.
+
+**CRITICAL ordering constraint:** The guard must update `section.text` BEFORE `cache.create(sec_cache_id, section.text)` is called. `_run_typed_loop` reads from cache, not from `section.text` — if the cache is created first with the broken "None" text and then `section.text` is updated, the loop sees the old broken content.
 
 ```
 if section.heading == "## Events & listeners":
     if check_stategraph_events_null(section.text, lua_source):
         event_names = extract_stategraph_event_names(lua_source)
         forced_finding = Finding(
-            section=section.heading,
+            section=section.heading,    # MUST be exact heading string e.g. "## Events & listeners"
             function=None,
             field=None,
             rule_id="MISSING_EVENT",
@@ -182,16 +184,32 @@ if section.heading == "## Events & listeners":
                   f"EventHandler(s): {', '.join(event_names)}. "
                   "Rewrite Events & listeners to list all EventHandlers.",
         )
-        # Call writer with forced finding before creating cache / starting loop
+        # Call writer with forced finding BEFORE cache.create
         forced_ops = _call_writer_batch(section.text, lua_ctx, [forced_finding], config, file_type)
         if forced_ops:
             dummy = DocSection(heading=section.heading, text=section.text)
             corrected = apply_typed_ops([dummy], forced_ops, frontmatter="")
-            section.text = corrected[0].text
-            print(f"  [content/chunked] events guard: pre-corrected "
-                  f"'None' → {len(event_names)} EventHandler(s)")
-    # ... then proceed to normal cache create + _run_typed_loop
+            # Validate that apply_typed_ops actually changed the text.
+            # apply_typed_ops matches ops to sections by heading (case-insensitive).
+            # If the LLM returns an op with a mismatched section string (e.g. missing "##"),
+            # apply_typed_ops silently no-ops. Check for change before accepting.
+            if corrected[0].text != section.text:
+                section.text = corrected[0].text
+                print(f"  [content/chunked] events guard: pre-corrected "
+                      f"'None' → {len(event_names)} EventHandler(s)")
+            else:
+                print(f"  [content/chunked] events guard: writer returned no change "
+                      f"— falling through to normal loop")
+        # Guard pre-pass done; now proceed to cache.create + _run_typed_loop
+
+# cache.create must come AFTER guard pre-pass
+sec_cache_id = f"sec{sec_idx}"
+cache.create(sec_cache_id, section.text)
 ```
+
+**Known limitation — `check_stategraph_events_null` pattern coverage:** The guard only detects "listens to: none" and "**none.**" as indicators of a "no events" claim. Other phrasings ("None.", "**None**" without period, "No events.") are not detected. In those cases the guard does not fire and the LLM loop with improved context must catch the issue. This is acceptable — the guard is a safety net for the most common failure pattern, not a complete solution.
+
+**Known limitation — `SG\w+Common` prefix:** The Properties stategraph branch matches character-specific injection modules via `SG\w+Common\.\w+\s*\(`. This requires the module name to start with `SG`. Any character-specific helper module without the `SG` prefix (e.g., a hypothetical `WillowCommon.AddStates(...)`) would be missed by this pattern. This is accepted scope — DST character stategraph common modules consistently use `SGXxxCommon` naming. Document as known limitation if this assumption is violated.
 
 `_run_typed_loop` is **not modified** — the guard is a standalone pre-pass that writes corrected content; the loop then fine-tunes it.
 
@@ -204,11 +222,13 @@ if section.heading == "## Events & listeners":
 ```python
 _RULE_IDS_BY_SECTION: dict[str, list[str]] = {
     # existing entries ...
-    "## Events & listeners":  ["MISSING_EVENT", "WRONG_EVENT_NAME", "EXTRA_EVENT"],  # add EXTRA_EVENT
+    "## Events & listeners":  ["MISSING_EVENT", "WRONG_EVENT_NAME"],  # unchanged — EXTRA_EVENT NOT added
     "## Action Handlers":     ["MISSING_ACTION_HANDLER", "WRONG_ACTION_HANDLER",
                                "EXTRA_ACTION_HANDLER"],  # NEW
 }
 ```
+
+**Note:** `EXTRA_EVENT` is intentionally NOT added to the Events rule IDs. All three gaps are false-negative problems (events missing from doc). Adding `EXTRA_EVENT` could cause spurious findings in cases where events exist in source but outside the truncated lua_ctx window. The existing `WRONG_EVENT_NAME` rule_id covers correction of incorrectly named events.
 
 ---
 
