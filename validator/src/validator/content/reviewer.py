@@ -12,6 +12,30 @@ from llm.tokens import count_tokens
 from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
 from validator.content.prompts import build_reviewer_prompt
 from validator.content.schemas import REVIEW_SCHEMA
+from validator.content.guards import is_runaway, validate_review_schema, compact_bad_response
+
+_GUARD_RUNAWAY = (
+    "[BAD RESPONSE GUARD] Your previous response contained repeated non-JSON content "
+    "and could not be used.\n"
+    "You MUST respond with a single valid JSON object matching the schema:\n"
+    '{"approved": <bool>, "findings": [{"issue": "<str>", "suggestion": "<str>"}]}\n'
+    "Do NOT generate markdown tables, repeated rows, or any text outside the JSON object."
+)
+_GUARD_PARSE = (
+    "[BAD RESPONSE GUARD] Your previous response could not be parsed as JSON.\n"
+    'Respond ONLY with a valid JSON object: {"approved": <bool>, "findings": [...]}'
+)
+_GUARD_SCHEMA = (
+    "[BAD RESPONSE GUARD] Your JSON response is missing required fields.\n"
+    "Required: 'approved' (boolean) and 'findings' (array of objects with "
+    "'issue' (string) and 'suggestion' (string)).\n"
+    "Respond with a correctly structured JSON object."
+)
+_GUARD_INVARIANT = (
+    "[BAD RESPONSE GUARD] Invalid state: 'approved' is false but 'findings' is empty.\n"
+    "If there are content issues, list them in 'findings'. "
+    "If the document is correct, set 'approved' to true."
+)
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -188,21 +212,52 @@ def review_document(
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_response", raw)
-        result = parse_review_response(raw)
-        result.raw_response = raw
-        is_parse_error = not raw.strip() or (result.issues and result.issues[0].startswith("Failed to parse"))
-        is_invariant_violation = not result.approved and not result.issues
-        is_bad = is_parse_error or is_invariant_violation
-        if not is_bad:
-            return result
         remaining = BAD_RESPONSE_RETRIES - attempt
-        if is_invariant_violation:
+
+        # Layer 1: runaway detection (before JSON parse)
+        if is_runaway(raw):
+            print(f"  [content/reviewer] Runaway response ({len(raw):,} chars) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_RUNAWAY})
+            continue
+
+        # Layer 2: JSON parse
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+        cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+        try:
+            data = json.loads(cleaned)
+        except (json.JSONDecodeError, TypeError):
+            print(f"  [content/reviewer] Bad response (JSON parse) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_PARSE})
+            continue
+
+        # Layer 3: schema validation
+        if not validate_review_schema(data):
+            print(f"  [content/reviewer] Bad response (schema) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_SCHEMA})
+            continue
+
+        result = parse_review_json(data)
+
+        # Layer 4: invariant — approved=false requires non-empty findings
+        if not result.approved and not result.issues:
             print(f"  [content/reviewer] INVARIANT violation: approved=false with empty findings → retrying ({remaining} left)")
-        elif remaining > 0:
-            print(f"  [content/reviewer] Bad response → retrying ({remaining} left)")
-        else:
-            print(f"  [content/reviewer] Bad response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
-    return result
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_INVARIANT})
+            continue
+
+        # All layers passed — safe to store raw_response
+        result.raw_response = raw
+        return result
+
+    return result  # exhausted retries; raw_response="" prevents context contamination
 
 
 def reviewer_oscillation_correction(
@@ -278,17 +333,48 @@ def reviewer_oscillation_correction(
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_oscillation_correction_response", raw)
-        result = parse_review_response(raw)
-        result.raw_response = raw
-        is_parse_error = not raw.strip() or (result.issues and result.issues[0].startswith("Failed to parse"))
-        is_invariant_violation = not result.approved and not result.issues
-        if not (is_parse_error or is_invariant_violation):
-            return result
         remaining = BAD_RESPONSE_RETRIES - attempt
-        if is_invariant_violation:
+
+        # Layer 1: runaway detection
+        if is_runaway(raw):
+            print(f"  [content/reviewer] Oscillation correction runaway ({len(raw):,} chars) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_RUNAWAY})
+            continue
+
+        # Layer 2: JSON parse
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+        cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+        try:
+            data = json.loads(cleaned)
+        except (json.JSONDecodeError, TypeError):
+            print(f"  [content/reviewer] Oscillation correction bad response (JSON parse) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_PARSE})
+            continue
+
+        # Layer 3: schema validation
+        if not validate_review_schema(data):
+            print(f"  [content/reviewer] Oscillation correction bad response (schema) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_SCHEMA})
+            continue
+
+        result = parse_review_json(data)
+
+        # Layer 4: invariant
+        if not result.approved and not result.issues:
             print(f"  [content/reviewer] Oscillation correction INVARIANT violation → retrying ({remaining} left)")
-        elif remaining > 0:
-            print(f"  [content/reviewer] Oscillation correction bad response → retrying ({remaining} left)")
-        else:
-            print(f"  [content/reviewer] Oscillation correction failed after {BAD_RESPONSE_RETRIES + 1} attempts")
-    return result
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_INVARIANT})
+            continue
+
+        result.raw_response = raw
+        return result
+
+    return result  # exhausted retries; raw_response="" prevents context contamination
