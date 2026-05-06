@@ -550,3 +550,8 @@ def test_check_events_null_no_eventhandlers():
     lua = "StateGraph('sg_empty', states, {}, 'idle', {})\n"
     section = "## Events & listeners\n**Listens to:** None\n"
     assert check_stategraph_events_null(section, lua) is False
+
+
+def test_check_events_null_none_itself_bolded():
+    section = "## Events & listeners\n**Listens to:** **None**\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is True
