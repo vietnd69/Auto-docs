@@ -555,3 +555,50 @@ def test_check_events_null_no_eventhandlers():
 def test_check_events_null_none_itself_bolded():
     section = "## Events & listeners\n**Listens to:** **None**\n"
     assert check_stategraph_events_null(section, _SG_LUA) is True
+
+
+# ── extract_section_lua_context — Events branch ─────────────────────────────
+
+from validator.content.sections import extract_section_lua_context
+
+_STATEGRAPH_EVENTS_LUA = '''\
+StateGraph("sg_test", states, events, "idle", {})
+events = {
+    EventHandler("death", function(inst)
+        inst.sg:GoToState("death")
+    end),
+    EventHandler("freeze", function(inst)
+        inst.sg:GoToState("frozen")
+    end),
+}
+'''
+
+_COMP_EVENTS_LUA = '''\
+local MyComp = Class(function(self, inst)
+    inst:ListenForEvent("onhit", function() self:OnHit() end)
+    inst:PushEvent("ready", {data=1})
+end)
+'''
+
+def test_events_context_includes_eventhandler():
+    result = extract_section_lua_context("## Events & listeners", _STATEGRAPH_EVENTS_LUA, 8000)
+    assert 'EventHandler("death"' in result
+    assert 'EventHandler("freeze"' in result
+
+
+def test_events_context_includes_listenforevent():
+    """Regression: existing ListenForEvent pattern still captured."""
+    result = extract_section_lua_context("## Events & listeners", _COMP_EVENTS_LUA, 8000)
+    assert "ListenForEvent" in result
+
+
+def test_events_context_includes_pushevent():
+    """Regression: existing PushEvent pattern still captured."""
+    result = extract_section_lua_context("## Events & listeners", _COMP_EVENTS_LUA, 8000)
+    assert "PushEvent" in result
+
+
+def test_events_context_empty_when_no_events():
+    lua = "function DoThing(inst) return nil end\n"
+    result = extract_section_lua_context("## Events & listeners", lua, 8000)
+    assert result == ""
