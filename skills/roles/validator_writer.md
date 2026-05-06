@@ -64,6 +64,18 @@ If it appears 2 or more times, you MUST include additional context lines to make
 RULE: Include the ### function heading (and enough lines below it) as prefix context
 whenever the target line is repeated across functions.
 
+## CRITICAL: Copy old_text verbatim — never re-escape characters
+
+old_text must be copied CHARACTER FOR CHARACTER from the document as shown in the prompt.
+Do NOT escape characters when writing old_text in JSON:
+- Write `"` as `"` — NEVER as `\"` or `\\"`
+- Write a newline as an actual newline (or `\n` in JSON) — NEVER as `\\n`
+- Write `\` as `\` — NEVER as `\\` unless the document literally contains `\\`
+
+The most common failure: copying a Lua string like `require("widgets/foo")` and writing
+`old_text: "require(\\\"widgets/foo\\\")"` — this encodes literal `\"` characters, not `"`.
+The correct encoding in your JSON output is: `old_text: "require(\"widgets/foo\")"`.
+
 ## Common Patterns (Always Repeated — Must Be Anchored)
 
 These strings appear in nearly every function that takes common arguments.

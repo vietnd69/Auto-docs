@@ -181,6 +181,8 @@ STATEGRAPH CONTEXT GUARANTEES — do NOT flag these as potential nil error state
 - `inst.AnimState`, `inst.Physics`, `inst.SoundEmitter`, `inst.Transform` — DST entity built-ins set up at entity creation, not via AddComponent. Never nil for a living entity with these built-ins active.
 - Entity built-ins are NOT components — do not apply component nil-guard checks to them. The component pattern `inst.components.X` requires a nil guard; entity built-ins (`inst.AnimState`, etc.) do not.
 
+**OSCILLATION GUARD — Stategraph built-in error states:** Do NOT oscillate between iterations on whether `inst.AnimState`, `inst.sg`, `inst.Physics`, `inst.SoundEmitter`, or `inst.Transform` require nil-guard error state documentation. Per STATEGRAPH CONTEXT GUARANTEES above, these are always non-nil in state handlers — once this was accepted or corrected in any prior iteration, do NOT re-raise it. `inst.components.X` still requires nil-guard checks; only entity built-ins are exempt.
+
 ### Brain file checks
 - `OnStart()` is documented and the description names the root SelectorNode/SequenceNode children.
 - Local helper functions passed as callbacks to behaviour nodes are documented with `(local)` marker.

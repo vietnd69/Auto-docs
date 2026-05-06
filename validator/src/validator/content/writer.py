@@ -70,6 +70,25 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
     for idx, patch in enumerate(patches, 1):
         count = content.count(patch.old_text)
         if count == 0:
+            # Fallback: LLM sometimes double-escapes characters in old_text
+            # (e.g. \\n instead of \n, \\" instead of "). Try normalized version.
+            normalized = patch.old_text.replace('\\"', '"').replace('\\n', '\n')
+            if normalized != patch.old_text:
+                norm_count = content.count(normalized)
+                if norm_count == 1:
+                    first_line = normalized.split("\n")[0][:80]
+                    print(f"  [content/writer] Patch {idx}/{total} NORMALIZED (escape fix): {first_line!r}")
+                    old_fn_count = len(_FN_HEADING_RE.findall(normalized))
+                    if old_fn_count >= 2:
+                        candidate = content.replace(normalized, patch.new_text, 1)
+                        lost = _fn_names(content) - _fn_names(candidate)
+                        if lost and not patch.allow_drops:
+                            print(f"  [content/writer] Patch {idx}/{total} GUARD BLOCKED (normalized, drops: {', '.join(sorted(lost))}): {first_line!r}")
+                            guard_blocked_list.append((patch, frozenset(lost)))
+                            failed += 1
+                            continue
+                    content = content.replace(normalized, patch.new_text, 1)
+                    continue
             first_line = patch.old_text.split("\n")[0][:80]
             print(f"  [content/writer] Patch {idx}/{total} NOT FOUND: {first_line!r}")
             failed += 1
