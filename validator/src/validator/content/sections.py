@@ -691,7 +691,7 @@ def extract_section_lua_context(
     elif section_heading == "## Events & listeners":
         ctx_parts: list[str] = []
         for i, line in enumerate(lines):
-            if re.search(r'ListenForEvent|PushEvent', line):
+            if re.search(r'ListenForEvent|PushEvent|EventHandler\s*\(', line):
                 start = max(0, i - 2)
                 end = min(len(lines), i + 3)
                 ctx_parts.extend(l.rstrip("\n") for l in lines[start:end])
