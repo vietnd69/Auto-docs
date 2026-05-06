@@ -372,13 +372,13 @@ def _run_typed_loop(
         for fi, finding in enumerate(findings, 1):
             fn_label = finding.function or "(section-level)"
             target_text = _extract_target_text(text, finding)
-            pair = (finding.function, finding.field)
+            pair = (finding.function, finding.field, finding.rule_id)
             cnt = attempt_counts.get(pair, 0)
             if target_text is None:
                 # Cross-batch hallucination: function lives in another batch.
                 if cnt < 2:
                     unfixed_findings.append(finding)
-                    attempt_counts[pair] = cnt + 1
+                    attempt_counts[pair] = cnt + 1  # cross-batch: safe to increment directly (1 skip = 1 attempt)
                 print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] '{fn_label}' not in batch — skip")
                 continue
             any_actionable = True
@@ -443,10 +443,15 @@ def _run_typed_loop(
                     text = new_text
                 cache.write(cache_id, text)
 
-                # Update oscillation tracking — compare per-function text before/after
+                # Update oscillation tracking — compare per-function text before/after.
+                # Increment at most once per unique (function, field, rule_id) pair per writer
+                # call to avoid over-counting when multiple findings share the same pair.
+                pairs_incremented: set[tuple] = set()
                 for finding in actionable:
-                    pair = (finding.function, finding.field)
-                    attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                    pair = (finding.function, finding.field, finding.rule_id)
+                    if pair not in pairs_incremented:
+                        attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                        pairs_incremented.add(pair)
                     fn_before = _extract_target_text(text_before, finding)
                     fn_after  = _extract_target_text(text, finding)
                     if fn_before is not None and fn_after is not None and fn_before != fn_after:
