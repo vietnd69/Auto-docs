@@ -592,6 +592,35 @@ def _truncate_blocks_to_lua_limit(blocks: list[str], limit: int = LUA_CONTEXT_TO
     return result
 
 
+def _is_stategraph(lua_source: str) -> bool:
+    """Return True if lua_source defines a StateGraph."""
+    return bool(re.search(r'\bStateGraph\s*\(', lua_source))
+
+
+def extract_stategraph_event_names(lua_source: str) -> list[str]:
+    """Return event names from all EventHandler("name", fn) entries in lua_source."""
+    return re.findall(r'EventHandler\s*\(\s*"([^"]+)"', lua_source)
+
+
+def check_stategraph_events_null(section_text: str, lua_source: str) -> bool:
+    """True if doc claims no events but source has EventHandler entries.
+
+    Only applies to stategraph files. Guards against the pattern where the
+    validator approves 'Listens to: None' despite N EventHandlers in source.
+    Known limitation: does not detect all phrasings — 'None.' or '**None**'
+    without period are not caught; the LLM loop with improved context handles those.
+    """
+    if not _is_stategraph(lua_source):
+        return False
+    if not extract_stategraph_event_names(lua_source):
+        return False
+    text_lower = section_text.lower()
+    # "listens to:" followed (possibly after bold markers) by "none"
+    listens_to_none = bool(re.search(r'listens to:\*{0,2}\s*none\b', text_lower))
+    bold_none = "**none.**" in text_lower and "eventhandler" not in text_lower
+    return listens_to_none or bold_none
+
+
 def extract_section_lua_context(
     section_heading: str,
     lua_source: str,
