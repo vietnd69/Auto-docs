@@ -280,7 +280,8 @@ def _call_writer_batch(
             model=config.writer_model,
             messages=messages,
             format=TYPED_OPS_LIST_SCHEMA,
-            options={"temperature": WRITER_TEMPERATURE, "think": WRITER_THINK},
+            temperature=WRITER_TEMPERATURE,
+            think=bool(WRITER_THINK),
         )
         raw = resp["message"]["content"]
         if DEBUG_PROMPTS:

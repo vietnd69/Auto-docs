@@ -16,7 +16,7 @@ def _fn_names(text: str) -> set[str]:
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
-from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, WRITER_THINK
 from validator.content.prompts import build_writer_prompt, build_writer_system_prompt, build_writer_slim_user
 from validator.content.reviewer import ReviewResult
 from validator.content.schemas import PATCHES_SCHEMA
@@ -273,7 +273,7 @@ def rewrite_document(
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA, think=bool(WRITER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_response", raw)
@@ -546,7 +546,7 @@ def correct_failed_patches(
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA, think=bool(WRITER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_correction_response", raw)
@@ -674,7 +674,7 @@ def correct_guard_blocked_patches(
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA, think=bool(WRITER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_guard_correction_response", raw)
