@@ -111,7 +111,8 @@ def rewrite_document(
             return False
 
         if not cleaned.startswith("---"):
-            print(f"  [section_filler] Warning: output missing YAML frontmatter")
+            print(f"  [section_filler] Warning: output missing YAML frontmatter — aborting rewrite")
+            return False
 
         # Re-inject source_hash in case LLM dropped it
         if lua_code:

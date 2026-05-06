@@ -95,7 +95,10 @@ def _try_parse_json(raw: str) -> dict | list | None:
     """Strip fences and think-tags then parse JSON. Returns None on failure."""
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned)
+    if '</think>' in cleaned:
+        cleaned = cleaned[cleaned.index('</think>') + len('</think>'):]
+    cleaned = cleaned.strip()
     try:
         import json
         return json.loads(cleaned)

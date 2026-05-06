@@ -24,6 +24,13 @@ from validator.content.schemas import PATCHES_SCHEMA
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
 
+def _strip_thinking(text: str) -> str:
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text)
+    if '</think>' in text:
+        text = text[text.index('</think>') + len('</think>'):]
+    return text.strip()
+
+
 def _dump_prompt(label: str, prompt: str) -> None:
     _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
     ts = int(time.time())
@@ -143,7 +150,7 @@ def parse_writer_response(raw: str) -> list[Patch]:
     # Strip markdown code fence and think blocks
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    cleaned = _strip_thinking(cleaned)
 
     # Primary: direct parse
     try:
@@ -184,7 +191,7 @@ def parse_typed_op_response(raw: str) -> "TypedOp | None":
     """Parse writer response for a single TypedOp. Returns None on failure."""
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    cleaned = _strip_thinking(cleaned)
     try:
         data = json.loads(cleaned)
         return parse_typed_op_json(data)
