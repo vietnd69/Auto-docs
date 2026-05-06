@@ -600,3 +600,59 @@ def test_events_context_empty_when_no_events():
     lua = "function DoThing(inst) return nil end\n"
     result = extract_section_lua_context("## Events & listeners", lua, 8000)
     assert result == ""
+
+
+# ── extract_section_lua_context — Properties branch ─────────────────────────
+
+_STATEGRAPH_PROPS_LUA = '''\
+local SPEED = 6
+local ATTACK_PROP = "fast"
+StateGraph("sg_wx78", states, events, "idle", actionhandlers)
+CommonStates.AddSinkAndWashAshoreStates(states, {
+    sink = "sink",
+    washashore = "washashore",
+})
+CommonStates.AddVoidFallStates(states, {})
+SGWX78Common.AddWX78SpinStates(states)
+states = {
+    State{name = "idle", tags = {"idle"}},
+    State{name = "attack", tags = {"attack", "busy"}},
+}
+'''
+
+_COMP_PROPS_LUA = '''\
+local MyComp = Class(function(self, inst)
+    self.inst = inst
+    self.speed = 6
+end)
+function MyComp:GetSpeed() return self.speed end
+'''
+
+
+def test_properties_stategraph_includes_commonstate_calls():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "CommonStates.AddSinkAndWashAshoreStates" in result
+    assert "CommonStates.AddVoidFallStates" in result
+
+
+def test_properties_stategraph_includes_sg_common_calls():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "SGWX78Common.AddWX78SpinStates" in result
+
+
+def test_properties_stategraph_includes_state_names():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "idle" in result
+    assert "attack" in result
+
+
+def test_properties_stategraph_includes_constants():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "SPEED" in result
+    assert "ATTACK_PROP" in result
+
+
+def test_properties_component_uses_class_path():
+    """Regression: component files still use Class() constructor extraction."""
+    result = extract_section_lua_context("## Properties", _COMP_PROPS_LUA, 8000)
+    assert "self.speed" in result
