@@ -20,6 +20,22 @@ from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, WRITER_THINK
 from validator.content.prompts import build_writer_prompt, build_writer_system_prompt, build_writer_slim_user
 from validator.content.reviewer import ReviewResult
 from validator.content.schemas import PATCHES_SCHEMA
+from validator.content.guards import is_runaway, validate_patches_schema, compact_bad_response
+
+_GUARD_RUNAWAY = (
+    "[BAD RESPONSE GUARD] Your previous response contained repeated non-JSON content.\n"
+    "You MUST respond with a JSON array of patch objects:\n"
+    '[{"old_text": "<str>", "new_text": "<str>", "reason": "<str>"}]\n'
+    "Do NOT generate repeated text or markdown outside the JSON array."
+)
+_GUARD_PARSE = (
+    "[BAD RESPONSE GUARD] Your previous response could not be parsed as JSON.\n"
+    'Respond ONLY with a JSON array: [{"old_text": "...", "new_text": "...", "reason": "..."}]'
+)
+_GUARD_SCHEMA = (
+    "[BAD RESPONSE GUARD] Your JSON response has incorrect structure.\n"
+    "Required: a JSON array where each item has 'old_text', 'new_text', and 'reason' (all strings)."
+)
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -278,19 +294,54 @@ def rewrite_document(
         if DEBUG_PROMPTS:
             _dump_prompt("writer_response", raw)
         remaining = BAD_RESPONSE_RETRIES - attempt
-        if not raw.strip():
+
+        # Layer 1: runaway detection
+        if is_runaway(raw):
+            print(f"  [content/writer] Runaway response ({len(raw):,} chars) → retrying ({remaining} left)")
             if remaining > 0:
-                print(f"  [content/writer] Empty response → retrying ({remaining} left)")
-                continue
-            print(f"  [content/writer] Empty response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
-            break
-        patches = parse_writer_response(raw)
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_RUNAWAY})
+            raw = ""  # don't propagate bad raw as context
+            continue
+
+        # Layer 2: JSON parse
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+        cleaned = _strip_thinking(cleaned)
+        start, end = cleaned.find('['), cleaned.rfind(']')
+        try:
+            if cleaned.startswith('['):
+                data = json.loads(cleaned)
+            elif start != -1 and end > start:
+                data = json.loads(cleaned[start:end + 1])
+            else:
+                raise json.JSONDecodeError("no array found", "", 0)
+        except (json.JSONDecodeError, TypeError):
+            print(f"  [content/writer] Bad response (JSON parse) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_PARSE})
+            raw = ""
+            continue
+
+        # Layer 3: schema validation
+        if not validate_patches_schema(data):
+            print(f"  [content/writer] Bad response (schema) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_SCHEMA})
+            raw = ""
+            continue
+
+        patches = _parse_patch_list(data)
         if patches:
             break
+
+        # Valid JSON array but no actionable patches
         if remaining > 0:
-            print(f"  [content/writer] No patches parsed → retrying ({remaining} left) — raw: {raw[:80]!r}")
+            print(f"  [content/writer] No patches parsed → retrying ({remaining} left)")
         else:
-            print(f"  [content/writer] No patches parsed after {BAD_RESPONSE_RETRIES + 1} attempts — raw: {raw[:120]!r}")
+            print(f"  [content/writer] No patches after {BAD_RESPONSE_RETRIES + 1} attempts — raw: {raw[:120]!r}")
 
     if patches:
         print(f"  [content/writer] {len(patches)} patch(es) generated")

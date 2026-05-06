@@ -145,3 +145,11 @@ def test_parse_writer_json_skips_empty_old_text():
     patches = parse_writer_json(data)
     assert len(patches) == 1
     assert patches[0].old_text == "valid"
+
+
+def test_parse_writer_response_runaway_returns_empty():
+    """Runaway response: repeated non-JSON lines → parse returns empty list."""
+    line = "| onenter (frozen) |  |  |"
+    raw = "\n".join([line] * 30 + [f"unique {i}" for i in range(25)])
+    patches = parse_writer_response(raw)
+    assert patches == []
