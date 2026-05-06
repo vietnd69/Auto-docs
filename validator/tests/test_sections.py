@@ -642,6 +642,7 @@ def test_properties_stategraph_includes_sg_common_calls():
 
 def test_properties_stategraph_includes_state_names():
     result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "-- States defined inline:" in result
     assert "idle" in result
     assert "attack" in result
 
@@ -650,6 +651,13 @@ def test_properties_stategraph_includes_constants():
     result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
     assert "SPEED" in result
     assert "ATTACK_PROP" in result
+
+
+def test_properties_stategraph_header_only():
+    """Minimal stategraph with no constants/injections still returns StateGraph header."""
+    lua = 'StateGraph("sg_empty", {}, {}, "idle", {})\n'
+    result = extract_section_lua_context("## Properties", lua, 8000)
+    assert 'StateGraph("sg_empty"' in result
 
 
 def test_properties_component_uses_class_path():
