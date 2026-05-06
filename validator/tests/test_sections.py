@@ -480,3 +480,73 @@ def test_delete_fn_block_collapses_blank_lines():
     result = delete_fn_block(text, "Foo")
     assert not result.startswith("\n\n")
     assert "### `Bar(y)`" in result
+
+
+# ── stategraph helpers ──────────────────────────────────────────────────────
+
+from validator.content.sections import (
+    _is_stategraph,
+    extract_stategraph_event_names,
+    check_stategraph_events_null,
+)
+
+_SG_LUA = '''
+local SPEED = 6
+StateGraph("sg_test",
+    states, events, "idle", actionhandlers)
+events = {
+    EventHandler("death", function(inst) end),
+    EventHandler("freeze", function(inst) end),
+}
+'''
+
+_COMP_LUA = '''
+local MyComp = Class(function(self, inst) self.inst = inst end)
+function MyComp:GetOwner() return self.inst end
+'''
+
+
+def test_is_stategraph_detects():
+    assert _is_stategraph(_SG_LUA) is True
+
+
+def test_is_stategraph_component():
+    assert _is_stategraph(_COMP_LUA) is False
+
+
+def test_is_stategraph_empty():
+    assert _is_stategraph("") is False
+
+
+def test_extract_stategraph_event_names_basic():
+    assert extract_stategraph_event_names(_SG_LUA) == ["death", "freeze"]
+
+
+def test_extract_stategraph_event_names_none():
+    assert extract_stategraph_event_names(_COMP_LUA) == []
+
+
+def test_check_events_null_listens_to_none():
+    section = "## Events & listeners\n**Listens to:** None\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is True
+
+
+def test_check_events_null_bold_none():
+    section = "## Events & listeners\n**None.**\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is True
+
+
+def test_check_events_null_has_content():
+    section = "## Events & listeners\n**Listens to:** death, freeze\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is False
+
+
+def test_check_events_null_not_stategraph():
+    section = "## Events & listeners\n**Listens to:** None\n"
+    assert check_stategraph_events_null(section, _COMP_LUA) is False
+
+
+def test_check_events_null_no_eventhandlers():
+    lua = "StateGraph('sg_empty', states, {}, 'idle', {})\n"
+    section = "## Events & listeners\n**Listens to:** None\n"
+    assert check_stategraph_events_null(section, lua) is False
