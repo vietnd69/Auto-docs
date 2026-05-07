@@ -688,6 +688,31 @@ def _fix_missing_source_hash(filepath: str, text: str) -> tuple[str, str | None]
     return inject_frontmatter_field(text, "source_hash", hash_val), hash_val
 
 
+def fix_wrong_id(filepath: str, text: str) -> tuple[str, str | None]:
+    """Fix id field if it exists but doesn't match the filename stem (= Lua filename stem).
+
+    Returns (updated_text, old_id) if fixed, or (text, None) if no change needed.
+    """
+    fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
+    if not fm_match:
+        return text, None
+
+    expected_id = Path(filepath).stem
+    fm_body = fm_match.group(1)
+
+    id_match = re.search(r'^id:\s*(.+)$', fm_body, re.MULTILINE)
+    if not id_match:
+        return text, None  # missing id handled by _fix_missing_frontmatter_fields
+
+    current_id = id_match.group(1).strip().strip('"\'')
+    if current_id == expected_id:
+        return text, None
+
+    new_fm_body = re.sub(r'^id:\s*.+$', f'id: {expected_id}', fm_body, flags=re.MULTILINE)
+    new_text = f"---\n{new_fm_body}\n---\n" + text[fm_match.end():]
+    return new_text, current_id
+
+
 def _fix_missing_frontmatter_fields(filepath: str, text: str) -> tuple[str, list[str]]:
     """Inject deterministic frontmatter fields that are missing and can be derived from context.
 
@@ -750,6 +775,12 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
     if field_fixes:
         text = new_text
         applied.extend(field_fixes)
+
+    # Fix wrong id (must match filename stem = Lua filename stem)
+    new_text, old_id = fix_wrong_id(filepath, text)
+    if old_id is not None:
+        text = new_text
+        applied.append(f"Đã sửa id: '{old_id}' → '{Path(filepath).stem}' (phải khớp tên file Lua).")
 
     # Recover missing source_hash from Lua source
     new_text, recovered_hash = _fix_missing_source_hash(filepath, text)

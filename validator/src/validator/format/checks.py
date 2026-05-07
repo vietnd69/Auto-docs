@@ -79,6 +79,25 @@ def check_frontmatter(text: str) -> list[ValidationError]:
     return errors
 
 
+def check_id_matches_filename(text: str, filepath: str) -> list[ValidationError]:
+    """Check that id field value matches the filename stem (= Lua filename stem)."""
+    fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
+    if not fm_match:
+        return []
+    fm = fm_match.group(1)
+    id_match = re.search(r'^id:\s*(.+)$', fm, re.MULTILINE)
+    if not id_match:
+        return []  # missing id already reported by check_frontmatter
+    current_id = id_match.group(1).strip().strip('"\'')
+    expected_id = Path(filepath).stem
+    if current_id != expected_id:
+        return [ValidationError(
+            "yaml", "error",
+            f"id '{current_id}' does not match filename '{expected_id}' (must match Lua filename stem)"
+        )]
+    return []
+
+
 def check_required_headings(text: str, accepted_headings: set[str] | None = None) -> list[ValidationError]:
     """Validate required section headings exist in correct order.
 
@@ -212,6 +231,7 @@ def validate_all(filepath: str, accepted_headings: set[str] | None = None) -> li
 
     # YAML structure checks
     errors.extend(check_frontmatter(raw))
+    errors.extend(check_id_matches_filename(raw, filepath))
 
     # Required headings (jury-accepted headings are skipped individually)
     errors.extend(check_required_headings(raw, accepted_headings))
