@@ -820,3 +820,93 @@ def test_writer_op_for_missing_section_no_crash(tmp_path):
         result = run_chunked_content_loop(md, lua, _config())
     # Should complete without exception
     assert isinstance(result.approved, bool)
+
+
+# ── stategraph events guard ──────────────────────────────────────────────────
+
+_SG_EVENTS_MD = (
+    "---\ntitle: SGTest\n---\n"
+    "## Events & listeners\n"
+    "**Listens to:** None\n\n"
+)
+
+_SG_EVENTS_LUA = (
+    'StateGraph("sg_test", states, events, "idle", {})\n'
+    'events = {\n'
+    '    EventHandler("death", function(inst) end),\n'
+    '    EventHandler("freeze", function(inst) end),\n'
+    '}\n'
+)
+
+_COMP_EVENTS_MD = (
+    "---\ntitle: CompTest\n---\n"
+    "## Events & listeners\n"
+    "**Listens to:** None\n\n"
+)
+
+_COMP_EVENTS_LUA = (
+    "local MyComp = Class(function(self, inst) self.inst = inst end)\n"
+    "function MyComp:GetOwner() return self.inst end\n"
+)
+
+
+def _update_section_op(section, content):
+    body = json.dumps([{
+        "op": "update_section",
+        "section": section,
+        "function": None, "field": None, "value": None,
+        "content": content,
+    }])
+    return {"message": {"content": body}}
+
+
+def test_events_guard_fires_for_stategraph_null(tmp_path):
+    """Guard pre-pass calls writer when stategraph doc claims no events."""
+    md = tmp_path / "sg.md"
+    lua = tmp_path / "sg.lua"
+    md.write_text(_SG_EVENTS_MD, encoding="utf-8")
+    lua.write_text(_SG_EVENTS_LUA, encoding="utf-8")
+
+    corrected_content = (
+        "## Events & listeners\n"
+        "**EventHandlers:** death, freeze\n"
+    )
+    calls = []
+
+    def mock_ollama(model, messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return _update_section_op("## Events & listeners", corrected_content)
+        return _approved()
+
+    config = ContentLoopConfig(stop_check=lambda: False, max_iterations=3)
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=mock_ollama):
+        result = run_chunked_content_loop(str(md), str(lua), config)
+
+    assert len(calls) >= 1
+    final = md.read_text(encoding="utf-8")
+    assert "death" in final or "freeze" in final or "EventHandler" in final
+
+
+def test_events_guard_does_not_fire_for_non_stategraph(tmp_path):
+    """Guard must NOT fire for component files even if Events section says None."""
+    md = tmp_path / "comp.md"
+    lua = tmp_path / "comp.lua"
+    md.write_text(_COMP_EVENTS_MD, encoding="utf-8")
+    lua.write_text(_COMP_EVENTS_LUA, encoding="utf-8")
+
+    calls = []
+
+    def mock_ollama(model, messages, **kwargs):
+        calls.append(messages)
+        return _approved()
+
+    config = ContentLoopConfig(stop_check=lambda: False, max_iterations=3)
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=mock_ollama):
+        result = run_chunked_content_loop(str(md), str(lua), config)
+
+    assert result.approved is True
+    final = md.read_text(encoding="utf-8")
+    assert "Listens to:** None" in final
