@@ -12,7 +12,7 @@ from pathlib import Path
 
 from llm.client import ollama_chat, COMPRESSION_MODEL
 from llm.paths import BASE_LUA_DIR, COMPRESSION_CACHE_DIR, PROJECT_ROOT
-from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, COMPRESS_THINK
 from llm.tokens import count_tokens, STUB_FULL_THRESHOLD
 from rag.docs import extract_lua_references, format_connected_section, clean_model_output
 
@@ -393,7 +393,7 @@ SOURCE:
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(1, BAD_RESPONSE_RETRIES + 2):
         try:
-            response = ollama_chat(model=_model, messages=messages)
+            response = ollama_chat(model=_model, messages=messages, think=bool(COMPRESS_THINK))
         except Exception as e:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
@@ -460,6 +460,7 @@ SOURCE:
             response = ollama_chat(
                 model=COMPRESSION_MODEL,
                 messages=[{"role": "user", "content": prompt}],
+                think=bool(COMPRESS_THINK),
             )
             raw = response["message"]["content"]
             if DEBUG_PROMPTS:

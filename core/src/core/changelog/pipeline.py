@@ -17,7 +17,7 @@ from core.changelog.prompts import build_changelog_prompt
 from core.utils import shutdown
 from llm.client import ollama_chat
 from llm.paths import DATA_DIR, PROJECT_ROOT
-from llm.settings import DEBUG_PROMPTS, MODEL_UPDATE, BAD_RESPONSE_RETRIES
+from llm.settings import DEBUG_PROMPTS, MODEL_UPDATE, BAD_RESPONSE_RETRIES, UPDATE_THINK
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -87,7 +87,7 @@ def build_changelog_entry(report: dict) -> str | None:
     content = ""
     for attempt in range(1, BAD_RESPONSE_RETRIES + 2):
         try:
-            response = ollama_chat(MODEL_UPDATE, messages, think=False)
+            response = ollama_chat(MODEL_UPDATE, messages, think=bool(UPDATE_THINK))
         except Exception as e:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:

@@ -86,7 +86,9 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
     """
     if not OLLAMA_API_KEYS:
         client = ollama.Client()
-        chat_kwargs: dict = dict(model=model, messages=messages, think=think, stream=False)
+        chat_kwargs: dict = dict(model=model, messages=messages, stream=False)
+        if think:
+            chat_kwargs["think"] = True
         if format is not None:
             chat_kwargs["format"] = format
         if temperature is not None:
@@ -122,10 +124,11 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                 # so a degraded server can stall forever. A thread-based hard limit prevents this.
                 _wall = OLLAMA_TIMEOUT * 3
                 _pool = _futures.ThreadPoolExecutor(max_workers=1)
+                _think_kwargs = {"think": True} if think else {}
                 _fut = _pool.submit(
                     client.chat,
                     model=model, messages=messages, options=opts,
-                    think=think, stream=False, **chat_extra, **kwargs,
+                    stream=False, **_think_kwargs, **chat_extra, **kwargs,
                 )
                 _pool.shutdown(wait=False)
                 try:

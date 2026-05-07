@@ -4,7 +4,7 @@ import time
 from pathlib import Path
 from llm import client as config
 from llm.paths import PROJECT_ROOT
-from llm.settings import DEBUG_PROMPTS
+from llm.settings import DEBUG_PROMPTS, MAIN_THINK
 from rag.docs import clean_model_output, inject_frontmatter_field
 from validator.format.section_filler import _REQUIRED_HEADINGS, rewrite_document
 
@@ -61,6 +61,7 @@ def generate_doc(
             response = config.ollama_chat(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
+                think=bool(MAIN_THINK),
             )
 
             md_content = response["message"]["content"]

@@ -9,7 +9,7 @@ from pathlib import Path
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
-from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, REVIEWER_THINK
 from validator.content.prompts import build_reviewer_prompt
 from validator.content.schemas import REVIEW_SCHEMA
 from validator.content.guards import is_runaway, validate_review_schema, compact_bad_response
@@ -208,7 +208,7 @@ def review_document(
         _dump_prompt("reviewer", full_dump)
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA, think=bool(REVIEWER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_response", raw)
@@ -329,7 +329,7 @@ def reviewer_oscillation_correction(
 
     result = ReviewResult(approved=False, issues=["No response"], suggestions=[])
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=REVIEW_SCHEMA, think=bool(REVIEWER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("reviewer_oscillation_correction_response", raw)

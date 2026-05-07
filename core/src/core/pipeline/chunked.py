@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 from llm import client as config
 from llm.paths import PROJECT_ROOT
-from llm.settings import DEBUG_PROMPTS, BAD_RESPONSE_RETRIES
+from llm.settings import DEBUG_PROMPTS, BAD_RESPONSE_RETRIES, MAIN_THINK
 from core.utils import shutdown
 
 from core.config import CHECKPOINT_DIR
@@ -238,6 +238,7 @@ def generate_chunk_analysis(
             response = config.ollama_chat(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
+                think=bool(MAIN_THINK),
             )
             result = response["message"]["content"]
             if DEBUG_PROMPTS:
@@ -312,6 +313,7 @@ def generate_merged_doc(
             response = config.ollama_chat(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
+                think=bool(MAIN_THINK),
             )
 
             md_content = response["message"]["content"]

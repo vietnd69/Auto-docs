@@ -37,6 +37,9 @@ MODEL_COMPRESS: str = _get("model", "compress", "qwen3.5:cloud")
 MODEL_JURY: str     = _get("model", "jury",     "qwen3.5:cloud")
 MODEL_REVIEWER: str = _get("model", "reviewer", MODEL_MAIN)
 MODEL_WRITER: str   = _get("model", "writer",   MODEL_MAIN)
+MAIN_THINK: int     = _get("model", "main_think",     1)
+UPDATE_THINK: int   = _get("model", "update_think",   0)
+COMPRESS_THINK: int = _get("model", "compress_think", 0)
 
 # === Tokens ===
 PROMPT_TOKEN_LIMIT: int      = _get("tokens", "prompt_limit",     16000)
@@ -69,6 +72,8 @@ REVIEWER_TEMPERATURE: float       = _get("validator", "reviewer_temperature",   
 WRITER_TEMPERATURE: float         = _get("validator", "writer_temperature",       0.3)
 JURY_TEMPERATURE: float           = _get("validator", "jury_temperature",         0.7)
 WRITER_THINK: int                 = _get("validator", "writer_think",             0)
+REVIEWER_THINK: int               = _get("validator", "reviewer_think",           0)
+JURY_THINK: int                   = _get("validator", "jury_think",               0)
 MAX_CONVERSATION_TURNS: int       = _get("validator", "max_conversation_turns",   6)
 CONVERSATION_TOKEN_BUDGET: int    = _get("validator", "conversation_token_budget", 3000)
 OSCILLATION_THRESHOLD: int        = _get("validator", "oscillation_threshold",    50)

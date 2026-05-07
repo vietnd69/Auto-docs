@@ -13,7 +13,7 @@ from pathlib import Path
 
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
-from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, JURY_TEMPERATURE, MODEL_JURY, NORMAL_SLEEP
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, JURY_TEMPERATURE, JURY_THINK, MODEL_JURY, NORMAL_SLEEP
 from validator.content.schemas import JURY_VOTE_SCHEMA
 from llm.tokens import count_tokens
 from validator.content.prompts import build_jury_prompt
@@ -48,7 +48,7 @@ def _vote_once(messages: list[dict], model: str, vote_index: int = 0) -> tuple[b
     msgs = list(messages)  # local copy for multi-turn correction within this vote
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
         try:
-            response = ollama_chat(model=model, messages=msgs, temperature=JURY_TEMPERATURE, format=JURY_VOTE_SCHEMA)
+            response = ollama_chat(model=model, messages=msgs, temperature=JURY_TEMPERATURE, format=JURY_VOTE_SCHEMA, think=bool(JURY_THINK))
         except Exception as e:
             if attempt < BAD_RESPONSE_RETRIES:
                 time.sleep(2)

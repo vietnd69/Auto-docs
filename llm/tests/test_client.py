@@ -41,14 +41,14 @@ def _mock_chat():
         yield mock_client
 
 
-def test_ollama_chat_forwards_think_false():
-    """think=False should be forwarded to client.chat()."""
+def test_ollama_chat_omits_think_when_false():
+    """think=False should NOT pass think to client.chat() to avoid reasoning_effort='none' 400 error."""
     with _mock_chat() as mock_client:
         from llm.client import ollama_chat
         ollama_chat(model="test", messages=[{"role": "user", "content": "hi"}], think=False)
     mock_client.chat.assert_called_once()
     call_kwargs = mock_client.chat.call_args
-    assert call_kwargs.kwargs.get("think") is False or call_kwargs[1].get("think") is False
+    assert "think" not in call_kwargs.kwargs and "think" not in call_kwargs[1]
 
 
 def test_ollama_chat_forwards_temperature():
