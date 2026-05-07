@@ -21,7 +21,7 @@ from validator.content.jury import run_jury
 from validator.content.reviewer import ReviewResult, review_document, reviewer_oscillation_correction
 from validator.content.writer import rewrite_document, correct_failed_patches, correct_guard_blocked_patches, apply_patches
 from validator.utils import resolve_connected_content
-from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, MODEL_MAIN, MODEL_JURY, NORMAL_SLEEP
+from llm.settings import VALIDATOR_LOOP_MAX_ITERATIONS, VALIDATOR_WRITER_INNER_ITERATIONS, MODEL_MAIN, MODEL_JURY, NORMAL_SLEEP
 
 
 def _never_stop() -> bool:
@@ -139,30 +139,27 @@ class ContentLoopResult:
     accepted_headings: set[str] = field(default_factory=set)  # standard headings jury accepted as replaced
 
 
-def _build_writer_prior_context(
-    prev_issues: list[str],
-    applied: int,
-    failed: int,
-    guard_blocked: int,
-) -> str:
-    """Compact user-turn summary of the previous writer iteration for multi-turn context.
-
-    Avoids repeating the full doc/Lua source — just describes what was requested,
-    what happened to the patches, and instructs the writer not to re-fix resolved issues.
+def _build_patch_feedback_prefix(applied: int, failed: int, guard_blocked: int) -> str:
+    """Feedback prefix prepended to user_content for multi-turn inner writer loop passes.
+    Goes BEFORE the current document in the next writer call's user message.
     """
-    issues_text = "\n".join(f"- {iss}" for iss in prev_issues) or "(none)"
     result_parts = [f"{applied} applied"]
     if failed:
-        result_parts.append(f"{failed} not found/ambiguous")
+        result_parts.append(f"{failed} not-found/ambiguous")
     if guard_blocked:
         result_parts.append(f"{guard_blocked} guard-blocked")
+    if applied > 0:
+        doc_note = "The document was updated with the applied patches. Below is the current state."
+    else:
+        doc_note = "No patches were applied — the document is unchanged. Check old_text carefully against the document below."
     return (
-        "[CONTEXT: PREVIOUS WRITER ATTEMPT]\n"
-        f"In the previous iteration you were asked to fix:\n{issues_text}\n\n"
-        f"Patch application results: {', '.join(result_parts)}.\n"
-        "The document was updated with the applied patches. Your previous response is shown "
-        "above (assistant turn). Below you will receive the updated document and remaining issues.\n"
-        "Do NOT re-generate patches for issues already resolved — only fix what the new reviewer feedback flags."
+        "[PREVIOUS PATCH ATTEMPT RESULTS]\n"
+        f"Results: {', '.join(result_parts)}.\n"
+        f"{doc_note}\n"
+        "Fix only remaining issues — do NOT re-patch what was already applied.\n"
+        "CRITICAL: old_text MUST come verbatim from the === CURRENT DOCUMENT === in this message.\n"
+        "Do NOT use old_text from the document shown in an earlier turn — it may have changed significantly.\n"
+        "If a function or section mentioned in the feedback is absent from the current document, skip it.\n\n"
     )
 
 
@@ -186,6 +183,47 @@ def _collect_failed_patches(
             failed.append(p)
             reasons.append(f"old_text appears {count} times (ambiguous — must be unique)")
     return failed, reasons
+
+
+def _remove_duplicate_fn_headings(content: str) -> tuple[str, list[str]]:
+    """Remove duplicate ### function headings, keeping only the first occurrence.
+
+    For each heading that appears more than once, the SECOND (and later) occurrences
+    are removed along with their entire function block (up to the next ### or ## heading).
+    Returns (cleaned_content, list_of_removed_heading_lines).
+    """
+    removed: list[str] = []
+    # Find all unique headings that appear more than once
+    heading_re = re.compile(r'^(### .+)$', re.MULTILINE)
+    heading_counts: dict[str, int] = {}
+    for m in heading_re.finditer(content):
+        h = m.group(1)
+        heading_counts[h] = heading_counts.get(h, 0) + 1
+
+    duplicate_headings = [h for h, count in heading_counts.items() if count > 1]
+    if not duplicate_headings:
+        return content, []
+
+    # Remove second+ occurrences for each duplicate heading
+    # Use a block-end regex that matches the start of the next ### or ## heading
+    next_heading_re = re.compile(r'\n(?=#{2,3} )', re.MULTILINE)
+    for heading in duplicate_headings:
+        while content.count(heading) > 1:
+            first_pos = content.find(heading)
+            second_pos = content.find(heading, first_pos + len(heading))
+            if second_pos == -1:
+                break
+            # Find end of the block starting at second_pos
+            search_from = second_pos + len(heading)
+            next_match = next_heading_re.search(content, search_from)
+            if next_match:
+                end_pos = next_match.start()
+            else:
+                end_pos = len(content)
+            content = content[:second_pos] + content[end_pos:]
+            removed.append(heading)
+
+    return content, removed
 
 
 def run_content_loop(
@@ -220,12 +258,18 @@ def run_content_loop(
     cache.create(cache_id, md_content)
     print(f"  [content] Cache created: {cache.cache_dir}")
 
+    # Pre-scan: remove duplicate ### headings before validation starts
+    md_content, removed = _remove_duplicate_fn_headings(md_content)
+    if removed:
+        for h in removed:
+            print(f"  [content] Pre-scan removed duplicate: {h!r}")
+        cache.write(cache_id, md_content)
+
     previous_review = None
     jury_verdicts: dict[str, bool] = {}  # std_heading → accepted (True) or rejected (False)
     jury_context_turns: list[dict] = []  # assistant+user turn pairs injected into reviewer after jury rejects
     accepted_headings: set[str] = set()  # standard headings jury accepted as replaced by non-standard names
     review_history: list[ReviewResult] = []  # for oscillation detection
-    writer_prior_turns: list[dict] = []  # [compact_user, assistant] from last writer call
     for i in range(config.max_iterations):
         if config.stop_check():
             print(f"  [content] Stopped by Ctrl+C before iteration {i + 1}")
@@ -365,111 +409,149 @@ def run_content_loop(
         print(f"  [content] Sleeping {NORMAL_SLEEP}s before writing patches...")
         time.sleep(NORMAL_SLEEP)
 
-        print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches...")
-        # LLM1 fix — works on cached content
-        patches, raw = rewrite_document(
-            cached_content, lua_source, connected_content, review, config.writer_model,
-            prior_turns=writer_prior_turns or None,
-        )
-
-        if not patches:
-            # LLM1 returned no patches — can't fix
-            print(f"  [content] Writer returned no patches, stopping early")
-            Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
-            return ContentLoopResult(
-                approved=False, iterations=i + 1, final_issues=review.issues,
-                accepted_headings=accepted_headings,
-            )
-
-        updated_content, failed, _, guard_blocked_patches = apply_patches(cached_content, patches)
-        applied = len(patches) - failed
-        parts = [f"applied {applied}/{len(patches)}"]
-        if failed:
-            parts.append(f"{failed} failed")
-        print(f"  [content] Patches: {', '.join(parts)}")
-
-        remaining_failed = failed
-
-        # Multi-turn correction: when patches fail, tell writer which old_text didn't match
-        if failed > 0:
-            failed_patches, failure_reasons = _collect_failed_patches(cached_content, patches)
-            guard_blocked_count = len(guard_blocked_patches)
-            breakdown = []
-            if guard_blocked_count:
-                breakdown.append(f"{guard_blocked_count} guard-blocked")
-            if failed_patches:
-                breakdown.append(f"{len(failed_patches)} not-found/ambiguous")
-            if breakdown:
-                print(f"  [content]   Failure breakdown: {', '.join(breakdown)}")
-            if failed_patches:
-                print(f"  [content] Sleeping {NORMAL_SLEEP}s before correction...")
-                time.sleep(NORMAL_SLEEP)
-                print(f"  [content] Not-found correction: requesting for {len(failed_patches)} patch(es)...")
-                correction = correct_failed_patches(
-                    updated_content,
-                    failed_patches,
-                    failure_reasons,
-                    config.writer_model,
-                    review_issues=review.issues,
-                    review_suggestions=review.suggestions,
-                    previous_writer_raw=raw,
-                    previous_patches=patches,
+        # Inner writer loop: retry until all patches apply, no progress, or max passes
+        current_content = cached_content
+        inner_first_user_content: str = ""
+        inner_prev_raw: str = ""
+        guard_blocked_for_prefix: int = 0
+        for w_iter in range(VALIDATOR_WRITER_INNER_ITERATIONS):
+            inner_suffix = f" (pass {w_iter + 1}/{VALIDATOR_WRITER_INNER_ITERATIONS})" if VALIDATOR_WRITER_INNER_ITERATIONS > 1 else ""
+            print(f"  [content] Iteration {i + 1}/{config.max_iterations} — writing patches{inner_suffix}...")
+            inner_prior_turns: list[dict] | None = None
+            user_prefix_for_this_pass = ""
+            if w_iter > 0 and inner_first_user_content and inner_prev_raw:
+                user_prefix_for_this_pass = _build_patch_feedback_prefix(
+                    applied=iter_applied,
+                    failed=remaining_failed,
+                    guard_blocked=guard_blocked_for_prefix,
                 )
-                if correction:
-                    updated_content, corr_failed, _, corr_guard_blocked = apply_patches(updated_content, correction)
-                    if corr_guard_blocked:
-                        guard_blocked_patches.extend(corr_guard_blocked)
-                    corr_applied = len(correction) - corr_failed
-                    remaining_failed -= corr_applied
-                    print(f"  [content] Not-found correction: applied {corr_applied}/{len(correction)} patches")
-
-        if guard_blocked_patches:
-            guard_count = len(guard_blocked_patches)
-            print(f"  [content] Sleeping {NORMAL_SLEEP}s before guard correction...")
-            time.sleep(NORMAL_SLEEP)
-            print(f"  [content] Guard correction: requesting for {guard_count} blocked patch(es)...")
-            guard_correction = correct_guard_blocked_patches(
-                cached_content, lua_source, connected_content,
-                review, guard_blocked_patches, raw, updated_content, config.writer_model,
+                # Multi-turn: pass prior context so writer can see what it did before.
+                # slim_context=True means the new user turn only sends current doc (no lua/connected).
+                inner_prior_turns = [
+                    {"role": "user", "content": inner_first_user_content},
+                    {"role": "assistant", "content": inner_prev_raw},
+                ]
+            patches, raw, user_content_this_pass = rewrite_document(
+                current_content, lua_source, connected_content, review, config.writer_model,
+                prior_turns=inner_prior_turns,
+                user_prefix=user_prefix_for_this_pass,
+                slim_context=(w_iter > 0),
             )
-            if guard_correction:
-                # Guard-blocked old_text values are guaranteed to exist in updated_content
-                # (the guard prevented them from being applied), so applying correction
-                # patches generated against cached_content is safe here.
-                updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
-                gc_applied = len(guard_correction) - gc_failed
-                remaining_failed -= gc_applied
-                print(f"  [content] Guard correction: applied {gc_applied}/{len(guard_correction)} patches")
+            if w_iter == 0:
+                inner_first_user_content = user_content_this_pass
+            inner_prev_raw = raw
 
-        # Fallback warning if majority still failed after all corrections
-        if patches and remaining_failed > len(patches) / 2:
-            print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
+            if not patches:
+                if w_iter == 0:
+                    print(f"  [content] Writer returned no patches, stopping early")
+                    Path(md_filepath).write_text(cache.read(cache_id), encoding="utf-8")
+                    return ContentLoopResult(
+                        approved=False, iterations=i + 1, final_issues=review.issues,
+                        accepted_headings=accepted_headings,
+                    )
+                print(f"  [content] Writer returned no patches — stopping writer loop")
+                break
 
-        # Build multi-turn context for the next writer call: compact summary of what was
-        # requested + patch outcome (user turn) + previous writer JSON (assistant turn).
-        # The writer sees this before the new user_content, giving it awareness of what
-        # it already tried and which patches succeeded, without repeating doc/Lua content.
-        final_applied = len(patches) - remaining_failed
-        writer_prior_turns = [
-            {"role": "user", "content": _build_writer_prior_context(
-                prev_issues=review.issues,
-                applied=final_applied,
-                failed=failed,
-                guard_blocked=len(guard_blocked_patches),
-            )},
-            {"role": "assistant", "content": raw},
-        ]
+            updated_content, failed, _, guard_blocked_patches = apply_patches(current_content, patches)
+            applied = len(patches) - failed
+            parts = [f"applied {applied}/{len(patches)}"]
+            if failed:
+                parts.append(f"{failed} failed")
+            print(f"  [content] Patches: {', '.join(parts)}")
+
+            remaining_failed = failed
+
+            if failed > 0:
+                failed_patches, failure_reasons = _collect_failed_patches(current_content, patches)
+                guard_blocked_count = len(guard_blocked_patches)
+                breakdown = []
+                if guard_blocked_count:
+                    breakdown.append(f"{guard_blocked_count} guard-blocked")
+                if failed_patches:
+                    breakdown.append(f"{len(failed_patches)} not-found/ambiguous")
+                if breakdown:
+                    print(f"  [content]   Failure breakdown: {', '.join(breakdown)}")
+                if failed_patches:
+                    print(f"  [content] Sleeping {NORMAL_SLEEP}s before correction...")
+                    time.sleep(NORMAL_SLEEP)
+                    print(f"  [content] Not-found correction: requesting for {len(failed_patches)} patch(es)...")
+                    correction = correct_failed_patches(
+                        updated_content,
+                        failed_patches,
+                        failure_reasons,
+                        config.writer_model,
+                        review_issues=review.issues,
+                        review_suggestions=review.suggestions,
+                        previous_writer_raw=raw,
+                        previous_patches=patches,
+                        original_md_content=current_content,
+                        lua_source=lua_source,
+                        connected_content=connected_content,
+                    )
+                    if correction:
+                        updated_content, corr_failed, _, corr_guard_blocked = apply_patches(updated_content, correction)
+                        if corr_guard_blocked:
+                            guard_blocked_patches.extend(corr_guard_blocked)
+                        corr_applied = len(correction) - corr_failed
+                        remaining_failed = max(0, remaining_failed - corr_applied)
+                        remaining_failed = max(remaining_failed, corr_failed)
+                        print(f"  [content] Not-found correction: applied {corr_applied}/{len(correction)} patches")
+
+            gc_applied_count = 0
+            if guard_blocked_patches:
+                guard_count = len(guard_blocked_patches)
+                print(f"  [content] Sleeping {NORMAL_SLEEP}s before guard correction...")
+                time.sleep(NORMAL_SLEEP)
+                print(f"  [content] Guard correction: requesting for {guard_count} blocked patch(es)...")
+                guard_correction = correct_guard_blocked_patches(
+                    current_content, lua_source, connected_content,
+                    review, guard_blocked_patches, raw, updated_content, config.writer_model,
+                )
+                if guard_correction:
+                    updated_content, gc_failed, _, _ = apply_patches(updated_content, guard_correction)
+                    gc_applied = len(guard_correction) - gc_failed
+                    gc_applied_count = gc_applied
+                    remaining_failed = max(0, remaining_failed - gc_applied)
+                    remaining_failed = max(remaining_failed, gc_failed)
+                    print(f"  [content] Guard correction: applied {gc_applied}/{len(guard_correction)} patches")
+            guard_blocked_for_prefix = max(0, len(guard_blocked_patches) - gc_applied_count)
+
+            if patches and remaining_failed > len(patches) / 2:
+                print(f"  [content] Warning: majority of patches failed — writer may have hallucinated old_text")
+
+            iter_applied = len(patches) - remaining_failed
+            current_content = updated_content
+
+            if remaining_failed == 0:
+                if w_iter > 0:
+                    print(f"  [content] All patches applied after {w_iter + 1} writer pass(es)")
+                break
+
+            if iter_applied == 0:
+                print(f"  [content] No progress in writer pass {w_iter + 1} — stopping")
+                break
+
+            if w_iter < VALIDATOR_WRITER_INNER_ITERATIONS - 1:
+                print(f"  [content] Sleeping {NORMAL_SLEEP}s before next writer pass...")
+                time.sleep(NORMAL_SLEEP)
 
         previous_review = review
         review_history.append(review)
         # Write updated content to cache (NOT to original file)
-        cache.write(cache_id, updated_content)
+        cache.write(cache_id, current_content)
+
+        if current_content == cached_content:
+            print(f"  [content] Writer unable to make progress — stopping loop early")
+            break
 
         print(f"  [content] Sleeping {NORMAL_SLEEP}s before next iteration...")
         time.sleep(NORMAL_SLEEP)
+    else:
+        i = config.max_iterations - 1  # loop completed naturally
 
-    # Max iterations reached — do final review to get current status
-    print(f"  [content] Max iterations reached, running final review...")
+    actual_iterations = i + 1
+    stop_reason = "max iterations reached" if actual_iterations == config.max_iterations else f"stopped early at iteration {actual_iterations}"
+    print(f"  [content] {stop_reason.capitalize()}, running final review...")
     final_content = cache.read(cache_id)
     final_review = review_document(
         final_content, lua_source, connected_content, config.reviewer_model,
@@ -520,7 +602,7 @@ def run_content_loop(
 
     return ContentLoopResult(
         approved=final_review.approved,
-        iterations=config.max_iterations,
+        iterations=actual_iterations,
         final_issues=final_review.issues,
         accepted_headings=accepted_headings,
     )

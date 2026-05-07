@@ -87,3 +87,23 @@ def test_parse_review_json_empty_findings():
     result = parse_review_json(data)
     assert result.approved is False
     assert result.issues == []
+
+
+def test_parse_review_json_valid():
+    from validator.content.reviewer import parse_review_json
+    data = {"approved": False, "findings": [{"issue": "x", "suggestion": "y"}]}
+    result = parse_review_json(data)
+    assert result.approved is False
+    assert result.issues == ["x"]
+    assert result.suggestions == ["y"]
+
+
+def test_raw_response_not_set_on_bad_parse():
+    """raw_response must be empty string on unparseable responses."""
+    result = parse_review_response("not json at all")
+    assert result.raw_response == ""
+
+
+def test_raw_response_not_set_on_empty():
+    result = parse_review_response("")
+    assert result.raw_response == ""

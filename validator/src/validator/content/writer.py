@@ -16,12 +16,35 @@ def _fn_names(text: str) -> set[str]:
 from llm.client import ollama_chat
 from llm.paths import PROJECT_ROOT
 from llm.tokens import count_tokens
-from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS
-from validator.content.prompts import build_writer_prompt
+from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, WRITER_THINK
+from validator.content.prompts import build_writer_prompt, build_writer_system_prompt, build_writer_slim_user
 from validator.content.reviewer import ReviewResult
 from validator.content.schemas import PATCHES_SCHEMA
+from validator.content.guards import is_runaway, validate_patches_schema, compact_bad_response
+
+_GUARD_RUNAWAY = (
+    "[BAD RESPONSE GUARD] Your previous response contained repeated non-JSON content.\n"
+    "You MUST respond with a JSON array of patch objects:\n"
+    '[{"old_text": "<str>", "new_text": "<str>", "reason": "<str>"}]\n'
+    "Do NOT generate repeated text or markdown outside the JSON array."
+)
+_GUARD_PARSE = (
+    "[BAD RESPONSE GUARD] Your previous response could not be parsed as JSON.\n"
+    'Respond ONLY with a JSON array: [{"old_text": "...", "new_text": "...", "reason": "..."}]'
+)
+_GUARD_SCHEMA = (
+    "[BAD RESPONSE GUARD] Your JSON response has incorrect structure.\n"
+    "Required: a JSON array where each item has 'old_text', 'new_text', and 'reason' (all strings)."
+)
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
+
+
+def _strip_thinking(text: str) -> str:
+    text = re.sub(r'<think>[\s\S]*?</think>', '', text)
+    if '</think>' in text:
+        text = text[text.index('</think>') + len('</think>'):]
+    return text.strip()
 
 
 def _dump_prompt(label: str, prompt: str) -> None:
@@ -70,6 +93,25 @@ def apply_patches(content: str, patches: list[Patch]) -> tuple[str, int, list["P
     for idx, patch in enumerate(patches, 1):
         count = content.count(patch.old_text)
         if count == 0:
+            # Fallback: LLM sometimes double-escapes characters in old_text
+            # (e.g. \\n instead of \n, \\" instead of "). Try normalized version.
+            normalized = patch.old_text.replace('\\"', '"').replace('\\n', '\n')
+            if normalized != patch.old_text:
+                norm_count = content.count(normalized)
+                if norm_count == 1:
+                    first_line = normalized.split("\n")[0][:80]
+                    print(f"  [content/writer] Patch {idx}/{total} NORMALIZED (escape fix): {first_line!r}")
+                    old_fn_count = len(_FN_HEADING_RE.findall(normalized))
+                    if old_fn_count >= 2:
+                        candidate = content.replace(normalized, patch.new_text, 1)
+                        lost = _fn_names(content) - _fn_names(candidate)
+                        if lost and not patch.allow_drops:
+                            print(f"  [content/writer] Patch {idx}/{total} GUARD BLOCKED (normalized, drops: {', '.join(sorted(lost))}): {first_line!r}")
+                            guard_blocked_list.append((patch, frozenset(lost)))
+                            failed += 1
+                            continue
+                    content = content.replace(normalized, patch.new_text, 1)
+                    continue
             first_line = patch.old_text.split("\n")[0][:80]
             print(f"  [content/writer] Patch {idx}/{total} NOT FOUND: {first_line!r}")
             failed += 1
@@ -124,7 +166,7 @@ def parse_writer_response(raw: str) -> list[Patch]:
     # Strip markdown code fence and think blocks
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    cleaned = _strip_thinking(cleaned)
 
     # Primary: direct parse
     try:
@@ -165,7 +207,7 @@ def parse_typed_op_response(raw: str) -> "TypedOp | None":
     """Parse writer response for a single TypedOp. Returns None on failure."""
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    cleaned = _strip_thinking(cleaned)
     try:
         data = json.loads(cleaned)
         return parse_typed_op_json(data)
@@ -206,20 +248,35 @@ def rewrite_document(
     review_feedback: ReviewResult,
     model: str,
     prior_turns: list[dict] | None = None,
-) -> tuple[list[Patch], str]:
+    user_prefix: str = "",
+    slim_context: bool = False,
+) -> tuple[list[Patch], str, str]:
     """Ask LLM1 to generate patches based on reviewer feedback.
 
-    Returns (patches, raw_response). raw_response is needed by callers that
-    want to do a multi-turn correction when patches fail to apply.
+    Returns (patches, raw_response, user_content). raw_response is needed by callers that
+    want to do a multi-turn correction when patches fail to apply. user_content is needed
+    to reconstruct the original request for multi-turn inner loop passes.
 
     prior_turns: optional [user, assistant] pair from the previous writer iteration,
     enabling multi-turn context so the writer can see what it tried before and
     the patch outcome. Format: [{"role": "user", ...}, {"role": "assistant", ...}]
+
+    user_prefix: optional text prepended to user_content before sending.
+
+    slim_context: when True and prior_turns is set, omit lua_source/connected_content from
+    user_content — they are already available in the prior_turns conversation history.
     """
     system_prompt, user_content = build_writer_prompt(
         md_content, lua_source, connected_content,
         review_feedback.issues, review_feedback.suggestions,
     )
+    if slim_context and prior_turns:
+        user_content = build_writer_slim_user(
+            md_content, review_feedback.issues, review_feedback.suggestions,
+            user_prefix=user_prefix,
+        )
+    elif user_prefix:
+        user_content = user_prefix + user_content
     token_count = count_tokens(system_prompt + user_content)
     prior_info = f" (+{len(prior_turns)} prior turn(s))" if prior_turns else ""
     print(f"  [content/writer] Write prompt: {token_count:,} tokens{prior_info}")
@@ -232,28 +289,63 @@ def rewrite_document(
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA, think=bool(WRITER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_response", raw)
         remaining = BAD_RESPONSE_RETRIES - attempt
-        if not raw.strip():
+
+        # Layer 1: runaway detection
+        if is_runaway(raw):
+            print(f"  [content/writer] Runaway response ({len(raw):,} chars) → retrying ({remaining} left)")
             if remaining > 0:
-                print(f"  [content/writer] Empty response → retrying ({remaining} left)")
-                continue
-            print(f"  [content/writer] Empty response after {BAD_RESPONSE_RETRIES + 1} attempts — giving up")
-            break
-        patches = parse_writer_response(raw)
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_RUNAWAY})
+            raw = ""  # don't propagate bad raw as context
+            continue
+
+        # Layer 2: JSON parse
+        cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+        cleaned = re.sub(r'\n?```\s*$', '', cleaned)
+        cleaned = _strip_thinking(cleaned)
+        start, end = cleaned.find('['), cleaned.rfind(']')
+        try:
+            if cleaned.startswith('['):
+                data = json.loads(cleaned)
+            elif start != -1 and end > start:
+                data = json.loads(cleaned[start:end + 1])
+            else:
+                raise json.JSONDecodeError("no array found", "", 0)
+        except (json.JSONDecodeError, TypeError):
+            print(f"  [content/writer] Bad response (JSON parse) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_PARSE})
+            raw = ""
+            continue
+
+        # Layer 3: schema validation
+        if not validate_patches_schema(data):
+            print(f"  [content/writer] Bad response (schema) → retrying ({remaining} left)")
+            if remaining > 0:
+                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                messages.append({"role": "user", "content": _GUARD_SCHEMA})
+            raw = ""
+            continue
+
+        patches = _parse_patch_list(data)
         if patches:
             break
+
+        # Valid JSON array but no actionable patches
         if remaining > 0:
-            print(f"  [content/writer] No patches parsed → retrying ({remaining} left) — raw: {raw[:80]!r}")
+            print(f"  [content/writer] No patches parsed → retrying ({remaining} left)")
         else:
-            print(f"  [content/writer] No patches parsed after {BAD_RESPONSE_RETRIES + 1} attempts — raw: {raw[:120]!r}")
+            print(f"  [content/writer] No patches after {BAD_RESPONSE_RETRIES + 1} attempts — raw: {raw[:120]!r}")
 
     if patches:
         print(f"  [content/writer] {len(patches)} patch(es) generated")
-    return patches, raw
+    return patches, raw, user_content
 
 
 def _find_doc_snippet(md_content: str, old_text: str, context_lines: int = 6) -> str:
@@ -264,16 +356,66 @@ def _find_doc_snippet(md_content: str, old_text: str, context_lines: int = 6) ->
     """
     first_line = old_text.split("\n")[0]
     idx = md_content.find(first_line)
-    if idx == -1:
-        return ""
-    snippet = "\n".join(md_content[idx:].split("\n")[:context_lines])
-    return snippet
+    if idx != -1:
+        snippet = "\n".join(md_content[idx:].split("\n")[:context_lines])
+        return snippet
+
+    # Fuzzy fallback: extract the core function name (strip ### backticks and parameters)
+    # e.g. "### `onenter (dance)(inst)`" → "onenter (dance)"
+    name_match = re.search(r'###\s*`?([^`(\n]+)', first_line)
+    if name_match:
+        core = name_match.group(1).strip().lower()
+        # Try to find any ### heading in the document that contains the core name
+        for line in md_content.splitlines():
+            if line.startswith("### ") and core in line.lower():
+                idx = md_content.find(line)
+                if idx != -1:
+                    snippet = "\n".join(md_content[idx:].split("\n")[:context_lines])
+                    return f"(approximate match — heading format differs)\n{snippet}"
+    return ""
 
 
 def _extract_fn_headings(md_content: str) -> str:
     """Extract all ### function headings from the document as a reference list."""
     headings = re.findall(r'^(### .+)$', md_content, re.MULTILINE)
     return "\n".join(headings) if headings else "(no ### headings found)"
+
+
+def _extract_section_headings(md_content: str) -> str:
+    """Extract all ## section headings from the document."""
+    headings = re.findall(r'^(## .+)$', md_content, re.MULTILINE)
+    return "\n".join(headings) if headings else "(no ## headings found)"
+
+
+def _build_correction_feedback(
+    md_content: str,
+    failed_patches: list[Patch],
+    failure_reasons: list[str],
+) -> str:
+    """Correction user message for multi-turn NOT-FOUND correction (4th turn).
+    Does not include reviewer feedback or previous writer response — those are in history.
+    """
+    parts = []
+    for i, (p, reason) in enumerate(zip(failed_patches, failure_reasons), 1):
+        snippet = _find_doc_snippet(md_content, p.old_text, context_lines=10)
+        part = (
+            f"--- Failed patch {i} ---\n"
+            f"Attempted old_text: {p.old_text[:300]!r}\n"
+            f"Failure reason: {reason}\n"
+            f"Intended new_text: {p.new_text[:300]!r}"
+        )
+        if snippet:
+            part += f"\nDocument region near target (EXACT whitespace):\n{snippet!r}"
+        parts.append(part)
+    section_headings = _extract_section_headings(md_content)
+    fn_headings = _extract_fn_headings(md_content)
+    return (
+        f"The following {len(failed_patches)} patch(es) from your previous response failed to apply:\n\n"
+        + "\n\n".join(parts)
+        + f"\n\n=== ## SECTION HEADINGS IN DOCUMENT ===\n{section_headings}"
+        + f"\n\n=== ### FUNCTION HEADINGS IN DOCUMENT (use for old_text anchors) ===\n{fn_headings or '(none)'}"
+        + f"\n\n=== CURRENT DOCUMENT ===\n{md_content}"
+    )
 
 
 def _build_targeted_correction_prompt(
@@ -291,11 +433,13 @@ def _build_targeted_correction_prompt(
     those caused the writer to re-generate all patches (most already applied)
     instead of fixing only the failed ones.
     """
+    n = len(failed_patches)
     system_prompt = (
         "You are a documentation writer fixing failed patch applications.\n\n"
         "Some patches could not be applied because old_text was not found verbatim in the document.\n"
-        "Your ONLY task: for each failed patch, return a corrected version with an exact old_text.\n\n"
-        "Return a JSON array — one corrected patch per failed patch:\n"
+        f"Your ONLY task: return EXACTLY {n} corrected patch(es) — one per failed patch listed below.\n"
+        "Do NOT generate patches for anything else. Do NOT re-patch sections already applied.\n\n"
+        "Return a JSON array:\n"
         '[{"old_text": "exact text from document", "new_text": "replacement", "reason": "why"}]\n\n'
         "Rules:\n"
         "- old_text MUST be an EXACT substring of the CURRENT DOCUMENT shown below\n"
@@ -304,8 +448,11 @@ def _build_targeted_correction_prompt(
         "'* **Description:**' (1 space). Match exactly.\n"
         "- CRITICAL: old_text must stay within a SINGLE ### function block — never let it span two "
         "or more ### headings. If you need a broader change, split into multiple patches (one per ### block).\n"
-        "- Use the '### HEADINGS IN DOCUMENT' list below to find the exact heading name, then copy "
-        "it verbatim as the start of old_text.\n"
+        "- AMBIGUOUS fix: if the failure reason says 'appears N times', the old_text is not unique. "
+        "Start old_text with the exact `### heading line` from the '### HEADINGS IN DOCUMENT' list below, "
+        "then include the field content. This guarantees uniqueness.\n"
+        "- NOT FOUND fix: use the '### HEADINGS IN DOCUMENT' list to find the correct heading spelling. "
+        "Copy it verbatim as the first line of old_text.\n"
         "- Do NOT generate patches for anything not listed as a failed patch below\n"
         "- Do NOT re-patch sections that were already successfully applied"
     )
@@ -379,36 +526,78 @@ def correct_failed_patches(
     review_suggestions: list[str] | None = None,
     previous_writer_raw: str = "",
     previous_patches: list[Patch] | None = None,
+    original_md_content: str = "",
+    lua_source: str = "",
+    connected_content: str = "",
 ) -> list[Patch]:
     """Targeted correction: ask writer to fix only the failed patches.
 
-    Uses a simple single-turn prompt showing only the failed patches and the
-    current document. Avoids the multi-turn + previous_raw structure, which
-    caused the writer to re-generate all patches (targeting the pre-patch document)
-    instead of correcting just the failed ones.
+    When original_md_content, lua_source, and previous_writer_raw are all provided,
+    uses multi-turn structure:
+        system:    writer system prompt
+        user:      original write request (built from original_md_content)
+        assistant: previous_writer_raw (what the writer tried)
+        user:      correction feedback (what failed + section headings + current doc)
+
+    Otherwise falls back to single-turn behavior using _build_targeted_correction_prompt.
     """
-    system_prompt, user_content = _build_targeted_correction_prompt(
-        md_content,
-        failed_patches,
-        failure_reasons,
-        review_issues=review_issues,
-        review_suggestions=review_suggestions,
-        previous_writer_raw=previous_writer_raw,
-        previous_patches=previous_patches,
-    )
-    token_count = count_tokens(system_prompt + user_content)
-    print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens")
-    if DEBUG_PROMPTS:
-        _dump_prompt("writer_correction", system_prompt + "\n\n" + user_content)
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
-    ]
+    use_multi_turn = bool(original_md_content and previous_writer_raw)
+
+    if use_multi_turn:
+        _issues = review_issues or []
+        _suggestions = review_suggestions or []
+        # Focused system prompt for correction — no writer skills needed, just find old_text
+        system_prompt, _ = _build_targeted_correction_prompt(
+            md_content, failed_patches, failure_reasons,
+            review_issues=_issues, review_suggestions=_suggestions,
+        )
+        # Lightweight first user turn — reviewer feedback + original doc, no lua/connected
+        feedback_lines = []
+        for i, issue in enumerate(_issues, 1):
+            suggestion = _suggestions[i - 1] if i - 1 < len(_suggestions) else ""
+            feedback_lines.append(f"{i}. Issue: {issue}")
+            if suggestion:
+                feedback_lines.append(f"   Suggestion: {suggestion}")
+        feedback_block = "\n".join(feedback_lines) if feedback_lines else "(none)"
+        first_user = (
+            f"=== REVIEWER FEEDBACK ===\n{feedback_block}\n\n"
+            f"=== ORIGINAL DOCUMENT ===\n{original_md_content}"
+        )
+        correction_user = _build_correction_feedback(md_content, failed_patches, failure_reasons)
+        token_count = count_tokens(system_prompt + first_user + previous_writer_raw + correction_user)
+        print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens (multi-turn)")
+        if DEBUG_PROMPTS:
+            full = system_prompt + "\n\n" + first_user + "\n\n[ASSISTANT]\n" + previous_writer_raw + "\n\n[USER]\n" + correction_user
+            _dump_prompt("writer_correction", full)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": first_user},
+            {"role": "assistant", "content": previous_writer_raw},
+            {"role": "user", "content": correction_user},
+        ]
+    else:
+        system_prompt, user_content = _build_targeted_correction_prompt(
+            md_content,
+            failed_patches,
+            failure_reasons,
+            review_issues=review_issues,
+            review_suggestions=review_suggestions,
+            previous_writer_raw=previous_writer_raw,
+            previous_patches=previous_patches,
+        )
+        token_count = count_tokens(system_prompt + user_content)
+        print(f"  [content/writer] Not-found correction prompt: {token_count:,} tokens")
+        if DEBUG_PROMPTS:
+            _dump_prompt("writer_correction", system_prompt + "\n\n" + user_content)
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
 
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA, think=bool(WRITER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_correction_response", raw)
@@ -427,7 +616,12 @@ def correct_failed_patches(
             print(f"  [content/writer] Correction no patches after {BAD_RESPONSE_RETRIES + 1} attempts")
 
     if patches:
-        print(f"  [content/writer] Correction: {len(patches)} patch(es) generated")
+        expected = len(failed_patches)
+        if len(patches) > expected:
+            print(f"  [content/writer] Correction: {len(patches)} patch(es) generated (expected {expected}) — trimming to {expected}")
+            patches = patches[:expected]
+        else:
+            print(f"  [content/writer] Correction: {len(patches)} patch(es) generated")
     else:
         print(f"  [content/writer] Correction returned no patches")
     return patches
@@ -485,29 +679,45 @@ def correct_guard_blocked_patches(
     """Multi-turn correction for patches blocked by the regression guard.
 
     Uses the multi-turn structure:
-        system:    writer prompt system
-        user:      writer prompt user (shows md_content as current document — pre-patch snapshot,
-                   kept for coherence with the assistant turn that follows)
+        system:    writer system prompt (skills + patch rules)
+        user:      lua source + connected content + reviewer feedback (no md_content —
+                   the current document state is already in the rejection message)
         assistant: previous_raw (the writer's original JSON response)
-        user:      guard rejection message (includes updated_content — the real current doc state
-                   after all non-guard-blocked patches were applied)
+        user:      guard rejection message (includes updated_content — real current doc state)
 
     updated_content must be passed so the correction writer sees the actual document state when
     generating old_text values to split the guard-blocked patches.
     """
-    system_prompt, user_content = build_writer_prompt(
-        md_content, lua_source, connected_content,
-        review_feedback.issues, review_feedback.suggestions,
+    system_prompt = build_writer_system_prompt()
+    # Lightweight initial user: lua + connected + reviewer feedback only.
+    # The rejection_message already contains updated_content (current document after applied patches),
+    # so including md_content here would duplicate the document at a stale pre-patch state.
+    feedback_lines = []
+    for i, issue in enumerate(review_feedback.issues, 1):
+        suggestion = (
+            review_feedback.suggestions[i - 1]
+            if review_feedback.suggestions and i - 1 < len(review_feedback.suggestions)
+            else ""
+        )
+        feedback_lines.append(f"{i}. Issue: {issue}")
+        if suggestion:
+            feedback_lines.append(f"   Suggestion: {suggestion}")
+    feedback_block = "\n".join(feedback_lines)
+    connected_block = connected_content if connected_content else "(none)"
+    initial_user = (
+        f"1. LUA SOURCE CODE (ground truth)\n```lua\n{lua_source}\n```\n\n"
+        f"2. CONNECTED CONTENT (referenced files)\n{connected_block}\n\n"
+        f"=== REVIEWER FEEDBACK ===\n{feedback_block}"
     )
     rejection_message = _build_guard_rejection_message(guard_blocked, updated_content)
-    token_count = count_tokens(system_prompt + user_content + previous_raw + rejection_message)
+    token_count = count_tokens(system_prompt + initial_user + previous_raw + rejection_message)
     print(f"  [content/writer] Guard correction prompt: {token_count:,} tokens")
     if DEBUG_PROMPTS:
-        full = system_prompt + "\n\n" + user_content + "\n\n[ASSISTANT]\n" + previous_raw + "\n\n[USER]\n" + rejection_message
+        full = system_prompt + "\n\n" + initial_user + "\n\n[ASSISTANT]\n" + previous_raw + "\n\n[USER]\n" + rejection_message
         _dump_prompt("writer_guard_correction", full)
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_content},
+        {"role": "user", "content": initial_user},
         {"role": "assistant", "content": previous_raw},
         {"role": "user", "content": rejection_message},
     ]
@@ -515,7 +725,7 @@ def correct_guard_blocked_patches(
     raw = ""
     patches: list[Patch] = []
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
-        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA)
+        response = ollama_chat(model=model, messages=messages, format=PATCHES_SCHEMA, think=bool(WRITER_THINK))
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt("writer_guard_correction_response", raw)

@@ -181,6 +181,27 @@ STATEGRAPH CONTEXT GUARANTEES — do NOT flag these as potential nil error state
 - `inst.AnimState`, `inst.Physics`, `inst.SoundEmitter`, `inst.Transform` — DST entity built-ins set up at entity creation, not via AddComponent. Never nil for a living entity with these built-ins active.
 - Entity built-ins are NOT components — do not apply component nil-guard checks to them. The component pattern `inst.components.X` requires a nil guard; entity built-ins (`inst.AnimState`, etc.) do not.
 
+**OSCILLATION GUARD — Stategraph built-in error states:** Do NOT oscillate between iterations on whether `inst.AnimState`, `inst.sg`, `inst.Physics`, `inst.SoundEmitter`, or `inst.Transform` require nil-guard error state documentation. Per STATEGRAPH CONTEXT GUARANTEES above, these are always non-nil in state handlers — once this was accepted or corrected in any prior iteration, do NOT re-raise it. `inst.components.X` still requires nil-guard checks; only entity built-ins are exempt.
+
+STATEGRAPH EVENTS RULE: For `## Events & listeners`, enumerate ALL `EventHandler("event_name", fn)` entries in the `events = {...}` table of the `StateGraph(...)` call. Each event name MUST appear in the doc. The section for a stategraph lists EventHandler entries (engine events the stategraph reacts to) — NOT `ListenForEvent` calls.
+If the doc says 'Listens to: None' but source has N EventHandlers, flag each missing event:
+{"issue": "EventHandler 'death' is defined in source events table but absent from ## Events & listeners.", "suggestion": "Add 'death' under EventHandlers in the Events & listeners section."}
+
+INJECTED STATES RULE: Calls like `CommonStates.AddSinkAndWashAshoreStates(states, ...)`, `CommonStates.AddVoidFallStates(states, ...)`, `SGWX78Common.AddWX78SpinStates(states)` inject additional states not defined inline in the StateGraph call. The state reference table in `## Properties` MUST include these injected states. Common injection mappings:
+- `AddSinkAndWashAshoreStates` → sink, washashore
+- `AddVoidFallStates`          → abyss_fall, voiddrop
+- `AddRowStates`               → rowing states (hop variants)
+- `AddHopStates`               → hop_pre, hop_loop, hop_pst
+- `AddWX78SpinStates`          → wx_spin_start, wx_spin
+- `AddWX78ShieldStates`        → wx_shield_pre, wx_shield_pst
+- `AddWX78ScreechStates`       → wx_screech_pre, wx_screech_pst
+- `AddWX78BakeState`           → wx bake state
+If any injection call exists in source but the resulting states are absent from the Properties state table, flag each missing state group:
+{"issue": "CommonStates.AddVoidFallStates injects 'abyss_fall' and 'voiddrop' states but neither appears in the ## Properties state reference table.", "suggestion": "Add abyss_fall and voiddrop rows to the state reference table in ## Properties."}
+
+ACTION HANDLERS SECTION RULE: If the stategraph defines `ActionHandler(ACTIONS.XXX, fn)` entries in the `actionhandlers = {}` argument to `StateGraph(...)`, the doc MUST have a `## Action Handlers` section listing each `ACTIONS` constant and what state it transitions to or behavior it triggers. If ActionHandler entries exist in source but `## Action Handlers` is absent:
+{"issue": "Stategraph defines N ActionHandler entries (ACTIONS.TOGGLEWXSCREECH, ...) but ## Action Handlers section is absent from the document.", "suggestion": "Add ## Action Handlers section listing each ACTIONS constant and its handler behavior."}
+
 ### Brain file checks
 - `OnStart()` is documented and the description names the root SelectorNode/SequenceNode children.
 - Local helper functions passed as callbacks to behaviour nodes are documented with `(local)` marker.
@@ -279,3 +300,24 @@ heading check to bypass. MUST be one of the standard required headings.
 special_case_reason MUST follow: "The document uses [NON-STANDARD NAME] instead of the standard
 [STANDARD NAME]. Reason: [Lua-backed evidence with line references]. This makes [NON-STANDARD NAME]
 more accurate because [specific consequence if standard name were used]."
+
+## Convergence Rule — Multi-iteration Review
+
+When `=== PREVIOUS ITERATION ISSUES ===` appears in the review context, this is a follow-up iteration. Apply these rules:
+
+**Budget:** At most **5 NEW findings** per follow-up iteration. Unresolved issues from the previous iteration do NOT count against this budget — always re-raise them.
+
+**Priority order for new findings:**
+1. Direct cascades from the previous patches (e.g., a fix created a new duplicate, a delete left a dangling reference)
+2. Wrong function signatures or hallucinated functions introduced by the previous writer
+3. Missing required sections (## Overview, ## Properties, etc.)
+
+**Do NOT add in follow-up iterations:**
+- Refinements or improvements to sections NOT touched by the previous writer patches
+- Issues that existed before iteration 1 but were not in the previous findings (they had their chance)
+- Cosmetic or wording improvements
+- Issues requiring structural section rearrangement (moving functions between sections) — if you raised this in a previous iteration and the writer could not fix it, do not re-raise it until a prior critical issue is resolved
+
+**Why this matters:** The writer applies patches sequentially. A 22-issue findings list leads to 22+ patches, most of which fail because earlier patches shifted the document text and made later `old_text` anchors stale. Focused reviews converge faster.
+
+**Exception:** If the document has a CRITICAL content error (hallucinated API, completely wrong function signatures throughout, missing required section) that would make the documentation misleading or unusable, report it regardless of iteration limit.

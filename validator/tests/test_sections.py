@@ -2,7 +2,7 @@
 import pytest
 from unittest.mock import patch
 from validator.content.sections import DocSection, split_md_sections, join_md_sections, extract_function_names
-from validator.content.sections import extract_lua_context
+from validator.content.sections import extract_lua_context, extract_section_lua_context
 
 
 def test_split_no_frontmatter():
@@ -480,3 +480,220 @@ def test_delete_fn_block_collapses_blank_lines():
     result = delete_fn_block(text, "Foo")
     assert not result.startswith("\n\n")
     assert "### `Bar(y)`" in result
+
+
+# ── stategraph helpers ──────────────────────────────────────────────────────
+
+from validator.content.sections import (
+    _is_stategraph,
+    extract_stategraph_event_names,
+    check_stategraph_events_null,
+)
+
+_SG_LUA = '''
+local SPEED = 6
+StateGraph("sg_test",
+    states, events, "idle", actionhandlers)
+events = {
+    EventHandler("death", function(inst) end),
+    EventHandler("freeze", function(inst) end),
+}
+'''
+
+_COMP_LUA = '''
+local MyComp = Class(function(self, inst) self.inst = inst end)
+function MyComp:GetOwner() return self.inst end
+'''
+
+
+def test_is_stategraph_detects():
+    assert _is_stategraph(_SG_LUA) is True
+
+
+def test_is_stategraph_component():
+    assert _is_stategraph(_COMP_LUA) is False
+
+
+def test_is_stategraph_empty():
+    assert _is_stategraph("") is False
+
+
+def test_extract_stategraph_event_names_basic():
+    assert extract_stategraph_event_names(_SG_LUA) == ["death", "freeze"]
+
+
+def test_extract_stategraph_event_names_none():
+    assert extract_stategraph_event_names(_COMP_LUA) == []
+
+
+def test_check_events_null_listens_to_none():
+    section = "## Events & listeners\n**Listens to:** None\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is True
+
+
+def test_check_events_null_bold_none():
+    section = "## Events & listeners\n**None.**\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is True
+
+
+def test_check_events_null_has_content():
+    section = "## Events & listeners\n**Listens to:** death, freeze\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is False
+
+
+def test_check_events_null_not_stategraph():
+    section = "## Events & listeners\n**Listens to:** None\n"
+    assert check_stategraph_events_null(section, _COMP_LUA) is False
+
+
+def test_check_events_null_no_eventhandlers():
+    lua = "StateGraph('sg_empty', states, {}, 'idle', {})\n"
+    section = "## Events & listeners\n**Listens to:** None\n"
+    assert check_stategraph_events_null(section, lua) is False
+
+
+def test_check_events_null_none_itself_bolded():
+    section = "## Events & listeners\n**Listens to:** **None**\n"
+    assert check_stategraph_events_null(section, _SG_LUA) is True
+
+
+# ── extract_section_lua_context — Events branch ─────────────────────────────
+
+_STATEGRAPH_EVENTS_LUA = '''\
+StateGraph("sg_test", states, events, "idle", {})
+events = {
+    EventHandler("death", function(inst)
+        inst.sg:GoToState("death")
+    end),
+    EventHandler("freeze", function(inst)
+        inst.sg:GoToState("frozen")
+    end),
+}
+'''
+
+_COMP_EVENTS_LUA = '''\
+local MyComp = Class(function(self, inst)
+    inst:ListenForEvent("onhit", function() self:OnHit() end)
+    inst:PushEvent("ready", {data=1})
+end)
+'''
+
+def test_events_context_includes_eventhandler():
+    result = extract_section_lua_context("## Events & listeners", _STATEGRAPH_EVENTS_LUA, 8000)
+    assert 'EventHandler("death"' in result
+    assert 'EventHandler("freeze"' in result
+
+
+def test_events_context_includes_listenforevent():
+    """Regression: existing ListenForEvent pattern still captured."""
+    result = extract_section_lua_context("## Events & listeners", _COMP_EVENTS_LUA, 8000)
+    assert "ListenForEvent" in result
+
+
+def test_events_context_includes_pushevent():
+    """Regression: existing PushEvent pattern still captured."""
+    result = extract_section_lua_context("## Events & listeners", _COMP_EVENTS_LUA, 8000)
+    assert "PushEvent" in result
+
+
+def test_events_context_empty_when_no_events():
+    lua = "function DoThing(inst) return nil end\n"
+    result = extract_section_lua_context("## Events & listeners", lua, 8000)
+    assert result == ""
+
+
+# ── extract_section_lua_context — Properties branch ─────────────────────────
+
+_STATEGRAPH_PROPS_LUA = '''\
+local SPEED = 6
+local ATTACK_PROP = "fast"
+StateGraph("sg_wx78", states, events, "idle", actionhandlers)
+CommonStates.AddSinkAndWashAshoreStates(states, {
+    sink = "sink",
+    washashore = "washashore",
+})
+CommonStates.AddVoidFallStates(states, {})
+SGWX78Common.AddWX78SpinStates(states)
+states = {
+    State{name = "idle", tags = {"idle"}},
+    State{name = "attack", tags = {"attack", "busy"}},
+}
+'''
+
+_COMP_PROPS_LUA = '''\
+local MyComp = Class(function(self, inst)
+    self.inst = inst
+    self.speed = 6
+end)
+function MyComp:GetSpeed() return self.speed end
+'''
+
+
+def test_properties_stategraph_includes_commonstate_calls():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "CommonStates.AddSinkAndWashAshoreStates" in result
+    assert "CommonStates.AddVoidFallStates" in result
+
+
+def test_properties_stategraph_includes_sg_common_calls():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "SGWX78Common.AddWX78SpinStates" in result
+
+
+def test_properties_stategraph_includes_state_names():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "-- States defined inline:" in result
+    assert "idle" in result
+    assert "attack" in result
+
+
+def test_properties_stategraph_includes_constants():
+    result = extract_section_lua_context("## Properties", _STATEGRAPH_PROPS_LUA, 8000)
+    assert "SPEED" in result
+    assert "ATTACK_PROP" in result
+
+
+def test_properties_stategraph_header_only():
+    """Minimal stategraph with no constants/injections still returns StateGraph header."""
+    lua = 'StateGraph("sg_empty", {}, {}, "idle", {})\n'
+    result = extract_section_lua_context("## Properties", lua, 8000)
+    assert 'StateGraph("sg_empty"' in result
+
+
+def test_properties_component_uses_class_path():
+    """Regression: component files still use Class() constructor extraction."""
+    result = extract_section_lua_context("## Properties", _COMP_PROPS_LUA, 8000)
+    assert "self.speed" in result
+
+
+# ── extract_section_lua_context — Action Handlers branch ────────────────────
+
+_ACTION_HANDLERS_LUA = '''\
+StateGraph("sg_wx78", states, events, "idle",
+{
+    ActionHandler(ACTIONS.TOGGLEWXSCREECH, function(inst)
+        inst.sg:GoToState("wx_screech_pre")
+    end),
+    ActionHandler(ACTIONS.TOGGLEWXSHIELDING, function(inst)
+        inst.sg:GoToState("wx_shield_pre")
+    end),
+})
+'''
+
+
+def test_action_handlers_context_basic():
+    result = extract_section_lua_context("## Action Handlers", _ACTION_HANDLERS_LUA, 8000)
+    assert "ActionHandler(ACTIONS.TOGGLEWXSCREECH" in result
+    assert "ActionHandler(ACTIONS.TOGGLEWXSHIELDING" in result
+
+
+def test_action_handlers_context_empty_when_none():
+    lua = "function DoThing(inst) return nil end\n"
+    result = extract_section_lua_context("## Action Handlers", lua, 8000)
+    assert result == ""
+
+
+def test_action_handlers_context_unknown_section_still_empty():
+    """Regression: unknown headings still return ''."""
+    result = extract_section_lua_context("## Totally Unknown", _ACTION_HANDLERS_LUA, 8000)
+    assert result == ""

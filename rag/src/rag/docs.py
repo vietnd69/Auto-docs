@@ -112,6 +112,8 @@ def clean_model_output(text: str) -> str:
     2. Xóa markdown code fence nếu model vẫn bọc output
     """
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    if '</think>' in text:
+        text = text[text.index('</think>') + len('</think>'):]
     text = text.strip()
     text = re.sub(r'^```\w*\n?', '', text)
     text = re.sub(r'\n?```$', '', text)

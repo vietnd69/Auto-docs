@@ -173,6 +173,99 @@ def test_multiple_sections_partial_failure(tmp_path):
     assert "Beta wrong" in result.final_issues
 
 
+def _rejected_many(section: str, findings: list[dict]):
+    """Helper: reviewer response with multiple findings."""
+    body = json.dumps({"approved": False, "findings": findings})
+    return {"message": {"content": body}}
+
+
+def _update_section_op(section: str, content: str):
+    body = json.dumps([{"op": "update_section", "section": section,
+                        "function": None, "field": None, "value": None, "content": content}])
+    return {"message": {"content": body}}
+
+
+def test_oscillation_counter_increments_once_per_writer_call(tmp_path):
+    """Multiple findings with the same (function, field, rule_id) in one iter count as 1 attempt.
+
+    Regression: 2 EXTRA_ENTRY findings for the same field used to increment
+    attempt_counts by 2 in a single writer call, blocking any repeat in iter 2.
+    """
+    md_content = (
+        "---\ntitle: Test\n---\n"
+        "## Dependencies & tags\n\n"
+        "**Tags:**\n- `busy` — added\n- `idle` — added\n\n"
+    )
+    md, lua = _write_fixtures(tmp_path, md_content)
+    fixed = "## Dependencies & tags\n\n**Tags:** None\n\n"
+
+    iter1 = _rejected_many("## Dependencies & tags", [
+        {"section": "## Dependencies & tags", "function": None, "field": "Tags",
+         "rule_id": "EXTRA_ENTRY", "issue": "busy is state tag"},
+        {"section": "## Dependencies & tags", "function": None, "field": "Tags",
+         "rule_id": "EXTRA_ENTRY", "issue": "idle is state tag"},
+    ])
+    writer1 = _update_section_op("## Dependencies & tags", fixed)
+    # Iter 2: same rule_id re-appears; cnt must be 1 (inject), NOT 2 (blocked).
+    iter2 = _rejected_many("## Dependencies & tags", [
+        {"section": "## Dependencies & tags", "function": None, "field": "Tags",
+         "rule_id": "EXTRA_ENTRY", "issue": "busy still present"},
+    ])
+    writer2 = _update_section_op("## Dependencies & tags", fixed)
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=[
+        iter1, writer1,   # iter 1
+        iter2, writer2,   # iter 2 (would be blocked without fix)
+        _approved(),      # iter 3
+    ]):
+        result = run_chunked_content_loop(md, lua, _config())
+
+    assert result.approved is True
+    assert result.final_issues == []
+
+
+def test_oscillation_different_rule_ids_get_independent_counters(tmp_path):
+    """EXTRA_ENTRY and WRONG_USAGE_DESC for the same field have independent attempt counts.
+
+    Regression: N EXTRA_ENTRY findings for field="Tags" in iter 1 set
+    attempt_counts[(None, "Tags")] = N, causing a WRONG_USAGE_DESC finding for the
+    same field in iter 2 to be blocked even though it was never attempted.
+    """
+    md_content = (
+        "---\ntitle: Test\n---\n"
+        "## Dependencies & tags\n\n"
+        "**Tags:**\n- `busy` — added\n- `mime` — added\n\n"
+    )
+    md, lua = _write_fixtures(tmp_path, md_content)
+    fixed1 = "## Dependencies & tags\n\n**Tags:**\n- `mime` — added\n\n"
+    fixed2 = "## Dependencies & tags\n\n**Tags:**\n- `mime` — checked\n\n"
+
+    # Iter 1: 2 EXTRA_ENTRY → writer removes busy
+    iter1 = _rejected_many("## Dependencies & tags", [
+        {"section": "## Dependencies & tags", "function": None, "field": "Tags",
+         "rule_id": "EXTRA_ENTRY", "issue": "busy is state tag"},
+        {"section": "## Dependencies & tags", "function": None, "field": "Tags",
+         "rule_id": "EXTRA_ENTRY", "issue": "idle is state tag"},
+    ])
+    writer1 = _update_section_op("## Dependencies & tags", fixed1)
+    # Iter 2: WRONG_USAGE_DESC for same field — must NOT be blocked (different rule_id)
+    iter2 = _rejected_many("## Dependencies & tags", [
+        {"section": "## Dependencies & tags", "function": None, "field": "Tags",
+         "rule_id": "WRONG_USAGE_DESC", "issue": "mime says added but only checked"},
+    ])
+    writer2 = _update_section_op("## Dependencies & tags", fixed2)
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=[
+        iter1, writer1,   # iter 1
+        iter2, writer2,   # iter 2 (WRONG_USAGE_DESC would be blocked without fix)
+        _approved(),      # iter 3
+    ]):
+        result = run_chunked_content_loop(md, lua, _config())
+
+    assert result.approved is True
+    assert result.final_issues == []
+
+
 # ── classify_lua_functions tests ─────────────────────────────────────────────
 
 from validator.content.sections import (
@@ -727,3 +820,93 @@ def test_writer_op_for_missing_section_no_crash(tmp_path):
         result = run_chunked_content_loop(md, lua, _config())
     # Should complete without exception
     assert isinstance(result.approved, bool)
+
+
+# ── stategraph events guard ──────────────────────────────────────────────────
+
+_SG_EVENTS_MD = (
+    "---\ntitle: SGTest\n---\n"
+    "## Events & listeners\n"
+    "**Listens to:** None\n\n"
+)
+
+_SG_EVENTS_LUA = (
+    'StateGraph("sg_test", states, events, "idle", {})\n'
+    'events = {\n'
+    '    EventHandler("death", function(inst) end),\n'
+    '    EventHandler("freeze", function(inst) end),\n'
+    '}\n'
+)
+
+_COMP_EVENTS_MD = (
+    "---\ntitle: CompTest\n---\n"
+    "## Events & listeners\n"
+    "**Listens to:** None\n\n"
+)
+
+_COMP_EVENTS_LUA = (
+    "local MyComp = Class(function(self, inst) self.inst = inst end)\n"
+    "function MyComp:GetOwner() return self.inst end\n"
+)
+
+
+def _update_section_op(section, content):
+    body = json.dumps([{
+        "op": "update_section",
+        "section": section,
+        "function": None, "field": None, "value": None,
+        "content": content,
+    }])
+    return {"message": {"content": body}}
+
+
+def test_events_guard_fires_for_stategraph_null(tmp_path):
+    """Guard pre-pass calls writer when stategraph doc claims no events."""
+    md = tmp_path / "sg.md"
+    lua = tmp_path / "sg.lua"
+    md.write_text(_SG_EVENTS_MD, encoding="utf-8")
+    lua.write_text(_SG_EVENTS_LUA, encoding="utf-8")
+
+    corrected_content = (
+        "## Events & listeners\n"
+        "**EventHandlers:** death, freeze\n"
+    )
+    calls = []
+
+    def mock_ollama(model, messages, **kwargs):
+        calls.append(messages)
+        if len(calls) == 1:
+            return _update_section_op("## Events & listeners", corrected_content)
+        return _approved()
+
+    config = ContentLoopConfig(stop_check=lambda: False, max_iterations=3)
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=mock_ollama):
+        result = run_chunked_content_loop(str(md), str(lua), config)
+
+    assert len(calls) >= 1
+    final = md.read_text(encoding="utf-8")
+    assert "death" in final or "freeze" in final or "EventHandler" in final
+
+
+def test_events_guard_does_not_fire_for_non_stategraph(tmp_path):
+    """Guard must NOT fire for component files even if Events section says None."""
+    md = tmp_path / "comp.md"
+    lua = tmp_path / "comp.lua"
+    md.write_text(_COMP_EVENTS_MD, encoding="utf-8")
+    lua.write_text(_COMP_EVENTS_LUA, encoding="utf-8")
+
+    calls = []
+
+    def mock_ollama(model, messages, **kwargs):
+        calls.append(messages)
+        return _approved()
+
+    config = ContentLoopConfig(stop_check=lambda: False, max_iterations=3)
+
+    with patch("validator.content.chunked.ollama_chat", side_effect=mock_ollama):
+        result = run_chunked_content_loop(str(md), str(lua), config)
+
+    assert result.approved is True
+    final = md.read_text(encoding="utf-8")
+    assert "Listens to:** None" in final

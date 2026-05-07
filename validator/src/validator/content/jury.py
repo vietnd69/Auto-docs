@@ -17,6 +17,7 @@ from llm.settings import BAD_RESPONSE_RETRIES, DEBUG_PROMPTS, JURY_TEMPERATURE, 
 from validator.content.schemas import JURY_VOTE_SCHEMA
 from llm.tokens import count_tokens
 from validator.content.prompts import build_jury_prompt
+from validator.content.guards import is_runaway, validate_jury_schema, compact_bad_response
 
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
 
@@ -44,9 +45,10 @@ class JuryVerdict:
 
 def _vote_once(messages: list[dict], model: str, vote_index: int = 0) -> tuple[bool, str]:
     """Call one LLM jury member. Returns (vote_yes, reason)."""
+    msgs = list(messages)  # local copy for multi-turn correction within this vote
     for attempt in range(BAD_RESPONSE_RETRIES + 1):
         try:
-            response = ollama_chat(model=model, messages=messages, temperature=JURY_TEMPERATURE, format=JURY_VOTE_SCHEMA)
+            response = ollama_chat(model=model, messages=msgs, temperature=JURY_TEMPERATURE, format=JURY_VOTE_SCHEMA)
         except Exception as e:
             if attempt < BAD_RESPONSE_RETRIES:
                 time.sleep(2)
@@ -55,19 +57,51 @@ def _vote_once(messages: list[dict], model: str, vote_index: int = 0) -> tuple[b
         raw = response["message"]["content"]
         if DEBUG_PROMPTS:
             _dump_prompt(f"jury_response_v{vote_index}", raw)
+        remaining = BAD_RESPONSE_RETRIES - attempt
+
+        # Layer 1: runaway detection
+        if is_runaway(raw):
+            if remaining > 0:
+                msgs.append({"role": "assistant", "content": compact_bad_response(raw)})
+                msgs.append({"role": "user", "content": (
+                    "[BAD RESPONSE GUARD] Respond ONLY with a JSON object: "
+                    '{"vote": "yes" or "no", "reason": "<string>"}'
+                )})
+                time.sleep(2)
+            continue
+
+        # Layer 2: JSON parse
         cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
         cleaned = re.sub(r'\n?```\s*$', '', cleaned)
         cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
         try:
             data = json.loads(cleaned)
-            vote = str(data.get("vote", "no")).lower().strip()
-            reason = str(data.get("reason", ""))
-            return vote == "yes", reason
         except (json.JSONDecodeError, TypeError):
-            if attempt < BAD_RESPONSE_RETRIES:
+            if remaining > 0:
+                msgs.append({"role": "assistant", "content": compact_bad_response(raw)})
+                msgs.append({"role": "user", "content": (
+                    "[BAD RESPONSE GUARD] Invalid JSON. Respond ONLY with: "
+                    '{"vote": "yes" or "no", "reason": "<string>"}'
+                )})
                 time.sleep(2)
-                continue
-    return False, "Failed to parse jury response"
+            continue
+
+        # Layer 3: schema validation
+        if not validate_jury_schema(data):
+            if remaining > 0:
+                msgs.append({"role": "assistant", "content": compact_bad_response(raw)})
+                msgs.append({"role": "user", "content": (
+                    "[BAD RESPONSE GUARD] Missing required fields. "
+                    'Respond with: {"vote": "yes" or "no", "reason": "<string>"}'
+                )})
+                time.sleep(2)
+            continue
+
+        vote = str(data.get("vote", "no")).lower().strip()
+        reason = str(data.get("reason", ""))
+        return vote == "yes", reason
+
+    return False, "Failed to parse jury response after all attempts"
 
 
 def run_jury(

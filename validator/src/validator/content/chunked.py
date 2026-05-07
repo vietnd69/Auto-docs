@@ -33,11 +33,13 @@ from validator.content.sections import (
     DocSection,
     _canonical_fn_name,
     apply_typed_ops,
+    check_stategraph_events_null,
     classify_lua_functions,
     ensure_required_fields,
     extract_function_names,
     extract_lua_context,
     extract_section_lua_context,
+    extract_stategraph_event_names,
     join_md_sections,
     normalize_fn_headings,
     prefilter_fn_blocks,
@@ -45,6 +47,7 @@ from validator.content.sections import (
     split_section_blocks,
     sub_chunk_section_lua_aware,
 )
+# Leave unchanged: from validator.content.reviewer import Finding, parse_findings_json
 from validator.content.writer import TypedOp, parse_typed_ops_json
 
 _DATA_CONFIG_DIRS = {"map", "languages", "util"}
@@ -56,6 +59,7 @@ _STRUCTURAL_HEADINGS = {
     "## Properties",
     "## Main functions",
     "## Events & listeners",
+    "## Action Handlers",    # stategraph-specific; no-op for docs that lack this section
 }
 _NARRATIVE_HEADINGS = {"## Overview", "## Usage example"}
 
@@ -95,7 +99,10 @@ def _try_parse_json(raw: str) -> dict | list | None:
     """Strip fences and think-tags then parse JSON. Returns None on failure."""
     cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
     cleaned = re.sub(r'\n?```\s*$', '', cleaned)
-    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned).strip()
+    cleaned = re.sub(r'<think>[\s\S]*?</think>', '', cleaned)
+    if '</think>' in cleaned:
+        cleaned = cleaned[cleaned.index('</think>') + len('</think>'):]
+    cleaned = cleaned.strip()
     try:
         import json
         return json.loads(cleaned)
@@ -277,7 +284,8 @@ def _call_writer_batch(
             model=config.writer_model,
             messages=messages,
             format=TYPED_OPS_LIST_SCHEMA,
-            options={"temperature": WRITER_TEMPERATURE, "think": WRITER_THINK},
+            temperature=WRITER_TEMPERATURE,
+            think=bool(WRITER_THINK),
         )
         raw = resp["message"]["content"]
         if DEBUG_PROMPTS:
@@ -368,13 +376,13 @@ def _run_typed_loop(
         for fi, finding in enumerate(findings, 1):
             fn_label = finding.function or "(section-level)"
             target_text = _extract_target_text(text, finding)
-            pair = (finding.function, finding.field)
+            pair = (finding.function, finding.field, finding.rule_id)
             cnt = attempt_counts.get(pair, 0)
             if target_text is None:
                 # Cross-batch hallucination: function lives in another batch.
                 if cnt < 2:
                     unfixed_findings.append(finding)
-                    attempt_counts[pair] = cnt + 1
+                    attempt_counts[pair] = cnt + 1  # cross-batch: safe to increment directly (1 skip = 1 attempt)
                 print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] '{fn_label}' not in batch — skip")
                 continue
             any_actionable = True
@@ -439,10 +447,15 @@ def _run_typed_loop(
                     text = new_text
                 cache.write(cache_id, text)
 
-                # Update oscillation tracking — compare per-function text before/after
+                # Update oscillation tracking — compare per-function text before/after.
+                # Increment at most once per unique (function, field, rule_id) pair per writer
+                # call to avoid over-counting when multiple findings share the same pair.
+                pairs_incremented: set[tuple] = set()
                 for finding in actionable:
-                    pair = (finding.function, finding.field)
-                    attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                    pair = (finding.function, finding.field, finding.rule_id)
+                    if pair not in pairs_incremented:
+                        attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                        pairs_incremented.add(pair)
                     fn_before = _extract_target_text(text_before, finding)
                     fn_after  = _extract_target_text(text, finding)
                     if fn_before is not None and fn_after is not None and fn_before != fn_after:
@@ -642,7 +655,46 @@ def run_chunked_content_loop(
                 save_validator_checkpoint(md_filepath, cache.cache_dir, completed_sections, total_iterations, all_issues)
                 continue
 
-            # Create cache for this section
+            # ── Stategraph events guard (pre-pass before LLM loop) ───────────
+            # If the events section claims "None" but source has EventHandlers,
+            # call the writer directly to pre-correct before the normal loop.
+            # CRITICAL: must update section.text BEFORE cache.create so the
+            # loop reads the corrected content, not the broken original.
+            if (section.heading == "## Events & listeners"
+                    and check_stategraph_events_null(section.text, lua_source)):
+                event_names = extract_stategraph_event_names(lua_source)
+                forced_finding = Finding(
+                    section=section.heading,
+                    function=None,
+                    field=None,
+                    rule_id="MISSING_EVENT",
+                    issue=(
+                        f"Section claims no events but source defines "
+                        f"{len(event_names)} EventHandler(s): "
+                        f"{', '.join(event_names)}. "
+                        "Rewrite Events & listeners to list all EventHandlers."
+                    ),
+                )
+                forced_ops = _call_writer_batch(
+                    section.text, lua_ctx, [forced_finding], config, file_type
+                )
+                if forced_ops:
+                    dummy = DocSection(heading=section.heading, text=section.text)
+                    corrected = apply_typed_ops([dummy], forced_ops, frontmatter="")
+                    if corrected[0].text != section.text:
+                        section.text = corrected[0].text
+                        print(
+                            f"  [content/chunked] events guard: pre-corrected "
+                            f"'None' → {len(event_names)} EventHandler(s)"
+                        )
+                    else:
+                        print(
+                            "  [content/chunked] events guard: writer returned no change "
+                            "— falling through to normal loop"
+                        )
+            # ── end events guard ─────────────────────────────────────────────
+
+            # Create cache for this section (AFTER guard pre-pass)
             sec_cache_id = f"sec{sec_idx}"
             cache.create(sec_cache_id, section.text)
 

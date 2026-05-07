@@ -64,12 +64,24 @@ If it appears 2 or more times, you MUST include additional context lines to make
 RULE: Include the ### function heading (and enough lines below it) as prefix context
 whenever the target line is repeated across functions.
 
+## CRITICAL: Copy old_text verbatim — never re-escape characters
+
+old_text must be copied CHARACTER FOR CHARACTER from the document as shown in the prompt.
+Do NOT escape characters when writing old_text in JSON:
+- Write `"` as `"` — NEVER as `\"` or `\\"`
+- Write a newline as an actual newline (or `\n` in JSON) — NEVER as `\\n`
+- Write `\` as `\` — NEVER as `\\` unless the document literally contains `\\`
+
+The most common failure: copying a Lua string like `require("widgets/foo")` and writing
+`old_text: "require(\\\"widgets/foo\\\")"` — this encodes literal `\"` characters, not `"`.
+The correct encoding in your JSON output is: `old_text: "require(\"widgets/foo\")"`.
+
 ## Common Patterns (Always Repeated — Must Be Anchored)
 
 These strings appear in nearly every function that takes common arguments.
 Using them alone as old_text will ALWAYS fail. You MUST anchor them:
 
-  WRONG — will be skipped (appears 5–11 times):
+  WRONG — will be skipped (appears 5–24 times):
     "old_text": "  - `inst` (entity) -- Entity instance"
     "old_text": "  - `inst` -- entity instance"
     "old_text": "  - `self` -- component instance"
@@ -85,9 +97,33 @@ Using them alone as old_text will ALWAYS fail. You MUST anchor them:
     "old_text": "* **Returns:** number"
     "old_text": "* **Returns:** string"
     "old_text": "* **Returns:** string (sound path)"
+    "old_text": "* **Error states:** None."
+    "old_text": "* **Error states:** None"
 
   RIGHT — anchored to a specific function (unique):
     "old_text": "### `SomeFunction`\n* **Parameters:**\n  - `inst` (entity) -- Entity instance"
+
+  RIGHT — Error states anchored via the preceding Returns line (always adjacent):
+    "old_text": "* **Returns:** nil\n* **Error states:** None"  ← if unique in document
+    OR include more context if Returns line is also repeated:
+    "old_text": "### `SomeFunction`\n* **Description:** ...\n* **Parameters:** ...\n* **Returns:** nil\n* **Error states:** None"
+
+## CRITICAL: old_text Must Be Contiguous
+
+old_text is a SUBSTRING match — it must appear verbatim as consecutive characters in the document.
+You CANNOT skip lines. Every line between your start and end lines MUST be included.
+
+WRONG — heading + Error states with lines skipped in between:
+  "old_text": "### `onenter (spawn)`\n* **Error states:** None"
+
+This FAILS because the document has Description, Parameters, Returns BETWEEN the heading and
+Error states. The heading is NOT immediately followed by Error states.
+
+RIGHT — use the line that immediately precedes Error states as the anchor:
+  "old_text": "* **Returns:** nil\n* **Error states:** None"
+
+OR include the full block if Returns line is repeated:
+  "old_text": "### `onenter (spawn)`\n* **Description:** ...\n* **Parameters:** ...\n* **Returns:** nil\n* **Error states:** None"
 
 ## Anchoring Example
 
@@ -107,6 +143,43 @@ RIGHT patch (unique — anchored to the function heading):
     "new_text": "### `GetNearestPlayer`\n* **Parameters:**\n  - `inst` (entity) -- The entity querying for nearby players",
     "reason": "Clarify inst description for GetNearestPlayer"
   }
+
+## Handling Duplicate Function Entries
+
+When the reviewer reports a **duplicate function entry** (same `### ` heading appearing twice in the document):
+
+**RULE: DELETE the wrong duplicate — NEVER rename it.**
+
+Renaming the wrong duplicate to match the correct one creates TWO entries with identical signatures. This makes both entries permanently AMBIGUOUS — future patches can never uniquely target either. The validator loop cannot recover from this state.
+
+**Step-by-step:**
+1. Identify which entry has the WRONG signature by comparing to the Lua source
+2. Delete the WRONG entry using `new_text: ""` with `"allow_drops": true`
+3. Do NOT modify the CORRECT entry
+
+**Correct pattern — delete the wrong duplicate:**
+```json
+{
+  "old_text": "### `DoEatSound(inst, isheavy)`\n* **Description:** Plays sound effects for eating actions.\n* **Parameters:**\n  - `inst` -- Entity instance owning the stategraph\n  - `isheavy` -- Boolean indicating if heavy lifting is active\n* **Returns:** nil\n* **Error states:** None",
+  "new_text": "",
+  "reason": "Remove duplicate DoEatSound with wrong signature — source defines overrideexisting, not isheavy",
+  "allow_drops": true
+}
+```
+
+**Wrong pattern — renames the wrong duplicate (DO NOT DO THIS):**
+```json
+{
+  "old_text": "### `DoEatSound(inst, isheavy)`",
+  "new_text": "### `DoEatSound(inst, overrideexisting)`",
+  "reason": "Fix parameter name"
+}
+```
+This makes both entries identical → both become AMBIGUOUS → loop cannot fix them → document stuck forever.
+
+**Identifying which is correct:** Compare the parameter names against the Lua source provided in context. The entry whose `params` matches the source function definition is the correct one. Delete the other.
+
+**old_text must span the full function block:** To delete a function entry, `old_text` must be the entire `### ` block (heading + all bullet fields). Use `allow_drops: true`. Anchor the old_text with the function heading and include at least 3 lines of content to ensure uniqueness.
 
 ## Additional Rules
 

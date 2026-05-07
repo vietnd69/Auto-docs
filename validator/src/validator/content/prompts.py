@@ -129,25 +129,11 @@ replaced (e.g. "## Main functions"). This tells the system which specific headin
     return system_prompt, user_content
 
 
-def build_writer_prompt(
-    md_content: str,
-    lua_source: str,
-    connected_content: str,
-    issues: list[str],
-    suggestions: list[str],
-) -> tuple[str, str]:
-    """Build (system_prompt, user_content) for LLM1 (writer) to fix documentation based on review feedback."""
-    feedback_lines = []
-    for i, issue in enumerate(issues, 1):
-        suggestion = suggestions[i - 1] if i - 1 < len(suggestions) else ""
-        feedback_lines.append(f"{i}. Issue: {issue}")
-        if suggestion:
-            feedback_lines.append(f"   Suggestion: {suggestion}")
-    feedback = "\n".join(feedback_lines)
-
-    connected_block = connected_content if connected_content else "(none)"
-
-    system_prompt = f"""You are a documentation writer for Don't Starve Together (DST) Lua API documentation.
+def build_writer_system_prompt() -> str:
+    """Writer system prompt only — skills + patch format rules, no document context.
+    Used by multi-turn correction calls that need the system separately from the user content.
+    """
+    return f"""You are a documentation writer for Don't Starve Together (DST) Lua API documentation.
 Your task: fix the documentation based on reviewer feedback. Return ONLY targeted patches, not the entire document.
 
 === SKILLS ===
@@ -175,11 +161,61 @@ Rules:
 - Do NOT modify YAML frontmatter
 - Preserve markdown formatting and structure
 - old_text should target ONE ### function block — prefer one patch per function
+- UNIQUENESS RULE: When patching a field inside a function (e.g., "Error states", "Returns", "Description"), START old_text with the exact `### heading line` of that function, not just the field value. A bare field line like `* **Returns:** nil` appears in dozens of functions and will be AMBIGUOUS — always anchor from the `### heading`.
 - To DELETE a single function: old_text = that function's block only, new_text = ""
 - To DELETE multiple contiguous functions at once (e.g., a group of local helpers): span all their ### blocks in old_text, set "allow_drops": true, new_text = "" to remove all of them. Only use allow_drops when the reviewer explicitly asks to remove functions (e.g., local/private functions not in public API).
 - To ADD a new ### function: use the last 1-2 lines of an adjacent function as the anchor, then include those lines plus the new function block in new_text
 - NEVER delete a ## section — never use empty new_text for a ## heading or its content. To rename a ## heading: old_text = the heading line only (e.g. "## OldName"), new_text = the new heading line (e.g. "## NewName")
 - For ## Events & listeners with no real content: replace the section body with `**None.**` — the heading MUST stay. Never produce a patch that removes the `## Events & listeners` line."""
+
+
+def build_writer_slim_user(
+    md_content: str,
+    issues: list[str],
+    suggestions: list[str],
+    user_prefix: str = "",
+) -> str:
+    """Lightweight user content for subsequent writer passes in a multi-turn context.
+    Omits lua_source and connected_content — those are already in the first turn.
+    """
+    feedback_lines = []
+    for i, issue in enumerate(issues, 1):
+        suggestion = suggestions[i - 1] if i - 1 < len(suggestions) else ""
+        feedback_lines.append(f"{i}. Issue: {issue}")
+        if suggestion:
+            feedback_lines.append(f"   Suggestion: {suggestion}")
+    feedback = "\n".join(feedback_lines)
+    prefix = user_prefix + "\n" if user_prefix else ""
+    section_headings = re.findall(r'^(## .+)$', md_content, re.MULTILINE)
+    fn_headings = re.findall(r'^(### .+)$', md_content, re.MULTILINE)
+    headings_block = "\n".join(section_headings + fn_headings) if (section_headings or fn_headings) else "(none)"
+    return (
+        f"{prefix}"
+        f"=== HEADINGS IN CURRENT DOCUMENT (ONLY generate old_text from headings that appear here) ===\n"
+        f"{headings_block}\n\n"
+        f"=== CURRENT DOCUMENT ===\n{md_content}\n\n"
+        f"=== REVIEWER FEEDBACK ===\n{feedback}"
+    )
+
+
+def build_writer_prompt(
+    md_content: str,
+    lua_source: str,
+    connected_content: str,
+    issues: list[str],
+    suggestions: list[str],
+) -> tuple[str, str]:
+    """Build (system_prompt, user_content) for LLM1 (writer) to fix documentation based on review feedback."""
+    feedback_lines = []
+    for i, issue in enumerate(issues, 1):
+        suggestion = suggestions[i - 1] if i - 1 < len(suggestions) else ""
+        feedback_lines.append(f"{i}. Issue: {issue}")
+        if suggestion:
+            feedback_lines.append(f"   Suggestion: {suggestion}")
+    feedback = "\n".join(feedback_lines)
+
+    connected_block = connected_content if connected_content else "(none)"
+    system_prompt = build_writer_system_prompt()
 
     exported_names = extract_lua_exported_names(lua_source)
     if exported_names:
@@ -376,6 +412,8 @@ _RULE_IDS_BY_SECTION: dict[str, list[str]] = {
     "## Main functions":       ["WRONG_VALUE", "MISSING_PARAM", "EXTRA_PARAM", "WRONG_DESCRIPTION",
                                "WRONG_ERROR_STATE", "MISPLACED_ERROR_STATE"],
     "## Events & listeners":   ["MISSING_EVENT", "WRONG_EVENT_NAME"],
+    "## Action Handlers":      ["MISSING_ACTION_HANDLER", "WRONG_ACTION_HANDLER",
+                               "EXTRA_ACTION_HANDLER"],
 }
 
 

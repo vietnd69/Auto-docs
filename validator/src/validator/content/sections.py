@@ -592,6 +592,35 @@ def _truncate_blocks_to_lua_limit(blocks: list[str], limit: int = LUA_CONTEXT_TO
     return result
 
 
+def _is_stategraph(lua_source: str) -> bool:
+    """Return True if lua_source defines a StateGraph."""
+    return bool(re.search(r'\bStateGraph\s*\(', lua_source))
+
+
+def extract_stategraph_event_names(lua_source: str) -> list[str]:
+    """Return event names from all EventHandler("name", fn) entries in lua_source."""
+    return re.findall(r'EventHandler\s*\(\s*"([^"]+)"', lua_source)
+
+
+def check_stategraph_events_null(section_text: str, lua_source: str) -> bool:
+    """True if doc claims no events but source has EventHandler entries.
+
+    Only applies to stategraph files. Guards against the pattern where the
+    validator approves 'Listens to: None' despite N EventHandlers in source.
+    Known limitation: does not detect all phrasings — 'None.' or '**None**'
+    without period are not caught; the LLM loop with improved context handles those.
+    """
+    if not _is_stategraph(lua_source):
+        return False
+    if not extract_stategraph_event_names(lua_source):
+        return False
+    text_lower = section_text.lower()
+    # "listens to:" followed by any combination of bold markers/whitespace then "none"
+    listens_to_none = bool(re.search(r'listens to:[\s*]*none\b', text_lower))
+    bold_none = "**none.**" in text_lower and "eventhandler" not in text_lower
+    return listens_to_none or bold_none
+
+
 def extract_section_lua_context(
     section_heading: str,
     lua_source: str,
@@ -631,40 +660,69 @@ def extract_section_lua_context(
         blocks = ["\n".join(dep_lines)] if dep_lines else []
 
     elif section_heading == "## Properties":
-        class_match = re.search(r'\bClass\s*\(', lua_source)
-        if class_match:
-            # Extract constructor body: from the Class( line to the closing end)
-            # The constructor argument is function(self, inst) ... end)
-            # Find the closing end) that closes the Class( call, then capture
-            # everything from the start of the Class line up to that point.
-            start = lua_source.rfind("\n", 0, class_match.start()) + 1
-            tail = lua_source[class_match.end():]
-            # Find the constructor's closing 'end)' — first occurrence after Class(
-            end_paren_match = re.search(r'\bend\s*\)', tail)
-            if end_paren_match:
-                end = class_match.end() + end_paren_match.end()
-            else:
-                # Fallback: up to next top-level function after skipping one fn keyword
-                after_first_fn = re.sub(r'function\b', '', tail, count=1)
-                end_match = re.search(r'(?m)^(local\s+)?function\b', after_first_fn)
-                end = class_match.end() + end_match.start() if end_match else len(lua_source)
-            blocks = [lua_source[start:end]]
+        if _is_stategraph(lua_source):
+            # Stategraph: file-scope constants + CommonStates/character-specific injections
+            # + StateGraph call header + synthesized state name list.
+            # Known limitation: character-specific injection modules without 'SG' prefix
+            # (e.g. WillowCommon) are not matched by SG\w+Common pattern.
+            sg_lines: list[str] = []
+            for line in lines:
+                stripped = line.rstrip("\n")
+                if (re.match(r'^local\s+[A-Z_]+\s*=', stripped)
+                        or re.search(r'CommonStates\.\w+\s*\(', stripped)
+                        or re.search(r'SG\w+Common\.\w+\s*\(', stripped)
+                        or re.search(r'\bStateGraph\s*\(', stripped)):
+                    sg_lines.append(stripped)
+            state_names = re.findall(r'\bState\s*\{\s*name\s*=\s*"([^"]+)"', lua_source)
+            if state_names:
+                sg_lines.append(f"-- States defined inline: {', '.join(state_names)}")
+            blocks = ["\n".join(sg_lines)] if sg_lines else []
         else:
-            # Utility module fallback: module-level constants + table assignments
-            prop_lines = [
-                line.rstrip("\n")
-                for line in lines
-                if re.match(r'^local\s+[A-Z_]+\s*=', line)
-                or re.match(r'^\w+\.\w+\s*=', line)
-            ]
-            blocks = ["\n".join(prop_lines)] if prop_lines else []
+            # existing Class() constructor + utility fallback (unchanged)
+            class_match = re.search(r'\bClass\s*\(', lua_source)
+            if class_match:
+                # Extract constructor body: from the Class( line to the closing end)
+                # The constructor argument is function(self, inst) ... end)
+                # Find the closing end) that closes the Class( call, then capture
+                # everything from the start of the Class line up to that point.
+                start = lua_source.rfind("\n", 0, class_match.start()) + 1
+                tail = lua_source[class_match.end():]
+                # Find the constructor's closing 'end)' — first occurrence after Class(
+                end_paren_match = re.search(r'\bend\s*\)', tail)
+                if end_paren_match:
+                    end = class_match.end() + end_paren_match.end()
+                else:
+                    # Fallback: up to next top-level function after skipping one fn keyword
+                    after_first_fn = re.sub(r'function\b', '', tail, count=1)
+                    end_match = re.search(r'(?m)^(local\s+)?function\b', after_first_fn)
+                    end = class_match.end() + end_match.start() if end_match else len(lua_source)
+                blocks = [lua_source[start:end]]
+            else:
+                # Utility module fallback: module-level constants + table assignments
+                prop_lines = [
+                    line.rstrip("\n")
+                    for line in lines
+                    if re.match(r'^local\s+[A-Z_]+\s*=', line)
+                    or re.match(r'^\w+\.\w+\s*=', line)
+                ]
+                blocks = ["\n".join(prop_lines)] if prop_lines else []
 
     elif section_heading == "## Events & listeners":
         ctx_parts: list[str] = []
         for i, line in enumerate(lines):
-            if re.search(r'ListenForEvent|PushEvent', line):
+            if re.search(r'ListenForEvent|PushEvent|EventHandler\s*\(', line):
                 start = max(0, i - 2)
                 end = min(len(lines), i + 3)
+                ctx_parts.extend(l.rstrip("\n") for l in lines[start:end])
+                ctx_parts.append("---")
+        blocks = ["\n".join(ctx_parts)] if ctx_parts else []
+
+    elif section_heading == "## Action Handlers":
+        ctx_parts: list[str] = []
+        for i, line in enumerate(lines):
+            if re.search(r'ActionHandler\s*\(', line):
+                start = max(0, i - 1)
+                end = min(len(lines), i + 4)
                 ctx_parts.extend(l.rstrip("\n") for l in lines[start:end])
                 ctx_parts.append("---")
         blocks = ["\n".join(ctx_parts)] if ctx_parts else []

@@ -62,17 +62,20 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
                 stop_check=config.stop_check,
             )
             lua_code = safe_read_lua(lua_filepath)
-            if lua_code and count_tokens(lua_code) >= CHUNKED_TOKEN_THRESHOLD:
-                print(
-                    f"  [pipeline] File is chunked (>={CHUNKED_TOKEN_THRESHOLD} tokens), "
-                    "running per-section validation..."
-                )
-                content_result = run_chunked_content_loop(
-                    md_filepath, lua_filepath, content_config, resume=config.resume
-                )
-                # falls through — format validation also runs for chunked files
-            else:
-                content_result = run_content_loop(md_filepath, lua_filepath, content_config)
+            if lua_code:
+                md_tokens = count_tokens(Path(md_filepath).read_text(encoding="utf-8"))
+                lua_tokens = count_tokens(lua_code)
+                if lua_tokens + md_tokens >= CHUNKED_TOKEN_THRESHOLD:
+                    print(
+                        f"  [pipeline] File is chunked ({lua_tokens + md_tokens} tokens combined"
+                        f" >={CHUNKED_TOKEN_THRESHOLD}), running per-section validation..."
+                    )
+                    content_result = run_chunked_content_loop(
+                        md_filepath, lua_filepath, content_config, resume=config.resume
+                    )
+                    # falls through — format validation also runs for chunked files
+                else:
+                    content_result = run_content_loop(md_filepath, lua_filepath, content_config)
 
             if content_result and not content_result.approved:
                 print(

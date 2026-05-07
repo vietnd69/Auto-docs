@@ -80,7 +80,17 @@ def generate_doc(
 
             # Kiểm tra sanity: output phải bắt đầu bằng YAML frontmatter
             if not md_content.startswith("---"):
-                print(f"[Cảnh báo] Output của {md_filename} không bắt đầu bằng YAML frontmatter!")
+                if attempt < max_retries:
+                    print(
+                        f"  [Bad response] Lần {attempt}/{max_retries} — output của {md_filename} "
+                        f"không bắt đầu bằng YAML frontmatter, retry..."
+                    )
+                    time.sleep(retry_delay)
+                    continue
+                print(
+                    f"  [Cảnh báo] Output của {md_filename} không bắt đầu bằng YAML frontmatter "
+                    f"sau {max_retries} lần thử — ghi file và tiếp tục"
+                )
 
             if source_hash:
                 md_content = inject_frontmatter_field(md_content, "source_hash", source_hash)
