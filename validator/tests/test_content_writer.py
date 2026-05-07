@@ -153,3 +153,52 @@ def test_parse_writer_response_runaway_returns_empty():
     raw = "\n".join([line] * 30 + [f"unique {i}" for i in range(25)])
     patches = parse_writer_response(raw)
     assert patches == []
+
+
+def test_rewrite_document_valid_large_patch_array_not_killed_as_runaway():
+    """Valid JSON with repeated 'reason' field must NOT trigger is_runaway.
+
+    Regression test: when 49 patches share the same reason string, is_runaway
+    would previously detect 49 repetitions of the same line and kill the response
+    before JSON parsing even ran. After the fix, JSON parse runs first and
+    the response is accepted as valid.
+    """
+    from unittest.mock import patch as mock_patch, MagicMock
+    from validator.content.writer import rewrite_document
+    from validator.content.reviewer import ReviewResult
+
+    # Build a valid JSON patch array with 49 entries, all with the same reason.
+    # This previously triggered is_runaway (49 × same "reason" line ≥ threshold of 8).
+    shared_reason = "Remove incorrect error states; source code has nil guards or components are guaranteed to exist"
+    patches_data = [
+        {
+            "old_text": f"* **Error states:** Errors if inst has no Component{i}",
+            "new_text": "* **Error states:** None",
+            "reason": shared_reason,
+        }
+        for i in range(49)
+    ]
+    raw_response = json.dumps(patches_data)
+
+    review = ReviewResult(
+        approved=False,
+        issues=[f"WRONG_ERROR_STATE fn{i}" for i in range(49)],
+        suggestions=["Remove incorrect error states"] * 49,
+        raw_response="",
+    )
+
+    mock_response = {"message": {"content": raw_response}}
+
+    with mock_patch("validator.content.writer.ollama_chat", return_value=mock_response):
+        result_patches, result_raw, _ = rewrite_document(
+            md_content="some content\n* **Error states:** Errors if inst has no Component0\n",
+            lua_source="",
+            connected_content="",
+            review_feedback=review,
+            model="test-model",
+        )
+
+    # Must return patches, not be killed as runaway
+    assert len(result_patches) >= 1, (
+        "Writer killed valid 49-patch response as runaway — is_runaway runs before JSON parse"
+    )

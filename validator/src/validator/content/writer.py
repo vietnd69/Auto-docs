@@ -295,16 +295,7 @@ def rewrite_document(
             _dump_prompt("writer_response", raw)
         remaining = BAD_RESPONSE_RETRIES - attempt
 
-        # Layer 1: runaway detection
-        if is_runaway(raw):
-            print(f"  [content/writer] Runaway response ({len(raw):,} chars) → retrying ({remaining} left)")
-            if remaining > 0:
-                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
-                messages.append({"role": "user", "content": _GUARD_RUNAWAY})
-            raw = ""  # don't propagate bad raw as context
-            continue
-
-        # Layer 2: JSON parse
+        # Layer 1: JSON parse — try first; valid JSON is never a runaway by definition
         cleaned = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
         cleaned = re.sub(r'\n?```\s*$', '', cleaned)
         cleaned = _strip_thinking(cleaned)
@@ -317,14 +308,21 @@ def rewrite_document(
             else:
                 raise json.JSONDecodeError("no array found", "", 0)
         except (json.JSONDecodeError, TypeError):
-            print(f"  [content/writer] Bad response (JSON parse) → retrying ({remaining} left)")
-            if remaining > 0:
-                messages.append({"role": "assistant", "content": compact_bad_response(raw)})
-                messages.append({"role": "user", "content": _GUARD_PARSE})
+            # Only check runaway when JSON parsing fails
+            if is_runaway(raw):
+                print(f"  [content/writer] Runaway response ({len(raw):,} chars) → retrying ({remaining} left)")
+                if remaining > 0:
+                    messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                    messages.append({"role": "user", "content": _GUARD_RUNAWAY})
+            else:
+                print(f"  [content/writer] Bad response (JSON parse) → retrying ({remaining} left)")
+                if remaining > 0:
+                    messages.append({"role": "assistant", "content": compact_bad_response(raw)})
+                    messages.append({"role": "user", "content": _GUARD_PARSE})
             raw = ""
             continue
 
-        # Layer 3: schema validation
+        # Layer 2: schema validation
         if not validate_patches_schema(data):
             print(f"  [content/writer] Bad response (schema) → retrying ({remaining} left)")
             if remaining > 0:
