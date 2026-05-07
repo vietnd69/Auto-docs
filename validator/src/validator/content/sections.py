@@ -717,6 +717,16 @@ def extract_section_lua_context(
                 ctx_parts.append("---")
         blocks = ["\n".join(ctx_parts)] if ctx_parts else []
 
+    elif section_heading == "## Action Handlers":
+        ctx_parts: list[str] = []
+        for i, line in enumerate(lines):
+            if re.search(r'ActionHandler\s*\(', line):
+                start = max(0, i - 1)
+                end = min(len(lines), i + 4)
+                ctx_parts.extend(l.rstrip("\n") for l in lines[start:end])
+                ctx_parts.append("---")
+        blocks = ["\n".join(ctx_parts)] if ctx_parts else []
+
     else:
         return ""
 

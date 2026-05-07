@@ -664,3 +664,36 @@ def test_properties_component_uses_class_path():
     """Regression: component files still use Class() constructor extraction."""
     result = extract_section_lua_context("## Properties", _COMP_PROPS_LUA, 8000)
     assert "self.speed" in result
+
+
+# ── extract_section_lua_context — Action Handlers branch ────────────────────
+
+_ACTION_HANDLERS_LUA = '''\
+StateGraph("sg_wx78", states, events, "idle",
+{
+    ActionHandler(ACTIONS.TOGGLEWXSCREECH, function(inst)
+        inst.sg:GoToState("wx_screech_pre")
+    end),
+    ActionHandler(ACTIONS.TOGGLEWXSHIELDING, function(inst)
+        inst.sg:GoToState("wx_shield_pre")
+    end),
+})
+'''
+
+
+def test_action_handlers_context_basic():
+    result = extract_section_lua_context("## Action Handlers", _ACTION_HANDLERS_LUA, 8000)
+    assert "ActionHandler(ACTIONS.TOGGLEWXSCREECH" in result
+    assert "ActionHandler(ACTIONS.TOGGLEWXSHIELDING" in result
+
+
+def test_action_handlers_context_empty_when_none():
+    lua = "function DoThing(inst) return nil end\n"
+    result = extract_section_lua_context("## Action Handlers", lua, 8000)
+    assert result == ""
+
+
+def test_action_handlers_context_unknown_section_still_empty():
+    """Regression: unknown headings still return ''."""
+    result = extract_section_lua_context("## Totally Unknown", _ACTION_HANDLERS_LUA, 8000)
+    assert result == ""
