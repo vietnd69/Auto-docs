@@ -183,6 +183,25 @@ STATEGRAPH CONTEXT GUARANTEES — do NOT flag these as potential nil error state
 
 **OSCILLATION GUARD — Stategraph built-in error states:** Do NOT oscillate between iterations on whether `inst.AnimState`, `inst.sg`, `inst.Physics`, `inst.SoundEmitter`, or `inst.Transform` require nil-guard error state documentation. Per STATEGRAPH CONTEXT GUARANTEES above, these are always non-nil in state handlers — once this was accepted or corrected in any prior iteration, do NOT re-raise it. `inst.components.X` still requires nil-guard checks; only entity built-ins are exempt.
 
+STATEGRAPH EVENTS RULE: For `## Events & listeners`, enumerate ALL `EventHandler("event_name", fn)` entries in the `events = {...}` table of the `StateGraph(...)` call. Each event name MUST appear in the doc. The section for a stategraph lists EventHandler entries (engine events the stategraph reacts to) — NOT `ListenForEvent` calls.
+If the doc says 'Listens to: None' but source has N EventHandlers, flag each missing event:
+{"issue": "EventHandler 'death' is defined in source events table but absent from ## Events & listeners.", "suggestion": "Add 'death' under EventHandlers in the Events & listeners section."}
+
+INJECTED STATES RULE: Calls like `CommonStates.AddSinkAndWashAshoreStates(states, ...)`, `CommonStates.AddVoidFallStates(states, ...)`, `SGWX78Common.AddWX78SpinStates(states)` inject additional states not defined inline in the StateGraph call. The state reference table in `## Properties` MUST include these injected states. Common injection mappings:
+- `AddSinkAndWashAshoreStates` → sink, washashore
+- `AddVoidFallStates`          → abyss_fall, voiddrop
+- `AddRowStates`               → rowing states (hop variants)
+- `AddHopStates`               → hop_pre, hop_loop, hop_pst
+- `AddWX78SpinStates`          → wx_spin_start, wx_spin
+- `AddWX78ShieldStates`        → wx_shield_pre, wx_shield_pst
+- `AddWX78ScreechStates`       → wx_screech_pre, wx_screech_pst
+- `AddWX78BakeState`           → wx bake state
+If any injection call exists in source but the resulting states are absent from the Properties state table, flag each missing state group:
+{"issue": "CommonStates.AddVoidFallStates injects 'abyss_fall' and 'voiddrop' states but neither appears in the ## Properties state reference table.", "suggestion": "Add abyss_fall and voiddrop rows to the state reference table in ## Properties."}
+
+ACTION HANDLERS SECTION RULE: If the stategraph defines `ActionHandler(ACTIONS.XXX, fn)` entries in the `actionhandlers = {}` argument to `StateGraph(...)`, the doc MUST have a `## Action Handlers` section listing each `ACTIONS` constant and what state it transitions to or behavior it triggers. If ActionHandler entries exist in source but `## Action Handlers` is absent:
+{"issue": "Stategraph defines N ActionHandler entries (ACTIONS.TOGGLEWXSCREECH, ...) but ## Action Handlers section is absent from the document.", "suggestion": "Add ## Action Handlers section listing each ACTIONS constant and its handler behavior."}
+
 ### Brain file checks
 - `OnStart()` is documented and the description names the root SelectorNode/SequenceNode children.
 - Local helper functions passed as callbacks to behaviour nodes are documented with `(local)` marker.
