@@ -52,7 +52,7 @@ from validator.content.writer import TypedOp, parse_typed_ops_json
 
 _DATA_CONFIG_DIRS = {"map", "languages", "util"}
 _DEBUG_DIR = PROJECT_ROOT / ".cache" / "debug_prompts"
-_MAX_OSC_HISTORY = 20  # max findings injected per oscillation list to cap reviewer prompt size
+_MAX_OSC_HISTORY = 8  # max findings injected per oscillation list to cap reviewer prompt size
 
 _STRUCTURAL_HEADINGS = {
     "## Dependencies & tags",
