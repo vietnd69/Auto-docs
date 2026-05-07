@@ -35,3 +35,6 @@ tmp/
 format_errors.txt
 *.log
 nul
+
+# Git worktrees
+.worktrees/
