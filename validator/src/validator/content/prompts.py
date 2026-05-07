@@ -412,6 +412,8 @@ _RULE_IDS_BY_SECTION: dict[str, list[str]] = {
     "## Main functions":       ["WRONG_VALUE", "MISSING_PARAM", "EXTRA_PARAM", "WRONG_DESCRIPTION",
                                "WRONG_ERROR_STATE", "MISPLACED_ERROR_STATE"],
     "## Events & listeners":   ["MISSING_EVENT", "WRONG_EVENT_NAME"],
+    "## Action Handlers":      ["MISSING_ACTION_HANDLER", "WRONG_ACTION_HANDLER",
+                               "EXTRA_ACTION_HANDLER"],
 }
 
 
