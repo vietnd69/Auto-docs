@@ -117,18 +117,27 @@ def process_file(md_filepath: str, config: PipelineConfig) -> FileResult:
                 if fill_lua_path:
                     success = rewrite_document(md_filepath, missing_headings, fill_lua_path)
                     if success:
-                        # Re-run content validator on rewritten document
+                        # Re-run content validator on rewritten document.
+                        # Re-check token count — rewrite may produce a chunked-sized doc.
                         print(f"  [pipeline] Re-validating rewritten document...")
-                        rewrite_content_result = run_content_loop(
-                            md_filepath, fill_lua_path,
-                            ContentLoopConfig(
-                                max_iterations=config.content_max_iterations,
-                                writer_model=config.writer_model,
-                                reviewer_model=config.reviewer_model,
-                                jury_model=config.jury_model,
-                                stop_check=config.stop_check,
-                            ),
+                        _rewrite_lua = safe_read_lua(fill_lua_path)
+                        _rewrite_md_tokens = count_tokens(Path(md_filepath).read_text(encoding="utf-8"))
+                        _rewrite_lua_tokens = count_tokens(_rewrite_lua) if _rewrite_lua else 0
+                        _rewrite_config = ContentLoopConfig(
+                            max_iterations=config.content_max_iterations,
+                            writer_model=config.writer_model,
+                            reviewer_model=config.reviewer_model,
+                            jury_model=config.jury_model,
+                            stop_check=config.stop_check,
                         )
+                        if _rewrite_lua and _rewrite_lua_tokens + _rewrite_md_tokens >= CHUNKED_TOKEN_THRESHOLD:
+                            rewrite_content_result = run_chunked_content_loop(
+                                md_filepath, fill_lua_path, _rewrite_config,
+                            )
+                        else:
+                            rewrite_content_result = run_content_loop(
+                                md_filepath, fill_lua_path, _rewrite_config,
+                            )
                         if rewrite_content_result and not rewrite_content_result.approved:
                             print(
                                 f"  [pipeline] Content re-validation not approved "

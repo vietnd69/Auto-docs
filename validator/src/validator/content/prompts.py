@@ -602,6 +602,10 @@ CRITICAL op selection rules:
 - WRONG_ERROR_STATE, MISPLACED_ERROR_STATE → update_field field="Error states" (never delete_function)
 - delete_function is NEVER correct for any content accuracy rule_id — only for genuine hallucinations
 
+CRITICAL for update_section: the content field MUST start with the `## Section heading` line
+(verbatim, unchanged) followed by the section body. Do NOT omit the ## heading from content.
+Example: {{"op": "update_section", "section": "## Overview", "content": "## Overview\\nNew text..."}}
+
 IMPORTANT for update_section on "## Main functions": the content field MUST contain ONLY the
 function blocks that appear in the === SECTION TEXT === block shown to you. Do NOT expand it
 to include functions from other batches or the full file. If you need to fix all functions,

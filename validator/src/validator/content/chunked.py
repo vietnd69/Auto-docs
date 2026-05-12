@@ -375,9 +375,27 @@ def _run_typed_loop(
 
         for fi, finding in enumerate(findings, 1):
             fn_label = finding.function or "(section-level)"
-            target_text = _extract_target_text(text, finding)
-            pair = (finding.function, finding.field, finding.rule_id)
+            # Oscillation key: omit field for section-level findings (function=None) because
+            # the reviewer inconsistently varies field names across iterations for the same issue,
+            # causing the oscillation tracker to never fire on repeated section-level reports.
+            pair = (
+                (finding.function, finding.rule_id)
+                if finding.function is None
+                else (finding.function, finding.field, finding.rule_id)
+            )
             cnt = attempt_counts.get(pair, 0)
+
+            # Cross-section hallucination: reviewer reported a finding for a section other than
+            # the one currently under review (likely from reviewed_context exposure).
+            # Writer ops targeting another section would be silent no-ops — skip early.
+            if finding.section and finding.section.strip().lower() != section_heading.strip().lower():
+                print(f"{_pfx} {iter_label}: [{fi}/{len(findings)}] '{fn_label}' wrong section '{finding.section}' — skip")
+                if cnt < 2:
+                    unfixed_findings.append(finding)
+                    attempt_counts[pair] = cnt + 1
+                continue
+
+            target_text = _extract_target_text(text, finding)
             if target_text is None:
                 # Cross-batch hallucination: function lives in another batch.
                 if cnt < 2:
@@ -452,7 +470,11 @@ def _run_typed_loop(
                 # call to avoid over-counting when multiple findings share the same pair.
                 pairs_incremented: set[tuple] = set()
                 for finding in actionable:
-                    pair = (finding.function, finding.field, finding.rule_id)
+                    pair = (
+                        (finding.function, finding.rule_id)
+                        if finding.function is None
+                        else (finding.function, finding.field, finding.rule_id)
+                    )
                     if pair not in pairs_incremented:
                         attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
                         pairs_incremented.add(pair)

@@ -478,11 +478,15 @@ def _update_field_in_text(text: str, field: str, value: str) -> str:
 
     Only replaces the first match. Multi-line fields (nested bullets) are not
     targeted — use update_section or rewrite_function for those.
+    If the field line is absent, appends it so update_field never silently no-ops.
     """
     if not field:
         return text
     pattern = re.compile(rf'^\* \*\*{re.escape(field)}:\*\*.*$', re.MULTILINE)
-    return pattern.sub(f"* **{field}:** {value}", text, count=1)
+    if pattern.search(text):
+        return pattern.sub(f"* **{field}:** {value}", text, count=1)
+    # Field not present — insert it so the reviewer has a target on the next pass.
+    return text.rstrip("\n") + f"\n* **{field}:** {value}\n"
 
 
 def apply_typed_ops(
@@ -512,7 +516,13 @@ def apply_typed_ops(
         if op.op == "update_section":
             if not op.content:
                 continue  # null/empty content — no-op to avoid wiping the section
-            section.text = normalize_fn_headings(op.content)
+            content = normalize_fn_headings(op.content)
+            # Guard: writer sometimes omits the ## heading line from content.
+            # Re-insert it so the heading is never silently lost from the document.
+            heading = section.heading.rstrip()
+            if heading and not content.lstrip("\n").startswith(heading):
+                content = heading + "\n" + content.lstrip("\n")
+            section.text = content
 
         elif op.op == "update_field" and op.function:
             preamble, fn_blocks = split_section_blocks(section.text)
