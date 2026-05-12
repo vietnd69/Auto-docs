@@ -510,6 +510,8 @@ def _run_typed_loop(
                 # Update oscillation tracking — compare per-function text before/after.
                 # Increment at most once per unique (function, field, rule_id) pair per writer
                 # call to avoid over-counting when multiple findings share the same pair.
+                # No-change outcomes jump straight to attempt_counts >= 2 so the finding is
+                # blocked on the very next reviewer call (saves one wasted review cycle).
                 pairs_incremented: set[tuple] = set()
                 for finding in actionable:
                     pair = (
@@ -517,21 +519,32 @@ def _run_typed_loop(
                         if finding.function is None
                         else (finding.function, finding.field, finding.rule_id)
                     )
-                    if pair not in pairs_incremented:
-                        attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
-                        pairs_incremented.add(pair)
                     fn_before = _extract_target_text(text_before, finding)
                     fn_after  = _extract_target_text(text, finding)
                     if fn_before is not None and fn_after is not None and fn_before != fn_after:
                         # Function modified (rewrite_function / update_field)
+                        if pair not in pairs_incremented:
+                            attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                            pairs_incremented.add(pair)
                         fixed_findings.append(finding)
                     elif fn_before is not None and fn_after is None and text_before != text:
                         # Function deleted (delete_function succeeded)
+                        if pair not in pairs_incremented:
+                            attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                            pairs_incremented.add(pair)
                         fixed_findings.append(finding)
                     elif fn_before is None and text_before != text:
                         # Section-level finding (function=None) — overall text changed
+                        if pair not in pairs_incremented:
+                            attempt_counts[pair] = attempt_counts.get(pair, 0) + 1
+                            pairs_incremented.add(pair)
                         fixed_findings.append(finding)
                     else:
+                        # Writer returned no change — jump to >= 2 so the finding is blocked on
+                        # the next reviewer call instead of requiring one extra review cycle.
+                        if pair not in pairs_incremented:
+                            attempt_counts[pair] = max(2, attempt_counts.get(pair, 0) + 1)
+                            pairs_incremented.add(pair)
                         unfixed_findings.append(finding)
 
     # Final verification: fixes from the last iteration are applied but unreviewed.
