@@ -119,6 +119,7 @@ def _enforce_reviewer_prompt_cap(
     lua_source: str,
     fn_names: list[str],
     cap: int,
+    reviewed_context: str = "",
 ) -> str:
     """Return lua_ctx possibly reduced so the reviewer prompt stays within cap tokens.
 
@@ -127,7 +128,8 @@ def _enforce_reviewer_prompt_cap(
     fn_names: pass extract_function_names(batch_text) for batch sections, [] otherwise.
     """
     sys_p, usr_p = build_typed_reviewer_prompt(
-        text, lua_ctx, section_heading, file_type=file_type
+        text, lua_ctx, section_heading, file_type=file_type,
+        reviewed_context=reviewed_context,
     )
     total = count_tokens(sys_p + usr_p)
     if total <= cap:
@@ -135,7 +137,7 @@ def _enforce_reviewer_prompt_cap(
 
     lua_tok = count_tokens(lua_ctx)
     non_lua_overhead = total - lua_tok
-    target_lua = max(1500, cap - non_lua_overhead - 300)  # 300 tok safety buffer
+    target_lua = max(1500, cap - non_lua_overhead - 2000)  # oscillation context overhead budget
     if target_lua >= lua_tok:
         return lua_ctx  # already within budget even with full lua_ctx
 
@@ -668,6 +670,7 @@ def run_chunked_content_loop(
         lua_ctx = _enforce_reviewer_prompt_cap(
             section.text, lua_ctx, section.heading, file_type,
             lua_source, [], REVIEWER_TOKEN_HARD_CAP,
+            reviewed_context=reviewed_context,
         )
 
         if section.heading == "## Main functions":
