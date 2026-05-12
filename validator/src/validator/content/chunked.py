@@ -18,6 +18,7 @@ from llm.settings import (
     BAD_RESPONSE_RETRIES, DEBUG_PROMPTS,
     REVIEWER_TEMPERATURE, WRITER_TEMPERATURE, WRITER_THINK,
     VALIDATOR_CALL_SLEEP,
+    REVIEWER_TOKEN_HARD_CAP,
 )
 from llm.tokens import count_tokens
 from rag.docs import safe_read_lua
@@ -108,6 +109,47 @@ def _try_parse_json(raw: str) -> dict | list | None:
         return json.loads(cleaned)
     except Exception:
         return None
+
+
+def _enforce_reviewer_prompt_cap(
+    text: str,
+    lua_ctx: str,
+    section_heading: str,
+    file_type: str,
+    lua_source: str,
+    fn_names: list[str],
+    cap: int,
+) -> str:
+    """Return lua_ctx possibly reduced so the reviewer prompt stays within cap tokens.
+
+    Builds a test reviewer prompt (no oscillation context) to measure size, then
+    re-extracts lua_ctx with a lower max_tokens budget if the prompt exceeds cap.
+    fn_names: pass extract_function_names(batch_text) for batch sections, [] otherwise.
+    """
+    sys_p, usr_p = build_typed_reviewer_prompt(
+        text, lua_ctx, section_heading, file_type=file_type
+    )
+    total = count_tokens(sys_p + usr_p)
+    if total <= cap:
+        return lua_ctx
+
+    lua_tok = count_tokens(lua_ctx)
+    non_lua_overhead = total - lua_tok
+    target_lua = max(1500, cap - non_lua_overhead - 300)  # 300 tok safety buffer
+    if target_lua >= lua_tok:
+        return lua_ctx  # already within budget even with full lua_ctx
+
+    if fn_names:
+        reduced = extract_lua_context(lua_source, fn_names, max_tokens=target_lua)
+    else:
+        reduced = extract_section_lua_context(section_heading, lua_source, max_tokens=target_lua)
+
+    reduced_tok = count_tokens(reduced)
+    print(
+        f"  [content/chunked] reviewer prompt cap: lua_ctx {lua_tok:,}→{reduced_tok:,} tok "
+        f"(est. prompt {total:,} → cap {cap})"
+    )
+    return reduced
 
 
 def _call_reviewer(
@@ -609,6 +651,11 @@ def run_chunked_content_loop(
         lua_ctx = extract_section_lua_context(
             section.heading, lua_source, max_tokens=8000
         )
+        # Cap reviewer prompt to keep qwen reliable at long context
+        lua_ctx = _enforce_reviewer_prompt_cap(
+            section.text, lua_ctx, section.heading, file_type,
+            lua_source, [], REVIEWER_TOKEN_HARD_CAP,
+        )
 
         if section.heading == "## Main functions":
             preamble, fn_blocks = split_section_blocks(section.text)
@@ -639,6 +686,11 @@ def run_chunked_content_loop(
                 batch_text = "".join(batch)
                 batch_lua_ctx = extract_lua_context(
                     lua_source, extract_function_names(batch_text), max_tokens=8000
+                )
+                # Cap reviewer prompt to keep qwen reliable at long context
+                batch_lua_ctx = _enforce_reviewer_prompt_cap(
+                    batch_text, batch_lua_ctx, section.heading, file_type,
+                    lua_source, extract_function_names(batch_text), REVIEWER_TOKEN_HARD_CAP,
                 )
                 # Create cache for this batch; preserve existing cache on resume
                 # (crash mid-batch leaves the cache at whatever state was last written).

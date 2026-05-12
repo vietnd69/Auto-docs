@@ -66,6 +66,7 @@ LUA_CONTEXT_TOKENS: int            = _get("validator", "lua_context_tokens",  80
 SECTION_TOKEN_THRESHOLD: int      = _get("validator", "section_token_threshold",    4000)
 BATCH_TOKEN_LIMIT: int            = _get("validator", "batch_token_limit",           2000)
 SECTION_LUA_CONTEXT_TOKENS: int   = _get("validator", "section_lua_context_tokens",  3500)
+REVIEWER_TOKEN_HARD_CAP: int      = _get("validator", "reviewer_token_hard_cap",      20000)
 VALIDATOR_CALL_SLEEP: int         = _get("validator", "call_sleep",                   10)
 BAD_RESPONSE_RETRIES: int         = _get("validator", "bad_response_retries",           3)
 REVIEWER_TEMPERATURE: float       = _get("validator", "reviewer_temperature",    0.4)
