@@ -47,7 +47,7 @@ CHUNK_PROMPT_TOKEN_LIMIT: int = _get("tokens", "chunk_prompt_limit", 20000)  # p
 MERGE_TOKEN_LIMIT: int       = _get("tokens", "merge_limit",      20000)
 CONTEXT_RESERVE: int         = _get("tokens", "context_reserve",  7000)
 STUB_FULL_THRESHOLD: int     = _get("tokens", "stub_threshold",   400)
-CHUNKED_TOKEN_THRESHOLD: int = _get("tokens", "chunked_validate", 16000)
+CHUNKED_TOKEN_THRESHOLD: int = _get("tokens", "chunked_validate", 12000)
 OLLAMA_NUM_CTX: int          = _get("tokens", "ollama_ctx",       256000)
 
 # === Timing ===
