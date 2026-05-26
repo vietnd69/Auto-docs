@@ -1,37 +1,46 @@
-# mod-document
+# Auto-docs
 
-Hệ thống tự động sinh API documentation cho Lua mods của game Don't Starve Together (DST). Phân tích source code Lua và tạo tài liệu Markdown bằng AI thông qua Ollama Cloud API.
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![uv](https://img.shields.io/badge/package%20manager-uv-blueviolet)](https://docs.astral.sh/uv/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Yêu cầu
+Automated API documentation generator for **Don't Starve Together** (DST) Lua mods. Analyzes Lua source code and generates comprehensive Markdown documentation using AI models via Ollama Cloud API.
+
+> Hệ thống tự động sinh API documentation cho Lua mods của game Don't Starve Together. Phân tích source code Lua và tạo tài liệu Markdown bằng AI thông qua Ollama Cloud API.
+
+## Features
+
+- 🔄 **Smart chunked processing** — Handles large Lua files (16K+ tokens) with hierarchical merging
+- 🔍 **RAG-powered context** — Vector search (ChromaDB) for cross-file reference analysis
+- ✅ **Built-in validation** — Format checks (MDX, YAML frontmatter) + AI-powered content review
+- 📝 **Changelog generation** — Auto-generates changelogs from diff reports
+- 🔀 **Diff watcher** — Detects Lua file changes between game updates
+- ⚡ **Multi-account load balancing** — Round-robin across Ollama API keys with auto-failover
+- 💾 **Checkpoint & resume** — Resume interrupted chunked processing
+- 🛑 **Graceful shutdown** — Safe Ctrl+C handling
+
+## Requirements
 
 - Python >= 3.11
 - [uv](https://docs.astral.sh/uv/) (package manager)
-- Node.js (cho validator MDX check)
-- Ollama Cloud API keys (cấu hình trong `.env`)
+- Node.js (for MDX validation)
+- Ollama Cloud API keys
 
-## Cài đặt
+## Quick Start
+
+### 1. Clone & install
 
 ```bash
-git clone <repo-url>
-cd mod-document
+git clone https://github.com/vietnd69/Auto-docs.git
+cd Auto-docs
 uv sync
 ```
 
-> **QUAN TRỌNG** — Project sử dụng **uv workspace** với Python 3.11 (`.venv` trong project root).
-> Luôn dùng `.venv/Scripts/python` (Windows) hoặc `.venv/bin/python` (Linux/Mac) thay cho `python` trực tiếp để tránh dùng nhầm system Python.
-
-Tạo file `.env` từ template:
+### 2. Configure environment
 
 ```bash
 cp .env.template .env
-# Điền API keys vào .env
-```
-
-Tạo file `config.toml` từ template (tuỳ chọn — dùng để override model/token defaults):
-
-```bash
-cp config.toml.template config.toml
-# Chỉnh sửa nếu cần override model hoặc các ngưỡng token
+# Fill in your Ollama API keys
 ```
 
 ```env
@@ -40,124 +49,126 @@ ACCOUNT_1=your-ollama-api-key-1
 ACCOUNT_2=your-ollama-api-key-2
 ```
 
-## Sử dụng
-
-### Sinh docs
+### 3. Configure settings (optional)
 
 ```bash
-# Sinh docs cho toàn bộ file .lua trong dst-scripts/
+cp config.toml.template config.toml
+# Adjust model names, token thresholds, timing, etc.
+```
+
+> **Important** — This project uses a **uv workspace** with Python 3.11. Always use `.venv/Scripts/python` (Windows) or `.venv/bin/python` (Linux/Mac) instead of system `python`.
+
+## Usage
+
+### Generate documentation
+
+```bash
+# Generate docs for all .lua files in dst-scripts/
 .venv/Scripts/mod-document
 
-# Sinh docs cho 1 file cụ thể (luôn ghi đè nếu đã tồn tại)
+# Generate docs for a specific file (always overwrites)
 .venv/Scripts/mod-document dst-scripts/components/combat.lua
 
-# Sinh toàn bộ + ghi đè file đã có docs
+# Generate all + overwrite existing docs
 .venv/Scripts/mod-document -f
 ```
 
-### Validate docs
+### Validate documentation
 
 ```bash
-# Toàn bộ docs (format + content)
+# Full validation (format + content)
 .venv/Scripts/python -m validator
 
-# 1 file cụ thể
+# Single file
 .venv/Scripts/python -m validator dst-api-webdocs/docs/components/combat.md
 
-# Chỉ format check
+# Format only
 .venv/Scripts/python -m validator --format-only
 
-# Chỉ content check (LLM review)
+# Content only (LLM review)
 .venv/Scripts/python -m validator --content-only
 ```
 
-### Auto-update từ diff report
+### Auto-update from diff report
 
-Re-render lại toàn bộ nội dung MD cho các file thay đổi theo pipeline chuẩn (render → validator):
+Re-renders documentation for changed files through the full pipeline (render → validate):
 
 ```bash
-# Re-render docs cho file trong diff report (added/modified/moved)
+# Re-render docs for files in diff report (added/modified/moved)
 .venv/Scripts/python -m core.update.docs
 
-# Xem prompt, không gọi LLM
+# Preview prompts without calling LLM
 .venv/Scripts/python -m core.update.docs --dry-run
 
-# Chỉ xử lý file mới
+# Process only new files
 .venv/Scripts/python -m core.update.docs --filter added
 
-# Bỏ qua bước validation
+# Skip validation step
 .venv/Scripts/python -m core.update.docs --no-validate
 ```
 
-### Sinh changelog
+### Generate changelog
 
-Đọc `data/diff_report.json`, gọi LLM viết tóm tắt, prepend vào `dst-api-webdocs/change-log.md` (có MDX autofix):
+Reads `data/diff_report.json`, calls LLM to write a summary, and prepends to `dst-api-webdocs/change-log.md`:
 
 ```bash
-# Gọi LLM + ghi file (idempotent — bỏ qua nếu build đã logged)
+# Generate + write (idempotent — skips if build already logged)
 .venv/Scripts/python -m core.changelog
 
-# Xem prompt, không gọi LLM hoặc ghi file
+# Preview prompt without calling LLM
 .venv/Scripts/python -m core.changelog --dry-run
 ```
 
 ### Diff watcher
 
-Phát hiện file `.lua` thay đổi giữa các lần cập nhật `dst-scripts`. Kết quả ghi vào `data/diff_report.json` và `data/diff_log.txt`, đồng thời tự động cập nhật vector store nếu có thay đổi.
+Detects `.lua` file changes between game updates. Results are written to `data/diff_report.json` and `data/diff_log.txt`, and the vector store is automatically updated.
 
-**Quy trình chuẩn khi có bản cập nhật game mới:**
+**Standard workflow for new game updates:**
 
-1. Copy Lua source mới vào `dst-scripts/` (thủ công)
-2. Cập nhật `data/version_log.txt` với version mới:
+1. Copy new Lua source into `dst-scripts/` (manual)
+2. Update `data/version_log.txt`:
+   ```
+   now version: <new_version>
+   previous version: <old_version>
+   ```
+3. Run watcher:
+   ```bash
+   .venv/Scripts/mod-watcher
+   ```
 
-```
-now version: <version_mới>
-previous version: <version_cũ>
-```
-
-3. Chạy watcher:
-
-```bash
-.venv/Scripts/mod-watcher
-```
-
-Output phân loại thay đổi thành 4 nhóm: `ADDED`, `MODIFIED`, `DELETED`, `MOVED`.
+Output categorizes changes into: `ADDED`, `MODIFIED`, `DELETED`, `MOVED`.
 
 ### RAG / Vector search
 
-Index Lua source vào ChromaDB và tìm kiếm bằng vector similarity (local embedding, không gọi LLM).
+Index Lua source into ChromaDB and search by vector similarity (local embedding, no LLM calls):
 
 ```bash
-# Chỉ index (không khởi động server) — chỉ index file mới/thay đổi
+# Index only (no server) — indexes new/changed files only
 .venv/Scripts/python -m rag.indexer
 
-# Khởi động search server (index trước, sau đó serve tại localhost:8000)
+# Start search server (indexes first, then serves at localhost:8000)
 .venv/Scripts/python -m rag.search
 ```
 
-Server expose REST API:
+REST API:
 
 ```bash
-# Query vector similarity search
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{"question": "combat damage calculation"}'
 
-# Swagger UI để test thủ công
-# http://localhost:8000/docs
+# Swagger UI for manual testing: http://localhost:8000/docs
 ```
 
-Response trả về danh sách file Lua liên quan nhất, sắp xếp theo similarity score.
+> **Note:** `mod-watcher` automatically calls `rag.indexer` after scanning if changes are detected — you usually don't need to run `rag.indexer` manually.
 
-> **Lưu ý:** `mod-watcher` tự động gọi `rag.indexer` sau khi scan nếu có thay đổi — thường không cần chạy `rag.indexer` thủ công.
-
-### Chạy tests
+### Run tests
 
 ```bash
-# Toàn bộ workspace
+# Full workspace
 .venv/Scripts/pytest
 
-# Từng package
+# Per package
 .venv/Scripts/pytest core/tests/
 .venv/Scripts/pytest llm/tests/
 .venv/Scripts/pytest rag/tests/
@@ -166,20 +177,20 @@ Response trả về danh sách file Lua liên quan nhất, sắp xếp theo simi
 .venv/Scripts/pytest watcher/tests/
 ```
 
-## Kiến trúc
+## Architecture
 
-Project sử dụng **uv workspace** với 6 packages:
+This project uses a **uv workspace** with 6 packages:
 
 ```
-mod-document/
-├── core/        — Pipeline chính, orchestration, CLI entry point
+Auto-docs/
+├── core/        — Main pipeline, orchestration, CLI entry point
 ├── llm/         — Ollama Cloud API client, token counting, multi-account failover
-├── rag/         — Trích xuất references, content analysis từ Lua source
-├── prompts/     — Template generation cho LLM prompts
-├── validator/   — Kiểm tra chất lượng output Markdown (format + content via LLM)
-├── watcher/     — Phát hiện thay đổi giữa các version dst-scripts
-├── skills/      — Markdown skill files → inject vào prompts
-├── data/        — Runtime tracking (diff_tracker.json, diff_report.json)
+├── rag/         — Reference extraction, content analysis from Lua source
+├── prompts/     — Template generation for LLM prompts
+├── validator/   — Output quality checks (format + content via LLM)
+├── watcher/     — Change detection between dst-scripts versions
+├── skills/      — Markdown skill files → injected into prompts
+├── data/        — Runtime tracking (diff reports, version log)
 ├── dst-scripts/ — Lua source code (input, git-excluded)
 └── dst-api-webdocs/docs/ — Generated Markdown documentation (output)
 ```
@@ -196,28 +207,29 @@ watcher ──→ rag
 
 ### Doc generation pipeline
 
-1. **File Discovery** — Quét `dst-scripts/` tìm file `.lua`
-2. **Reference Analysis** — Trích xuất cross-file dependencies (require, components)
-3. **Token Counting** — Xác định strategy dựa trên kích thước prompt
+1. **File Discovery** — Scans `dst-scripts/` for `.lua` files
+2. **Reference Analysis** — Extracts cross-file dependencies (require, components)
+3. **Token Counting** — Determines processing strategy based on prompt size
 4. **Processing**:
-   - **Standard** (< 16K tokens): Gọi LLM trực tiếp
-   - **Chunked** (≥ 16K tokens): Chia nhỏ → phân tích từng chunk → merge hierarchically
-5. **Output** — Ghi file `.md` vào `dst-api-webdocs/docs/`
+   - **Standard** (< 16K tokens): Direct LLM call
+   - **Chunked** (≥ 16K tokens): Split → analyze per chunk → merge hierarchically
+5. **Output** — Writes `.md` files to `dst-api-webdocs/docs/`
 
 ### Validation pipeline
 
-Chạy sau khi sinh docs (hoặc độc lập):
+Runs after doc generation (or independently):
 
 1. **Format check** — YAML frontmatter, MDX syntax, emoji rules
 2. **Content check** — LLM review → auto-fix → approve loop:
-   - **Standard** (< 32K tokens Lua source): review toàn bộ doc
-   - **Chunked** (≥ 16K tokens): per-section review với Lua context extraction
+   - **Standard** (< 32K tokens Lua source): Reviews entire doc
+   - **Chunked** (≥ 16K tokens): Per-section review with Lua context extraction
 
-### Tính năng
+## Configuration
 
-- Round-robin load balancing qua nhiều Ollama account
-- Tự động failover khi bị rate limit
-- Checkpoint system cho chunked processing (resume khi bị gián đoạn)
-- Graceful shutdown với Ctrl+C
-- Diff tracking giữa các version game update
-- Per-section content validation cho file Lua lớn
+All settings are centralized in `config.toml` (loaded by `llm/src/llm/settings.py`). Override any setting with `MOD_DOC_<SECTION>_<KEY>` environment variables.
+
+See [`config.toml.template`](config.toml.template) for all available options.
+
+## License
+
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

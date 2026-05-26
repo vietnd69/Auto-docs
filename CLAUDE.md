@@ -2,31 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Local 
-`D:/code/mod-document`
-
-## RAG Search — mod-document
-
-Use the `local-rag` MCP server to search this codebase.
-- **workspace_id**: `mod-document`
-- **Path**: D:\code\mod-document
-
-When asked about code in this project, call:
-- `search_code(query, workspace_id="mod-document")` — semantic search
-- `lookup_symbol(symbol_name=..., workspace_id="mod-document")` — find class/function
-- `get_file_context(file_path=..., workspace_id="mod-document")` — full file content
-
 ## Environment
 
-Project sử dụng **uv workspace** với Python 3.11 (`.venv` trong project root).
+Project uses **uv workspace** with Python 3.11 (`.venv` in project root).
 
-**QUAN TRỌNG — luôn dùng `.venv` trực tiếp, KHÔNG dùng `python` hay `uv run python` trực tiếp:**
-- `uv sync` — cài dependencies (lần đầu hoặc sau khi thay đổi deps)
-- `.venv/Scripts/mod-document` — chạy document generation
-- `.venv/Scripts/pytest` — chạy tests
-- `.venv/Scripts/python -m <module>` — chạy bất kỳ module Python nào
+**IMPORTANT — always use `.venv` directly, NEVER use `python` or `uv run python` directly:**
+- `uv sync` — install dependencies (first time or after changing deps)
+- `.venv/Scripts/mod-document` — run document generation
+- `.venv/Scripts/pytest` — run tests
+- `.venv/Scripts/python -m <module>` — run any Python module
 
-KHÔNG BAO GIỜ gọi `python`, `python3`, hay `uv run python` trực tiếp — luôn dùng `.venv/Scripts/python` để đảm bảo đúng Python 3.11 của project, tránh dùng nhầm system Python.
+NEVER call `python`, `python3`, or `uv run python` directly — always use `.venv/Scripts/python` to ensure the correct Python 3.11, avoiding system Python.
 
 ## Project Overview
 
@@ -37,18 +23,17 @@ This is a Python-based document generation system that automatically creates API
 ### Directory Layout
 
 ```
-mod-document/
-├── core/              # Pipeline chính, orchestration, CLI entry point
+Auto-docs/
+├── core/              # Main pipeline, orchestration, CLI entry point
 ├── llm/               # Ollama Cloud API client, token counting, multi-account failover
-├── rag/               # Trích xuất references, content analysis từ Lua source
-├── prompts/           # Template generation cho LLM prompts
-├── validator/         # Kiểm tra chất lượng output (format + content via LLM)
-├── watcher/           # Phát hiện thay đổi giữa các version dst-scripts
-├── skills/            # Markdown skill files (conventions, few-shot examples) → inject vào prompts
+├── rag/               # Reference extraction, content analysis from Lua source
+├── prompts/           # Template generation for LLM prompts
+├── validator/         # Output quality checks (format + content via LLM)
+├── watcher/           # Change detection between dst-scripts versions
+├── skills/            # Markdown skill files (conventions, few-shot examples) → injected into prompts
 ├── data/              # Runtime tracking (diff_tracker.json, version_log.txt, diff_report.json) — git-excluded
-├── dst-scripts/       # Input: Lua source code (git-excluded, copy thủ công)
+├── dst-scripts/       # Input: Lua source code (git-excluded, copy manually)
 ├── dst-api-webdocs/docs/  # Output: Generated Markdown documentation
-├── file_tracker.json  # Tracks which Lua files have been processed (root-level)
 └── .cache/            # compression_cache/ + chunked_checkpoints/
 ```
 
@@ -108,40 +93,40 @@ mod-document/
 ### Running the System
 
 ```bash
-# QUAN TRỌNG: Dùng .venv/Scripts/python (không dùng python hay uv run python trực tiếp)
-# Project sử dụng uv workspace với Python 3.11 (.venv trong project root)
+# IMPORTANT: Use .venv/Scripts/python (not python or uv run python directly)
+# Project uses uv workspace with Python 3.11 (.venv in project root)
 
-# Sinh docs cho toàn bộ file .lua (bỏ qua file đã có docs)
+# Generate docs for all .lua files (skip files that already have docs)
 .venv/Scripts/mod-document
 
-# Sinh docs cho 1 file cụ thể (luôn ghi đè)
+# Generate docs for a specific file (always overwrites)
 .venv/Scripts/mod-document dst-scripts/components/combat.lua
 
-# Sinh toàn bộ + ghi đè file đã có docs
+# Generate all + overwrite existing docs
 .venv/Scripts/mod-document -f
 
 # Validate docs (format + content)
-.venv/Scripts/python -m validator                           # Toàn bộ docs
-.venv/Scripts/python -m validator path/to/file.md           # 1 file
-.venv/Scripts/python -m validator --format-only             # Chỉ format
-.venv/Scripts/python -m validator --content-only            # Chỉ content
+.venv/Scripts/python -m validator                           # All docs
+.venv/Scripts/python -m validator path/to/file.md           # Single file
+.venv/Scripts/python -m validator --format-only             # Format only
+.venv/Scripts/python -m validator --content-only            # Content only
 
-# Auto-update docs từ diff report (re-render full pipeline)
+# Auto-update docs from diff report (re-render full pipeline)
 .venv/Scripts/python -m core.update.docs
-.venv/Scripts/python -m core.update.docs --dry-run          # Xem prompt, không gọi LLM
-.venv/Scripts/python -m core.update.docs --filter added     # Chỉ xử lý file mới
-.venv/Scripts/python -m core.update.docs --no-validate      # Bỏ qua validation
+.venv/Scripts/python -m core.update.docs --dry-run          # Preview prompt, no LLM call
+.venv/Scripts/python -m core.update.docs --filter added     # Only new files
+.venv/Scripts/python -m core.update.docs --no-validate      # Skip validation
 
-# Sinh changelog từ diff report (prepend vào dst-api-webdocs/change-log.md)
-.venv/Scripts/python -m core.changelog             # Gọi LLM + ghi file
-.venv/Scripts/python -m core.changelog --dry-run   # Xem prompt, không ghi file
+# Generate changelog from diff report (prepend to dst-api-webdocs/change-log.md)
+.venv/Scripts/python -m core.changelog             # Call LLM + write
+.venv/Scripts/python -m core.changelog --dry-run   # Preview prompt, no write
 
-# Chạy diff watcher (phát hiện thay đổi giữa các version)
+# Run diff watcher (detect changes between versions)
 .venv/Scripts/mod-watcher
 
 # Test
-.venv/Scripts/pytest                    # Toàn workspace
-.venv/Scripts/pytest core/tests/        # Từng package
+.venv/Scripts/pytest                    # Full workspace
+.venv/Scripts/pytest core/tests/        # Per package
 .venv/Scripts/pytest llm/tests/
 .venv/Scripts/pytest rag/tests/
 .venv/Scripts/pytest prompts/tests/
@@ -190,8 +175,8 @@ Files are analyzed for dependencies using:
 
 ## Environment Notes
 
-- `.env.template` có sẵn — copy thành `.env` và điền API keys
-- Validator MDX check cần **Node.js** (chạy `validate_mdx.mjs` qua subprocess)
-- `dst-scripts/` là git-excluded — cần copy Lua source thủ công
-- Output docs ghi vào `dst-api-webdocs/docs/` (không phải `docs/`)
-- Data tracking files (`data/diff_tracker.json` ~72MB) cũng git-excluded
+- `.env.template` provided — copy to `.env` and fill in API keys
+- Validator MDX check requires **Node.js** (runs `validate_mdx.mjs` via subprocess)
+- `dst-scripts/` is git-excluded — copy Lua source manually
+- Output docs are written to `dst-api-webdocs/docs/` (not `docs/`)
+- Data tracking files in `data/` are git-excluded (runtime artifacts)
