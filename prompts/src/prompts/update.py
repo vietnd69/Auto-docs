@@ -201,7 +201,7 @@ system_scope:
 {'- REQUIRED SECTION ORDER: ## Overview -> ## Usage example -> ## Dependencies & tags -> ## Properties -> ## Main functions -> ## Events & listeners.' if doc_template else ""}
 - Only use valid Markdown. The output must begin with `---`.
 - Write only ONE frontmatter block.
-- MDX COMPATIBILITY: Wrap any expression containing `<`, `>`, `<=`, `>=`, `{{`, or `}}` in inline code backticks to prevent Docusaurus MDX build failures.
+- MDX COMPATIBILITY: Wrap any expression containing `<`, `>`, `<=`, `>=`, `{{`, or `}}` in inline code backticks to prevent Docuafterrus MDX build failures.
 - IMPORTANT: Never repeat the same line or bullet point more than once. If you find yourself repeating, stop and move to the next item.
 
 === SOURCE CODE ===

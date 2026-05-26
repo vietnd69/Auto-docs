@@ -169,7 +169,7 @@ def check_unclosed_code_fences(text: str) -> list[ValidationError]:
     """Detect ## headings that fall inside an unclosed code fence block.
 
     An unclosed fence is valid MDX syntax — the compiler accepts it without error,
-    but Docusaurus renders everything after the opening ``` as raw code, making all
+    but Docuafterrus renders everything after the opening ``` as raw code, making all
     following headings and sections invisible on the page.
     """
     errors: list[ValidationError] = []

@@ -55,7 +55,7 @@ def _extract_function_body(lua_code: str, class_name: str, func_name: str) -> st
     """
     Trích xuất nội dung một function từ file Lua.
     Tìm pattern: function ClassName:FuncName(...)  ...  end
-    Trả về toàn bộ nội dung function (bao gồm dòng khai báo và end).
+    Trả về toàn bộ nội dung function (bao gồm lines khai báo và end).
     """
     # Escape tên để dùng trong regex
     escaped_class = re.escape(class_name)
@@ -88,9 +88,9 @@ def _extract_function_body(lua_code: str, class_name: str, func_name: str) -> st
     for i in range(start_idx, len(lines)):
         line = lines[i]
 
-        # Bỏ qua comment (-- ...)
+        # Skipping comment (-- ...)
         code_part = re.sub(r'--.*$', '', line)
-        # Bỏ qua string literals đơn giản
+        # Skipping string literals đơn giản
         code_part = re.sub(r'"[^"]*"', '""', code_part)
         code_part = re.sub(r"'[^']*'", "''", code_part)
 
@@ -109,7 +109,7 @@ def _extract_property_info(lua_code: str, prop_name: str) -> str | None:
     """
     Tìm property trong constructor hoặc khai báo biến.
     Pattern: self.propName = value
-    Trả về dòng chứa property hoặc None.
+    Trả về lines chứa property hoặc None.
     """
     pattern = rf'^\s*self\.{re.escape(prop_name)}\s*='
 
@@ -194,7 +194,7 @@ def _save_compression_cache(cache_key: str, compressed: str) -> None:
 def _extract_compact_signature(lua_code: str, class_name: str, func_name: str) -> str | None:
     """
     Static extraction: sig + return values + error conditions.
-    Không cần LLM. Output cố định 1–3 dòng/function.
+    Không cần LLM. Output cố định 1–3 lines/function.
     """
     body = _extract_function_body(lua_code, class_name, func_name)
     if not body:
@@ -285,7 +285,7 @@ def extract_signatures_only(
     max_output_tokens: int = 0,   # 0 = không giới hạn
 ) -> tuple[str, list[tuple[str, list[str]]]]:
     """
-    Fallback mode: chỉ lấy dòng khai báo function (signature), không lấy body.
+    Fallback mode: chỉ lấy lines khai báo function (signature), không lấy body.
 
     Nếu max_output_tokens > 0 và output vượt ngưỡng, refs cuối danh sách sẽ bị
     bỏ qua (truncate by ref, không truncate giữa chừng một ref).
@@ -350,7 +350,7 @@ def compress_connected_content(
     model_name: str | None = None,
 ) -> str | None:
     """
-    Dùng LLM để rút gọn full function bodies xuống 3–5 dòng/function.
+    Dùng LLM để rút gọn full function bodies xuống 3–5 lines/function.
     Giữ lại: signature, return values, error conditions, side effects quan trọng.
 
     Args:
@@ -399,7 +399,7 @@ SOURCE:
             if remaining > 0:
                 print(f"  [COMPRESS] LLM call thất bại: {e} → retry ({remaining} left)")
                 continue
-            print(f"  [COMPRESS] LLM call thất bại sau {attempt} lần: {e}")
+            print(f"  [COMPRESS] LLM call thất bại after {attempt} times: {e}")
             return None
 
         raw = response["message"]["content"]
@@ -409,9 +409,9 @@ SOURCE:
         if not result:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
-                print(f"  [COMPRESS] Model trả về rỗng → retry ({remaining} left)")
+                print(f"  [COMPRESS] Model returned empty → retry ({remaining} left)")
                 continue
-            print("  [COMPRESS] Model trả về rỗng sau nhiều lần thử")
+            print("  [COMPRESS] Model trả về rỗng after nhiều times thử")
             return None
 
         if "-- COMPRESSED:" not in result:
@@ -419,7 +419,7 @@ SOURCE:
             if remaining > 0:
                 print(f"  [COMPRESS] Output không đúng format → retry ({remaining} left)")
                 continue
-            print("  [COMPRESS] Output không đúng format sau nhiều lần thử, fallback về signatures")
+            print("  [COMPRESS] Output không đúng format after nhiều times thử, fallback về signatures")
             return None
 
         _save_compression_cache(cache_key, result)
@@ -430,7 +430,7 @@ SOURCE:
 
 def _compress_module_stub(lua_code: str, ref_path: str) -> str | None:
     """
-    Dùng LLM để tạo module-level summary (3–5 dòng) cho require-only refs.
+    Dùng LLM để tạo module-level summary (3–5 lines) cho require-only refs.
     Reuses compression cache system.
 
     Returns:
@@ -492,7 +492,7 @@ def extract_require_stubs(
     Trích xuất stub content cho require-only refs (func_names rỗng).
 
     - File nhỏ (≤ STUB_FULL_THRESHOLD tokens): include toàn bộ nội dung.
-    - File lớn: dùng LLM tạo module summary 3–5 dòng.
+    - File lớn: dùng LLM tạo module summary 3–5 lines.
 
     Budget được kiểm tra incrementally — dừng khi tổng vượt max_tokens.
 
@@ -555,7 +555,7 @@ def extract_connected_content(
 
     Args:
         lua_refs: Danh sách [(file_path, [func_names]), ...] từ extract_lua_references()
-        max_lines_per_file: Giới hạn số dòng tối đa cho mỗi file liên quan
+        max_lines_per_file: Giới hạn số lines tối đa cho mỗi connected files
 
     Returns:
         Chuỗi formatted chứa nội dung các function liên quan, hoặc "" nếu không có gì.
@@ -566,7 +566,7 @@ def extract_connected_content(
     sections = []
 
     for ref_path, func_names in lua_refs:
-        # Bỏ qua nếu không có function cụ thể cần trích xuất
+        # Skipping nếu không có function cụ thể cần trích xuất
         if not func_names:
             continue
 
@@ -768,6 +768,6 @@ if __name__ == "__main__":
     if result:
         print("=== KẾT QUẢ TRÍCH XUẤT ===")
         print(result)
-        print(f"\n=== Tổng: {result.count(chr(10)) + 1} dòng ===")
+        print(f"\n=== Tổng: {result.count(chr(10)) + 1} lines ===")
     else:
         print("Không trích xuất được gì!")

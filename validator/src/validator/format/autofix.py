@@ -78,7 +78,7 @@ def fix_frontmatter_delimiters(text: str) -> tuple[str, bool]:
         lines.insert(0, "---\n")
         changed = True
 
-    # 2. Tìm điểm kết thúc YAML (dòng trống, hoặc bắt đầu markdown #)
+    # 2. Tìm điểm kết thúc YAML (lines trống, hoặc bắt đầu markdown #)
     # Thường frontmatter sẽ kết thúc bằng ---, nếu thiếu thì tự chèn vào.
     if lines[0] == "---\n":
         has_end_delimiter = False
@@ -91,10 +91,10 @@ def fix_frontmatter_delimiters(text: str) -> tuple[str, bool]:
             if lines[i].startswith("#") or lines[i].startswith("> "):
                 end_idx = i
                 break
-            # Nếu gặp dòng trống, kiểm tra dòng tiếp theo có phải YAML key không
+            # Nếu gặp lines trống, kiểm tra lines tiếp theo có phải YAML key không
             if lines[i].strip() == "":
-                # Lookahead: nếu dòng kế tiếp vẫn là YAML key (ví dụ: "last_updated:")
-                # thì bỏ qua dòng trống này và tiếp tục quét
+                # Lookahead: nếu lines kế tiếp vẫn là YAML key (ví dụ: "last_updated:")
+                # thì bỏ qua lines trống này và tiếp tục quét
                 if i + 1 < len(lines) and re.match(r'^[a-z_]+:', lines[i + 1]):
                     continue
                 end_idx = i
@@ -139,14 +139,14 @@ def fix_split_frontmatter(text: str) -> tuple[str, bool]:
     if close_idx == -1:
         return text, False
 
-    # Quét sau closing --- để tìm orphaned YAML keys
+    # Quét after closing --- để tìm orphaned YAML keys
     orphaned_keys = []
     scan_start = close_idx + 1
     i = scan_start
 
     while i < len(lines):
         line = lines[i]
-        # Bỏ qua dòng trống
+        # Skipping lines trống
         if line.strip() == '':
             i += 1
             continue
@@ -172,7 +172,7 @@ def fix_split_frontmatter(text: str) -> tuple[str, bool]:
 
 def fix_yaml_mapping_colon_in_description(text: str) -> tuple[str, bool]:
     """
-    Sửa lỗi `mapping values are not allowed` do có dấu `:` giữa dòng description.
+    Sửa lỗi `mapping values are not allowed` do có dấu `:` giữa lines description.
     Ví dụ: `description: ABCD: EFGH`
     Sẽ wrap nguyên block value của description trong nháy kép `"..."`.
     """
@@ -219,7 +219,7 @@ def remove_filler_text(text: str) -> tuple[str, bool]:
     return text, False
 
 def remove_extra_dividers(text: str) -> tuple[str, int]:
-    """Xóa các dòng --- dư thừa ở cuối body (sau frontmatter), tương tự filler text."""
+    """Xóa các lines --- dư thừa ở cuối body (after frontmatter), tương tự filler text."""
     fm_match = re.match(r'^---\n([\s\S]*?)\n---\n?', text)
     if not fm_match:
         return text, 0
@@ -412,7 +412,7 @@ def fix_reference_errors(text: str, identifier: str) -> tuple[str, int]:
         if in_code_block:
             continue
 
-        # Split dòng theo inline backtick để không đụng vào code inline
+        # Split lines theo inline backtick để không đụng vào code inline
         parts = re.split(r'(`[^`\n]+`)', line)
         new_parts = []
         line_changed = False
@@ -495,7 +495,7 @@ def fix_table_pipes(text: str) -> tuple[str, int]:
 
 def fix_malformed_multiline_backticks(text: str) -> tuple[str, int]:
     """
-    Sửa lỗi LLM generate code block nhiều dòng nhưng dùng ` (inline backtick) thay vì ```lua.
+    Sửa lỗi LLM generate code block nhiều lines nhưng dùng ` (inline backtick) thay vì ```lua.
     Đồng thời xoá lồng backtick bên trong.
     Ví dụ:
       `{
@@ -552,7 +552,7 @@ def fix_unclosed_code_fence_before_heading(text: str) -> tuple[str, int]:
     """Close unclosed code fences immediately before ## / ### headings.
 
     When a ## heading appears inside an open code fence (missing closing ```),
-    Docusaurus renders the entire following section as raw code — headings become invisible.
+    Docuafterrus renders the entire following section as raw code — headings become invisible.
     Fix: insert a closing ``` + blank line before the affected heading.
     """
     lines = text.splitlines(keepends=True)
@@ -577,7 +577,7 @@ def fix_empty_properties_section(text: str) -> tuple[str, bool]:
     Nếu ## Properties section không có data rows, tự động thêm row None.
     Xử lý 2 case:
     - Không có table nào → inject full table (header + separator + None row)
-    - Có header + separator nhưng không có data rows → thêm None row sau separator
+    - There are header + separator nhưng không có data rows → thêm None row after separator
     """
     prop_match = re.search(r'^## Properties\s*$', text, re.MULTILINE)
     if not prop_match:
@@ -609,7 +609,7 @@ def fix_empty_properties_section(text: str) -> tuple[str, bool]:
     if len(non_separator) > 1:
         return text, False  # Đã có data rows, không cần fix
 
-    # Chỉ có header (hoặc chỉ separator) — thêm None row sau separator cuối cùng
+    # Chỉ có header (hoặc chỉ separator) — thêm None row after separator cuối cùng
     sep_match = re.search(r'^\|[\s\-:|]+\|[^\n]*\n', section_body, re.MULTILINE)
     if sep_match:
         insert_pos = after_start + sep_match.end()
@@ -627,7 +627,7 @@ def fix_empty_properties_section(text: str) -> tuple[str, bool]:
 
 def prune_duplicated_content(text: str) -> tuple[str, bool]:
     """
-    Phát hiện và cắt bỏ nội dung bị lặp lại (ví dụ: toàn bộ file bị append thêm n lần).
+    Phát hiện và cắt bỏ nội dung bị lặp lại (ví dụ: toàn bộ file bị append thêm n times).
     Dựa trên việc tìm thấy tiêu đề H1 thứ hai hoặc cụm frontmatter keys lặp lại.
     """
     # 1. Tìm tiêu đề H1 đầu tiên
@@ -639,7 +639,7 @@ def prune_duplicated_content(text: str) -> tuple[str, bool]:
     h1_start = h1_match.start()
 
     # Tìm H1 tiếp theo giống hệt (thường là bắt đầu block lặp)
-    # Tìm kiếm bắt đầu sau H1 đầu tiên một khoảng (tránh match chính nó)
+    # Tìm kiếm bắt đầu after H1 đầu tiên một khoảng (tránh match chính nó)
     second_h1_match = re.search(re.escape(h1_text), text[h1_start + len(h1_text):], re.MULTILINE)
 
     split_point = -1
@@ -663,7 +663,7 @@ def prune_duplicated_content(text: str) -> tuple[str, bool]:
     if split_point != -1:
         # Cắt tài liệu tại điểm phát hiện lặp
         pruned_text = text[:split_point]
-        # Đảm bảo kết thúc bằng một dòng trống hoặc giữ nguyên newline cuối
+        # Đảm bảo kết thúc bằng một lines trống hoặc giữ nguyên newline cuối
         return pruned_text.rstrip() + "\n", True
 
     return text, False
@@ -810,7 +810,7 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
     new_text, removed_dividers = remove_extra_dividers(text)
     if removed_dividers > 0:
         text = new_text
-        applied.append(f"Đã xoá {removed_dividers} dòng `---` dư thừa.")
+        applied.append(f"Đã xoá {removed_dividers} lines `---` dư thừa.")
 
     # Fix | inside backtick expressions in table rows
     new_text, pipe_count = fix_table_pipes(text)
@@ -872,13 +872,13 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
         text = new_text
         applied.append(f"Đã thêm blank line trước {heading_fixes} heading(s) bị thiếu.")
 
-    # Fix unclosed code fences that swallow ## headings (renders sections invisible in Docusaurus)
+    # Fix unclosed code fences that swallow ## headings (renders sections invisible in Docuafterrus)
     new_text, fence_fixes = fix_unclosed_code_fence_before_heading(text)
     if fence_fixes > 0:
         text = new_text
         applied.append(f"Đã đóng {fence_fixes} code fence bị thiếu ``` trước heading.")
 
-    # Ghi file một lần duy nhất cho Phase 1 nếu có thay đổi
+    # Ghi file một times duy nhất cho Phase 1 nếu có thay đổi
     if not dry_run and text != original_text:
         path.write_text(text, encoding="utf-8")
 
@@ -955,7 +955,7 @@ def autofix_file(filepath: str, dry_run: bool = False, accepted_headings: set[st
                     f"           -> {fixed.strip()!r}"
                 )
                 applied.append(msg)
-                # Ghi file ngay để vòng sau validate lại
+                # Ghi file ngay để vòng after validate lại
                 if not dry_run:
                     path.write_text("".join(lines), encoding="utf-8")
                 _print(f"  [autofix] {msg}")

@@ -61,7 +61,7 @@ def _strip_frontmatter_and_header(text: str) -> str:
 def load_diff_report() -> dict | None:
     path = Path(DATA_DIR) / "diff_report.json"
     if not path.exists():
-        print(f"[Lỗi] Không tìm thấy {path}. Hãy chạy watcher trước.")
+        print(f"[Error] {path} not found. Please run watcher first.")
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -91,9 +91,9 @@ def build_changelog_entry(report: dict) -> str | None:
         except Exception as e:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
-                print(f"[Changelog] LLM call thất bại — {e} → retry ({remaining} left)")
+                print(f"[Changelog] LLM call failed — {e} → retry ({remaining} left)")
                 continue
-            print(f"[Changelog] LLM call thất bại sau {attempt} lần — {e}")
+            print(f"[Changelog] LLM call failed after {attempt} attempts — {e}")
             return None
 
         content = response["message"]["content"].strip()
@@ -103,9 +103,9 @@ def build_changelog_entry(report: dict) -> str | None:
             break
         remaining = BAD_RESPONSE_RETRIES + 1 - attempt
         if remaining > 0:
-            print(f"[Changelog] LLM trả về empty response → retry ({remaining} left)")
+            print(f"[Changelog] LLM returned empty response → retry ({remaining} left)")
         else:
-            print(f"[Changelog] LLM trả về empty response sau {attempt} lần — giving up")
+            print(f"[Changelog] LLM returned empty response after {attempt} attempts — giving up")
 
     if not content:
         return None
@@ -159,7 +159,7 @@ def main() -> None:
     if CHANGELOG_PATH.exists():
         existing = CHANGELOG_PATH.read_text(encoding="utf-8")
         if f"## Build {new_ver}" in existing:
-            print(f"[Changelog] Already logged: Build {new_ver}. Dùng --force để ghi đè.")
+            print(f"[Changelog] Already logged: Build {new_ver}. Use --force to overwrite.")
             return
 
     entry = build_changelog_entry(report)
@@ -177,6 +177,6 @@ def main() -> None:
             print(f"[Changelog] MDX autofix: {len(fix_result.changes)} fix(es) applied")
         remaining = get_mdx_errors(str(CHANGELOG_PATH))
         if remaining:
-            print(f"[Changelog] Cảnh báo: {len(remaining)} MDX error(s) còn lại — kiểm tra thủ công")
+            print(f"[Changelog] Warning: {len(remaining)} MDX error(s) remaining — check manually")
 
     print(f"[Changelog] Done: {CHANGELOG_PATH}")

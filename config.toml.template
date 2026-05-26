@@ -6,35 +6,54 @@
 # config.toml is git-excluded; this template is tracked.
 
 [model]
-main     = "qwen3.5:cloud"             # Pipeline chính (doc gen + validator)
+main     = "qwen3.5:cloud"             # Main pipeline (doc gen + validator)
 update   = "qwen3-coder-next:cloud"    # core/update/docs.py
 embed    = "BAAI/bge-small-en-v1.5"   # RAG embedding model
 compress = "qwen3.5:cloud"            # Compression stub generation
+jury     = "qwen3.5:cloud"
+reviewer = "qwen3-coder-next:cloud"
+writer   = "qwen3.5:cloud"
+# 1 = enable thinking, 0 = disable (no reasoning_effort sent to API)
+main_think      = 1
+update_think    = 1
+compress_think  = 1
 
 [tokens]
-prompt_limit     = 16000   # Full prompt > limit → chunked doc gen
-merge_limit      = 20000   # Chunk results > limit → hierarchical merge
-context_reserve  = 7000    # Reserved cho connected content per chunk
-stub_threshold   = 400     # File ≤ threshold → include full (không compress)
-chunked_validate = 16000   # Lua tokens ≥ threshold → per-section validation
-ollama_ctx       = 256000  # Ollama context window size
+prompt_limit       = 20000   # Full prompt > limit → chunked doc gen
+chunk_prompt_limit = 32000   # per-chunk budget ceiling (shell + reserve + code)
+merge_limit        = 20000   # Chunk results > limit → hierarchical merge
+context_reserve    = 6000    # Reserved for connected content per chunk
+stub_threshold     = 400     # File ≤ threshold → include full (no compression)
+chunked_validate   = 20000   # Lua tokens ≥ threshold → per-section validation
+ollama_ctx         = 256000  # Ollama context window size
 
 [timing]
-chunk_sleep      = 10    # Giây chờ giữa các chunk LLM call
-merge_sleep      = 40    # Giây chờ sau merge
-normal_sleep     = 20    # Giây chờ trong standard pipeline
-ollama_timeout   = 300.0 # Timeout (giây) cho một Ollama request
-timeout_retries  = 2     # Số lần retry khi timeout
+chunk_sleep      = 3      # Sleep seconds between LLM chunk calls
+merge_sleep      = 8      # Sleep seconds after merge
+normal_sleep     = 8      # Sleep seconds in standard pipeline
+ollama_timeout   = 1200.0 # Timeout (seconds) for an Ollama request
+timeout_retries  = 3      # Number of retries on timeout
 
 [validator]
-max_iterations           = 10    # PipelineConfig default (CLI entry point)
-loop_max_iterations      = 5     # ContentLoopConfig default (standalone)
-mdx_timeout              = 20    # Timeout (giây) cho Node.js MDX validation
-lua_context_tokens       = 8000  # Token guard cho Lua context extract per section
-section_token_threshold  = 4000  # Section tokens > threshold → sub-chunk by ### boundaries
-batch_token_limit        = 2000  # Max tokens per ### batch trong sub-chunked validation
-section_lua_context_tokens = 3500  # Token guard cho Lua context trong section/batch reviewer
-call_sleep               = 10     # Giây chờ giữa các LLM call trong chunked validation
+max_iterations             = 12     # PipelineConfig default (CLI entry point)
+loop_max_iterations        = 12     # ContentLoopConfig default (standalone)
+writer_inner_iterations    = 3
+mdx_timeout                = 20     # Timeout (seconds) for Node.js MDX validation
+lua_context_tokens         = 6000   # Token guard for Lua context extract per section
+section_token_threshold    = 2600   # Section tokens > threshold → sub-chunk by ### boundaries
+batch_token_limit          = 20000  # Max tokens per ### batch in sub-chunked validation
+section_lua_context_tokens = 6000   # Token guard for Lua context in section/batch reviewer
+call_sleep                 = 5      # Sleep seconds between LLM calls in chunked validation
+reviewer_temperature       = 0.8
+writer_temperature         = 0.2
+jury_temperature           = 1.4
+writer_think               = 0
+reviewer_think             = 1
+jury_think                 = 1
+max_conversation_turns     = 6
+conversation_token_budget  = 5000
+oscillation_threshold      = 50
+bad_response_retries       = 3
 
 [debug]
-prompts = 0   # Set 1 để dump full prompts/responses vào .cache/debug_prompts/
+prompts = 1   # Set 1 to dump full prompts/responses into .cache/debug_prompts/

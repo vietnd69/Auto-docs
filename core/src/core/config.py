@@ -10,7 +10,7 @@ TODAY_DATE = datetime.now().strftime("%Y-%m-%d")
 
 
 def get_shared_file_tree(max_depth=3):
-    """Sinh cây thư mục thu gọn cho prompt content."""
+    """Generate a slim directory tree for prompt content."""
     from core.utils.tree import generate_slim_tree
     from llm.paths import BASE_LUA_DIR
     return generate_slim_tree(BASE_LUA_DIR, max_depth=max_depth)

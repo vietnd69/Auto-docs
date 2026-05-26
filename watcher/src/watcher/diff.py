@@ -1,5 +1,5 @@
 """
-Script phát hiện file .lua thay đổi giữa các lần cập nhật dst-scripts.
+Script phát hiện file .lua thay đổi giữa các times cập nhật dst-scripts.
 
 Cách dùng:
     mod-watcher
@@ -12,7 +12,7 @@ Flow:
     4. Phân loại: ADDED / MODIFIED / DELETED / MOVED
     5. Tính unified diff cho các file bị thay đổi (MODIFIED / MOVED có đổi nội dung)
     6. Ghi kết quả vào diff_report.json (và diff_log.txt để con người dễ đọc)
-    7. Lưu snapshot mới cho lần sau
+    7. Lưu snapshot mới cho times after
 
 Lưu ý:
     - version_log.txt được cập nhật THỦ CÔNG trước khi chạy script
@@ -51,7 +51,7 @@ def read_version_log(path: str) -> dict:
                 elif line.startswith("previous version:"):
                     result["previous"] = line.split(":", 1)[1].strip()
     except FileNotFoundError:
-        print(f"[Lỗi] Không tìm thấy {path}")
+        print(f"[Error] Không tìm thấy {path}")
     return result
 
 def compute_file_hash_and_content(filepath: str) -> tuple:
@@ -86,7 +86,7 @@ def scan_files(root_dir: str) -> dict:
                     "size": size
                 }
             except Exception as e:
-                print(f"  [Lỗi] Không đọc được {rel_path}: {e}")
+                print(f"  [Error] Không đọc được {rel_path}: {e}")
     return file_data
 
 def load_tracker(path: str) -> dict:
@@ -335,7 +335,7 @@ def main():
     if old_data:
         print(f"  Snapshot cũ      : {len(old_data)} files")
     else:
-        print(f"  Snapshot cũ      : (chưa có — lần chạy đầu tiên)")
+        print(f"  Snapshot cũ      : (chưa có — times chạy đầu tiên)")
 
     # 3. Quét file hiện tại
     print(f"\n  Đang quét {SCRIPTS_DIR}...")

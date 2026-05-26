@@ -77,7 +77,7 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
     và retry khi timeout.
 
     Args:
-        model: Tên model Ollama.
+        model: Ollama model name.
         messages: Danh sách message theo định dạng chat.
         think: Bật/tắt extended thinking (mặc định True).
         temperature: Nhiệt độ sampling; None = dùng default của model.
@@ -152,7 +152,7 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                 elif _is_timeout_error(e):
                     had_timeout = True
                     remaining = OLLAMA_TIMEOUT_RETRIES - timeout_attempt
-                    print(f"  [TIMEOUT] Account {idx + 1} timeout sau {OLLAMA_TIMEOUT:.0f}s → switch account ({remaining} retry còn lại)")
+                    print(f"  [TIMEOUT] Account {idx + 1} timeout after {OLLAMA_TIMEOUT:.0f}s → switch account ({remaining} retry còn lại)")
                     errors.append(f"Account {idx + 1}: timeout")
                     # Không break — tiếp tục thử account khác trong round này
                 elif _is_retryable_error(e):
@@ -163,7 +163,7 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                     raise
         # Tất cả account trong round đã thử — nếu có timeout, retry toàn bộ
         if had_timeout and timeout_attempt < OLLAMA_TIMEOUT_RETRIES:
-            print(f"  [RETRY] Tất cả account đã thử, retry lần {timeout_attempt + 1}/{OLLAMA_TIMEOUT_RETRIES}...")
+            print(f"  [RETRY] Tất cả account đã thử, retry times {timeout_attempt + 1}/{OLLAMA_TIMEOUT_RETRIES}...")
             continue
         break
 

@@ -118,7 +118,7 @@ def reindex(
         print(f"→ {len(nodes)} chunks")
         stats["total_chunks"] += len(nodes)
 
-        # Cập nhật tracker sau mỗi mẻ (checkpoint)
+        # Cập nhật tracker after mỗi mẻ (checkpoint)
         for doc in batch_docs:
             file_tracker[doc.id_] = doc.hash
         with open(TRACKER_FILE, "w") as f:

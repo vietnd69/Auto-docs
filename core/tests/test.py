@@ -32,28 +32,28 @@ display_filepath = filepath.replace("./dst-scripts", ".").replace("\\", "/")
 
 lua_code = safe_read_lua(filepath)
 if lua_code is None:
-    print(f"[Lỗi] Không đọc được file: {filepath}")
+    print(f"[Error] Không đọc được file: {filepath}")
     exit(1)
 
 comp_name = TEST_FILE.replace(".lua", "")
 comp_title = comp_name.replace("_", " ").title()
 source_hash = compute_source_hash(lua_code)
 
-# --- Trích xuất tham chiếu ---
+# --- Extract references ---
 lua_refs = extract_lua_references(lua_code, TEST_FILE)
 
 if lua_refs:
-    print(f"[REF] Tìm thấy {len(lua_refs)} file liên quan")
+    print(f"[REF] Tìm thấy {len(lua_refs)} connected files")
 else:
     print(f"[REF] Không tìm thấy tham chiếu nào")
 
 connected_section = format_connected_section(lua_refs)
 
-# --- Trích xuất nội dung function/property từ file liên quan ---
+# --- Trích xuất nội dung function/property từ connected files ---
 connected_content = extract_connected_content(lua_refs, max_lines_per_file=100)
 if connected_content:
     content_lines = connected_content.count('\n') + 1
-    print(f"[FNC] Đã trích xuất {content_lines} dòng source code từ file liên quan")
+    print(f"[FNC] Đã trích xuất {content_lines} lines of source code từ connected files")
 else:
     print(f"[FNC] Không trích xuất được nội dung function nào")
 

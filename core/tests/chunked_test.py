@@ -33,7 +33,7 @@ display_filepath = filepath.replace("./dst-scripts", ".").replace("\\", "/")
 
 lua_code = safe_read_lua(filepath)
 if lua_code is None:
-    print(f"[Lỗi] Không đọc được file: {filepath}")
+    print(f"[Error] Không đọc được file: {filepath}")
     sys.exit(1)
 
 total_lines = lua_code.count("\n") + 1
@@ -41,25 +41,25 @@ comp_name = TEST_FILE.replace(".lua", "")
 comp_title = comp_name.replace("_", " ").title()
 source_hash = compute_source_hash(lua_code)
 
-print(f"File: {TEST_FILE} ({total_lines} dòng)")
+print(f"File: {TEST_FILE} ({total_lines} lines)")
 print(f"Cần chunking: {needs_chunking(lua_code)}")
 
-# --- Trích xuất tham chiếu ---
+# --- Extract references ---
 lua_refs = extract_lua_references(lua_code, TEST_FILE)
 connected_section = format_connected_section(lua_refs)
 
 if lua_refs:
-    print(f"[REF] {len(lua_refs)} file liên quan")
+    print(f"[REF] {len(lua_refs)} connected files")
 else:
-    print(f"[REF] Không có tham chiếu")
+    print(f"[REF] No references")
 
 connected_content = extract_connected_content(lua_refs, max_lines_per_file=100)
 if connected_content:
-    print(f"[FNC] {connected_content.count(chr(10)) + 1} dòng source code")
+    print(f"[FNC] {connected_content.count(chr(10)) + 1} lines of source code")
 
 # --- Chia chunks ---
 if not needs_chunking(lua_code):
-    print(f"\n[Thông báo] File chỉ có {total_lines} dòng, không cần chunking.")
+    print(f"\n[Thông báo] File chỉ có {total_lines} lines, không cần chunking.")
     print("Dùng test.py cho file ngắn.")
     sys.exit(0)
 
@@ -69,7 +69,7 @@ print(f"\nĐã chia thành {total_chunks} chunks:")
 
 for i, chunk in enumerate(chunks, 1):
     chunk_lines = chunk.count("\n") + 1
-    print(f"  Chunk {i}: {chunk_lines} dòng")
+    print(f"  Chunk {i}: {chunk_lines} lines")
 
 # --- Tạo prompt cho từng chunk ---
 print("\n" + "=" * 60)
@@ -126,7 +126,7 @@ with open("test_merge.md", "w", encoding="utf-8") as f:
     f.write(merge_prompt)
 print(f"  Đã ghi test_merge.md ({len(merge_prompt)} ký tự)")
 
-# --- Thống kê ---
+# --- Stats ---
 print("\n" + "=" * 60)
 print(f"[OK] Xuất xong!")
 print(f"  Chunk prompts: test_chunk_1.md → test_chunk_{total_chunks}.md")

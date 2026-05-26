@@ -2,7 +2,7 @@
 Module chứa các hàm xử lý file Lua dùng chung cho prompt.py và test.py.
 - Tìm file .lua trong thư mục
 - Đọc file Lua an toàn
-- Trích xuất tham chiếu (require, components)
+- Extract references (require, components)
 - Format connected section
 - Hash source code
 - Làm sạch output từ model
@@ -64,7 +64,7 @@ def safe_read_lua(filepath: str) -> str | None:
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
     except Exception as e:
-        print(f"[Lỗi] Không thể đọc file {filepath}: {e}")
+        print(f"[Error] Không thể đọc file {filepath}: {e}")
         return None
 
 
@@ -127,7 +127,7 @@ def get_lua_files(lua_dir: str, deep: bool = False) -> list[str]:
     Trả về list đường dẫn tương đối so với lua_dir (dùng forward slash).
     """
     if not os.path.isdir(lua_dir):
-        print(f"[Lỗi] Thư mục không tồn tại: {lua_dir}")
+        print(f"[Error] Thư mục không tồn tại: {lua_dir}")
         return []
 
     results = []

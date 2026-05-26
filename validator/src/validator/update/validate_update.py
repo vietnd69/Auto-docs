@@ -96,7 +96,7 @@ def validate_update(filepath: str, action: str, meta: dict) -> list[str]:
 
 def append_to_validation_log(filepath: str, action: str, errors: list[str]):
     """
-    Ghi log lỗi validation để fix sau.
+    Ghi log lỗi validation để fix after.
     """
     log_file = Path(__file__).parent / "validation_update_errors.log"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -117,7 +117,7 @@ def append_to_validation_log(filepath: str, action: str, errors: list[str]):
 
 def validate_batch(diff_report_path: str, docs_dir: str) -> list[str]:
     """
-    Tầng B: Kiểm tra tổng thể sau toàn bộ batch.
+    Tầng B: Kiểm tra tổng thể after toàn bộ batch.
     """
     batch_errors = []
     if not os.path.exists(diff_report_path):

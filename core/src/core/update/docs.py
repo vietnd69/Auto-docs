@@ -55,7 +55,7 @@ def parse_args():
     parser.add_argument("--filter", type=str, choices=["added", "modified", "deleted", "moved"],
                         help="Chỉ xử lý action type này")
     parser.add_argument("--limit", type=int, default=0, help="Số file tối đa cần xử lý")
-    parser.add_argument("--no-validate", action="store_true", help="Bỏ qua bước validation")
+    parser.add_argument("--no-validate", action="store_true", help="Skipping bước validation")
     parser.add_argument("--force", action="store_true", help="Xử lý lại kể cả file đã gen thành công")
     return parser.parse_args()
 
@@ -67,7 +67,7 @@ def get_md_path(lua_rel_path: str) -> str:
 
 def load_diff_report() -> dict | None:
     if not os.path.exists(DIFF_REPORT):
-        print(f"[Lỗi] Không tìm thấy {DIFF_REPORT}. Hãy chạy get_diff_update.py trước.")
+        print(f"[Error] Không tìm thấy {DIFF_REPORT}. Hãy chạy get_diff_update.py trước.")
         return None
     with open(DIFF_REPORT, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -177,7 +177,7 @@ def _patch_frontmatter_only(
     Returns True nếu thành công.
     """
     if not os.path.exists(md_path):
-        print(f"  - Bỏ qua patch frontmatter: doc chưa tồn tại ({md_path})")
+        print(f"  - Skipping patch frontmatter: doc chưa tồn tại ({md_path})")
         return False
 
     from datetime import datetime
@@ -213,7 +213,7 @@ def _patch_frontmatter_only(
                 updated.add("change_status")
 
     if fm_end < 0:
-        print(f"  - Cảnh báo: Không tìm thấy frontmatter trong {md_path}")
+        print(f"  - Warning: Không tìm thấy frontmatter trong {md_path}")
         return False
 
     # Inject change_status nếu chưa có
@@ -252,7 +252,7 @@ def _read_frontmatter_hash(md_path: str) -> str | None:
 
 def _already_processed(path: str, md_filepath: str, action: str, old_path: str = "", content_changed: bool = True) -> bool:
     """
-    Kiểm tra xem file này đã được xử lý thành công trong lần chạy trước chưa.
+    Kiểm tra xem file này đã được xử lý thành công trong times chạy trước chưa.
     - added/modified/moved(content_changed): so sánh source_hash trong frontmatter với hash của Lua source hiện tại.
     - moved(no content change): kiểm tra doc mới tồn tại và có moved_from field.
     """
@@ -296,7 +296,7 @@ def _render_file(
 
     lua_code = safe_read_lua(lua_abs_path)
     if lua_code is None:
-        print(f"  - Lỗi: Không thể đọc source {lua_abs_path}")
+        print(f"  - Error: Không thể đọc source {lua_abs_path}")
         return False
 
     # Data-only files (strings.lua, map tables...): không có function, quá lớn để re-render.
@@ -324,7 +324,7 @@ def _render_file(
     connected_content = extract_connected_content(lua_refs, max_lines_per_file=100)
 
     if lua_refs:
-        print(f"  [REF] {len(lua_refs)} file liên quan")
+        print(f"  [REF] {len(lua_refs)} connected files")
 
     prompt_text = build_prompt(
         comp_name=comp_name,
@@ -363,7 +363,7 @@ def _render_file(
 
     try:
         if needs_chunking(prompt_text):
-            print(f"  [CHUNKED] Prompt quá dài ({token_count} tokens), dùng chunked pipeline")
+            print(f"  [CHUNKED] Prompt too long ({token_count} tokens), using chunked pipeline")
             result = process_chunked_file(
                 comp_name=comp_name,
                 comp_title=comp_title,
@@ -415,7 +415,7 @@ def _render_file(
         shutdown.request_stop()
         return False
     except Exception as e:
-        print(f"  [Lỗi validate] {e}")
+        print(f"  [Validate error] {e}")
         return False
 
     if file_result.final_status in ("ok", "skipped_chunked"):
@@ -427,7 +427,7 @@ def _render_file(
             p = Path(generated_path)
             p.rename(p.with_name(p.stem + "-false" + p.suffix))
         except OSError as e:
-            print(f"  [Cảnh báo] Không thể đổi tên: {e}")
+            print(f"  [Warning] Cannot rename: {e}")
 
     return False
 
@@ -477,11 +477,11 @@ def _main_impl():
 
     def handle_sigint(signum, frame):
         if not shutdown.stop_requested:
-            print("\n\n[Hệ thống] Đã nhận Ctrl+C! Đang dừng an toàn...")
+            print("\n\n[System] Đã nhận Ctrl+C! Đang dừng an toàn...")
             shutdown.request_stop()
             raise KeyboardInterrupt
         else:
-            print("\n\n[Hệ thống] Ép buộc dừng ngay!")
+            print("\n\n[System] Forced stop immediately!")
             sys.exit(1)
 
     signal.signal(signal.SIGINT, handle_sigint)
@@ -501,7 +501,7 @@ def _main_impl():
 
     non_lua = [c for c in changes if not _is_lua(c)]
     if non_lua:
-        print(f"[update] Bỏ qua {len(non_lua)} file không phải .lua")
+        print(f"[update] Skipping {len(non_lua)} file không phải .lua")
     changes = [c for c in changes if _is_lua(c)]
 
     if args.filter:
@@ -533,7 +533,7 @@ def _main_impl():
         print(f"\n[{idx+1}/{len(changes)}] {action.upper()}: {path}")
 
         if not path:
-            print("  - Lỗi: Không xác định được đường dẫn")
+            print("  - Error: Không xác định được đường dẫn")
             stats["failed"] += 1
             continue
 
@@ -541,7 +541,7 @@ def _main_impl():
 
         if not args.dry_run and not args.force and action != "deleted":
             if _already_processed(path, md_filepath, action, old_path, content_changed):
-                print(f"  - Skip: Đã xử lý thành công (source_hash match). Dùng --force để xử lý lại.")
+                print(f"  - Skip: Processed thành công (source_hash match). Dùng --force để xử lý lại.")
                 stats["skipped"] += 1
                 continue
 
@@ -549,7 +549,7 @@ def _main_impl():
         if action == "moved" and not content_changed:
             old_md = get_md_path(old_path)
             if not os.path.exists(old_md):
-                print(f"  - Bỏ qua: Không tìm thấy doc cũ {old_md}")
+                print(f"  - Skipping: Không tìm thấy doc cũ {old_md}")
                 stats["failed"] += 1
                 stats["failed_list"].append(path)
                 continue
@@ -574,7 +574,7 @@ def _main_impl():
 
         # DELETED — chỉ ghi chú (không có Lua source để render)
         if action == "deleted":
-            print(f"  - Bỏ qua (deleted): doc tại {md_filepath}")
+            print(f"  - Skipping (deleted): doc tại {md_filepath}")
             stats["skipped"] += 1
             continue
 
@@ -596,12 +596,12 @@ def _main_impl():
             stats["failed_list"].append(path)
 
     print("\n" + "=" * 60)
-    print(f"[Thống kê] Hoàn tất!")
-    print(f"  Đã xử lý : {stats['processed']} file")
-    print(f"  Đã bỏ qua: {stats['skipped']} file")
-    print(f"  Thất bại  : {stats['failed']} file")
+    print(f"[Stats] Complete!")
+    print(f"  Processed : {stats['processed']} file")
+    print(f"  Skipped: {stats['skipped']} file")
+    print(f"  Failed  : {stats['failed']} file")
     if stats["failed_list"]:
-        print(f"  Danh sách lỗi: {', '.join(stats['failed_list'])}")
+        print(f"  Danh sách error: {', '.join(stats['failed_list'])}")
     print("=" * 60)
 
 

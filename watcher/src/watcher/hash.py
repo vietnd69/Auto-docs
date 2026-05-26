@@ -1,6 +1,6 @@
 """
-Script patch: Thêm source_hash vào YAML frontmatter của các file .md đã tồn tại.
-Chạy 1 lần duy nhất để migrate docs cũ.
+Script patch: Thêm source_hash vào YAML frontmatter của các file .md already exists.
+Chạy 1 times duy nhất để migrate docs cũ.
 
 Cách dùng: python -m watcher.hash
 """
@@ -33,7 +33,7 @@ def patch_md_file(md_path: str, source_hash: str) -> bool:
         with open(md_path, "r", encoding="utf-8") as f:
             content = f.read()
     except Exception as e:
-        print(f"  [Lỗi] Không đọc được {md_path}: {e}")
+        print(f"  [Error] Không đọc được {md_path}: {e}")
         return False
 
     # Kiểm tra nếu đã có source_hash
@@ -43,7 +43,7 @@ def patch_md_file(md_path: str, source_hash: str) -> bool:
     # Tìm YAML frontmatter: --- ... ---
     match = re.match(r'^(---\n.*?\n)(---)', content, re.DOTALL)
     if not match:
-        print(f"  [Lỗi] Không tìm thấy YAML frontmatter trong {md_path}")
+        print(f"  [Error] Không tìm thấy YAML frontmatter trong {md_path}")
         return False
 
     frontmatter = match.group(1)
@@ -58,7 +58,7 @@ def patch_md_file(md_path: str, source_hash: str) -> bool:
             f.write(new_content)
         return True
     except Exception as e:
-        print(f"  [Lỗi] Không ghi được {md_path}: {e}")
+        print(f"  [Error] Không ghi được {md_path}: {e}")
         return False
 
 
@@ -69,7 +69,7 @@ def main():
 
     for docs_dir, lua_dir in PATCH_CONFIGS:
         if not os.path.isdir(docs_dir):
-            print(f"[Bỏ qua] Thư mục docs không tồn tại: {docs_dir}")
+            print(f"[Skipping] Thư mục docs không tồn tại: {docs_dir}")
             continue
 
         print(f"\n=== Đang patch: {docs_dir} ===")

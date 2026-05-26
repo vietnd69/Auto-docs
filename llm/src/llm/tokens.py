@@ -9,7 +9,7 @@ except ImportError:
 def count_tokens(text: str) -> int:
     """
     Đếm số token của một chuỗi text bằng tiktoken.
-    Trả về -1 nếu không có tiktoken (fallback sang đếm dòng).
+    Trả về -1 nếu không có tiktoken (fallback sang đếm lines).
     """
     if tiktoken:
         try:

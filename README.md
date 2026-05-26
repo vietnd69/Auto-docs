@@ -6,7 +6,7 @@
 
 Automated API documentation generator for **Don't Starve Together** (DST) Lua mods. Analyzes Lua source code and generates comprehensive Markdown documentation using AI models via Ollama Cloud API.
 
-> Hệ thống tự động sinh API documentation cho Lua mods của game Don't Starve Together. Phân tích source code Lua và tạo tài liệu Markdown bằng AI thông qua Ollama Cloud API.
+> Automated system for generating API documentation for Don't Starve Together Lua mods. Analyzes Lua source code and creates Markdown documentation using AI via the Ollama Cloud API.
 
 ## Features
 

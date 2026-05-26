@@ -93,7 +93,7 @@ def _main_impl():
     )
     args = parser.parse_args()
 
-    # === CONFIGURATION — Lấy từ config.py và tuỳ chỉnh ===
+    # === CONFIGURATION — Load from config.py and customize ===
     ENTER_DEEP_DIR = True
     LUA_DIR = os.path.join(BASE_LUA_DIR, "")
     DOCS_DIR = os.path.join(BASE_DOCS_DIR, "")
@@ -106,11 +106,11 @@ def _main_impl():
     # === Ctrl+C handler ===
     def handle_sigint(signum, frame):
         if not shutdown.stop_requested:
-            print("\n\n[Hệ thống] Đã nhận Ctrl+C! Checkpoint đã lưu, đang dừng...")
+            print("\n\n[System] Received Ctrl+C! Checkpoint saved, stopping...")
             shutdown.request_stop()
             raise KeyboardInterrupt  # Ngắt blocking HTTP call ngay lập tức
         else:
-            print("\n\n[Hệ thống] Ép buộc dừng ngay!")
+            print("\n\n[System] Forced stop immediately!")
             sys.exit(1)
 
     signal.signal(signal.SIGINT, handle_sigint)
@@ -120,14 +120,14 @@ def _main_impl():
         # Single file mode: resolve path relative to LUA_DIR
         lua_path = os.path.abspath(args.file)
         if not lua_path.endswith(".lua"):
-            print(f"[Lỗi] File phải có đuôi .lua: {lua_path}")
+            print(f"[Error] File must have .lua extension: {lua_path}")
             sys.exit(1)
         if not os.path.isfile(lua_path):
-            print(f"[Lỗi] File không tồn tại: {lua_path}")
+            print(f"[Error] File does not exist: {lua_path}")
             sys.exit(1)
         lua_dir_abs = os.path.abspath(LUA_DIR)
         if not lua_path.startswith(lua_dir_abs):
-            print(f"[Lỗi] File phải nằm trong thư mục: {lua_dir_abs}")
+            print(f"[Error] File must be within directory: {lua_dir_abs}")
             sys.exit(1)
         file_list = [os.path.relpath(lua_path, lua_dir_abs).replace("\\", "/")]
         force_regen = True  # Single file mode → always regenerate
@@ -139,16 +139,16 @@ def _main_impl():
     stats = {"processed": 0, "skipped": 0, "failed": 0, "failed_list": [], "validate_failed": 0}
 
     if args.file:
-        print(f"Xử lý file đơn: {file_list[0]}")
+        print(f"Processing single file: {file_list[0]}")
     else:
-        print(f"Bắt đầu xử lý thư mục: {LUA_DIR}")
+        print(f"Starting to process directory: {LUA_DIR}")
     print(f"Output: {DOCS_DIR}")
     print(f"Model: {MODEL_NAME}")
     print("-" * 60)
 
     for filename in file_list:
         if shutdown.stop_requested:
-            print("[Hệ thống] Đã dừng vòng lặp an toàn.")
+            print("[System] Loop stopped safely.")
             break
 
         rel_no_ext = filename.replace(".lua", "")
@@ -158,12 +158,12 @@ def _main_impl():
         md_filename = f"{rel_no_ext}.md"
         md_filepath = os.path.join(DOCS_DIR, md_filename)
 
-        # Đảm bảo thư mục con tồn tại
+        # Ensure sub-directory exists
         os.makedirs(os.path.dirname(md_filepath), exist_ok=True)
 
         # --resume-validate: bỏ qua generation, chỉ chạy lại validator từ checkpoint
         if args.resume_validate and os.path.exists(md_filepath):
-            print(f"  [resume-validate] Bỏ qua generation, validate lại {md_filename}...")
+            print(f"  [resume-validate] Skipping generation, re-validating {md_filename}...")
             generated_path = md_filepath
             try:
                 file_result = process_file(generated_path, PipelineConfig(
@@ -179,7 +179,7 @@ def _main_impl():
                 shutdown.request_stop()
                 continue
             except Exception as e:
-                print(f"  [Lỗi validate] {filename}: {e}")
+                print(f"  [Validate error] {filename}: {e}")
                 stats["failed"] += 1
                 stats["validate_failed"] += 1
                 stats["failed_list"].append(filename)
@@ -192,9 +192,9 @@ def _main_impl():
                 stats["failed_list"].append(filename)
             continue
 
-        # Bỏ qua file đã có docs (trừ khi force hoặc single file mode)
+        # Skip files that already have docs (unless force or single file mode)
         if not force_regen and os.path.exists(md_filepath):
-            print(f"  Bỏ qua {md_filename} (đã tồn tại)")
+            print(f"  Skipping {md_filename} (already exists)")
             stats["skipped"] += 1
             continue
 
@@ -210,25 +210,25 @@ def _main_impl():
 
         source_hash = compute_source_hash(lua_code)
 
-        # Trích xuất tham chiếu
+        # Extract references
         lua_refs = extract_lua_references(lua_code, filename)
         connected_section = format_connected_section(lua_refs)
 
         print(f"------------------")
         if lua_refs:
-            print(f"  [REF] {len(lua_refs)} file liên quan")
+            print(f"  [REF] {len(lua_refs)} connected files")
         else:
-            print(f"  [REF] Không có tham chiếu")
+            print(f"  [REF] No references")
 
-        # Trích xuất nội dung function từ file liên quan
+        # Trích xuất nội dung function từ connected files
         connected_content = extract_connected_content(lua_refs, max_lines_per_file=100)
         if connected_content:
-            print(f"  [FNC] {connected_content.count(chr(10)) + 1} dòng source code")
+            print(f"  [FNC] {connected_content.count(chr(10)) + 1} lines of source code")
 
         total_lines = lua_code.count("\n") + 1
-        print(f"\n  Đang xử lý {filename} ({total_lines} dòng)...")
+        print(f"\n  Processing {filename} ({total_lines} lines)...")
 
-        # Build full prompt TRƯỚC để đếm token chính xác
+        # Build full prompt FIRST to count tokens accurately
         prompt_text = build_prompt(
             comp_name=comp_name,
             comp_title=comp_title,
@@ -243,15 +243,15 @@ def _main_impl():
             category_type=category_type,
         )
 
-        # Đếm token toàn bộ prompt
+        # Count tokens of the entire prompt
         token_count = count_tokens(prompt_text)
         if token_count >= 0:
-            print(f"  [PROMPT] Độ dài: {token_count} tokens")
+            print(f"  [PROMPT] Length: {token_count} tokens")
 
         try:
             if needs_chunking(prompt_text):
                 # === CHUNKED PIPELINE — full prompt > 32K token ===
-                print(f"  [CHUNKED] Prompt quá dài ({token_count} tokens), dùng chunked pipeline")
+                print(f"  [CHUNKED] Prompt too long ({token_count} tokens), using chunked pipeline")
                 result = process_chunked_file(
                     comp_name=comp_name,
                     comp_title=comp_title,
@@ -272,7 +272,7 @@ def _main_impl():
                     merge_sleep=20,
                 )
             else:
-                # === PIPELINE BÌNH THƯỜNG — prompt vừa vặn ===
+                # === STANDARD PIPELINE — prompt fits ===
                 result = generate_doc(
                     prompt=prompt_text,
                     md_filepath=md_filepath,
@@ -282,7 +282,7 @@ def _main_impl():
                     sleep_time=20,
                 )
         except KeyboardInterrupt:
-            # File có thể đã được ghi thành công trước khi bị ngắt (ví dụ: ngắt trong lúc sleep)
+            # File may have been written successfully before interruption (e.g., interrupted during sleep)
             result = os.path.basename(md_filepath) if os.path.exists(md_filepath) else None
 
         if not result:
@@ -313,7 +313,7 @@ def _main_impl():
             continue
         except Exception as e:
             # Unexpected validator error (e.g. disk issue) — counts as validate_failed.
-            print(f"  [Lỗi validate] {filename}: {e}")
+            print(f"  [Validate error] {filename}: {e}")
             stats["failed"] += 1
             stats["validate_failed"] += 1
             stats["failed_list"].append(filename)
@@ -327,7 +327,7 @@ def _main_impl():
                 false_path = p.with_name(p.stem + "-false" + p.suffix)
                 p.rename(false_path)
             except OSError as e:
-                print(f"  [Cảnh báo] Không thể đổi tên {generated_path}: {e}")
+                print(f"  [Warning] Cannot rename {generated_path}: {e}")
             stats["failed"] += 1
             stats["validate_failed"] += 1
             stats["failed_list"].append(filename)
@@ -336,22 +336,22 @@ def _main_impl():
             stats["validate_failed"] += 1
             stats["failed_list"].append(filename)
 
-    # === Thống kê ===
+    # === Stats ===
     print("\n" + "=" * 60)
-    print(f"[Thống kê] Hoàn tất!")
-    print(f"  Đã xử lý : {stats['processed']} file")
-    print(f"  Đã bỏ qua: {stats['skipped']} file")
+    print(f"[Stats] Complete!")
+    print(f"  Processed : {stats['processed']} file")
+    print(f"  Skipped: {stats['skipped']} file")
     if stats["failed"] > 0:
-        print(f"  Thất bại  : {stats['failed']} file")
+        print(f"  Failed  : {stats['failed']} file")
         generate_fail = stats["failed"] - stats["validate_failed"]
         if not args.no_validate and stats["validate_failed"] > 0:
             print(f"    → Validation fail: {stats['validate_failed']}")
         if generate_fail > 0:
             print(f"    → Generate fail  : {generate_fail}")
     else:
-        print(f"  Thất bại  : 0 file")
+        print(f"  Failed  : 0 file")
     if stats["failed_list"]:
-        print(f"  Danh sách file lỗi: {', '.join(stats['failed_list'])}")
+        print(f"  List of failed files: {', '.join(stats['failed_list'])}")
     print("=" * 60)
 
 

@@ -41,12 +41,12 @@ def generate_doc(
         prompt: Prompt đầy đủ để gửi cho LLM.
         md_filepath: Đường dẫn đầy đủ tới file .md cần ghi.
         model_name: Tên model Ollama để sử dụng.
-        sleep_time: Thời gian nghỉ (giây) sau khi xử lý xong. Mặc định 0.
-        max_retries: Số lần retry tối đa (mặc định 3).
-        retry_delay: Nghỉ giữa các lần retry (giây, mặc định 30).
+        sleep_time: Thời gian nghỉ (giây) after khi xử lý xong. Mặc định 0.
+        max_retries: Số times retry tối đa (mặc định 3).
+        retry_delay: Nghỉ giữa các times retry (giây, mặc định 30).
 
     Returns:
-        Tên file .md (basename) nếu thành công, None nếu thất bại.
+        .md file name (basename) if successful, None if failed.
     """
     md_filename = os.path.basename(md_filepath)
 
@@ -71,11 +71,11 @@ def generate_doc(
             # Làm sạch output (thinking block + code fence)
             md_content = clean_model_output(md_content)
 
-            # Guard: model trả về rỗng (chỉ có thinking block hoặc lỗi)
+            # Guard: model returned empty (only thinking block or error)
             if not md_content:
-                print(f"  [Lỗi] Lần {attempt}/{max_retries} — model trả về rỗng cho {md_filename}")
+                print(f"  [Error] Lần {attempt}/{max_retries} — model trả về rỗng cho {md_filename}")
                 if attempt < max_retries:
-                    print(f"  Đang nghỉ {retry_delay} giây trước khi retry...")
+                    print(f"  Resting {retry_delay} giây before retry...")
                     time.sleep(retry_delay)
                 continue
 
@@ -89,8 +89,8 @@ def generate_doc(
                     time.sleep(retry_delay)
                     continue
                 print(
-                    f"  [Cảnh báo] Output của {md_filename} không bắt đầu bằng YAML frontmatter "
-                    f"sau {max_retries} lần thử — ghi file và tiếp tục"
+                    f"  [Warning] Output của {md_filename} không bắt đầu bằng YAML frontmatter "
+                    f"after {max_retries} times thử — ghi file và tiếp tục"
                 )
 
             if source_hash:
@@ -104,43 +104,43 @@ def generate_doc(
                 f.write(md_content)
 
             if attempt > 1:
-                print(f"  [Retry] Thành công ở lần {attempt}")
-            print(f"  Đã tạo {md_filename}")
+                print(f"  [Retry] Thành công ở times {attempt}")
+            print(f"  Created {md_filename}")
 
-            # Kiểm tra sections sau khi gen lần đầu
+            # Kiểm tra sections after khi gen times đầu
             if lua_filepath:
                 missing = _check_missing_sections(md_content)
                 if missing:
                     print(f"  [sections] Thiếu {len(missing)} section(s): {', '.join(missing)}")
                     for sec_attempt in range(1, max_section_retries + 1):
-                        print(f"  [sections] Rewrite lần {sec_attempt}/{max_section_retries}...")
+                        print(f"  [sections] Rewrite times {sec_attempt}/{max_section_retries}...")
                         ok = rewrite_document(md_filepath, missing, lua_filepath, model=model_name, original_prompt=prompt)
                         if not ok:
-                            print(f"  [sections] Rewrite thất bại lần {sec_attempt}")
+                            print(f"  [sections] Rewrite thất bại times {sec_attempt}")
                             continue
                         new_content = Path(md_filepath).read_text(encoding="utf-8")
                         missing = _check_missing_sections(new_content)
                         if not missing:
-                            print(f"  [sections] Đủ sections sau rewrite lần {sec_attempt}")
+                            print(f"  [sections] Đủ sections after rewrite times {sec_attempt}")
                             break
                         print(f"  [sections] Vẫn thiếu: {', '.join(missing)}")
                     if missing:
-                        print(f"  [sections] Cảnh báo: vẫn thiếu {', '.join(missing)} sau {max_section_retries} lần rewrite")
+                        print(f"  [sections] Warning: vẫn thiếu {', '.join(missing)} after {max_section_retries} times rewrite")
 
-            # Nghỉ giữa các lần gọi
+            # Nghỉ giữa các times gọi
             if sleep_time > 0:
-                print(f"  Đang nghỉ {sleep_time} giây...")
+                print(f"  Resting {sleep_time} seconds...")
                 time.sleep(sleep_time)
 
             return md_filename
 
         except Exception as e:
             # Rate limit đã được config.ollama_chat xử lý (account rotation).
-            # Lỗi đến đây là non-rate-limit: timeout, connection reset, v.v.
-            print(f"  [Lỗi] Lần {attempt}/{max_retries} — {md_filename}: {e}")
+            # Error đến đây là non-rate-limit: timeout, connection reset, v.v.
+            print(f"  [Error] Lần {attempt}/{max_retries} — {md_filename}: {e}")
             if attempt < max_retries:
-                print(f"  Đang nghỉ {retry_delay} giây trước khi retry...")
+                print(f"  Resting {retry_delay} giây before retry...")
                 time.sleep(retry_delay)
 
-    print(f"  [Lỗi] {md_filename} thất bại sau {max_retries} lần thử — skip")
+    print(f"  [Error] {md_filename} thất bại after {max_retries} times thử — skip")
     return None

@@ -1,16 +1,16 @@
 """
-Module xử lý Ollama calls cho chunked pipeline.
-Tách riêng khỏi olm.py vì:
-  - Chunk trung gian: gọi LLM nhưng KHÔNG ghi file, chỉ trả về text
-  - Merge cuối cùng: gọi LLM và ghi file .md
+Module handling Ollama calls for chunked pipeline.
+Separated from olm.py because:
+  - Intermediate chunk: calls LLM but DOES NOT write file, only returns text
+  - Final merge: calls LLM and writes .md file
 
 Functions:
-  - save/load/clear_checkpoint(): quản lý checkpoint
-  - generate_chunk_analysis(): gọi LLM cho 1 chunk/group, trả về text
-  - generate_merged_doc():     gọi LLM merge + ghi file .md
-  - hierarchical_merge():      merge 2 tầng cho file cực lớn
-  - rolling_merge_to_one():    fallback merge từng cặp
-  - process_chunked_file():    pipeline đầy đủ: split → analyze chunks → merge
+  - save/load/clear_checkpoint(): manage checkpoints
+  - generate_chunk_analysis(): calls LLM for 1 chunk/group, returns text
+  - generate_merged_doc():     calls LLM merge + writes .md file
+  - hierarchical_merge():      2-tier merge for extremely large files
+  - rolling_merge_to_one():    fallback merge by pairs
+  - process_chunked_file():    full pipeline: split → analyze chunks → merge
 """
 
 import os
@@ -36,7 +36,7 @@ def _dump_debug(label: str, content: str) -> None:
 
 
 def _detect_context_mode(content: str) -> str:
-    """Xác định mode của connected content dựa trên marker strings."""
+    """Determine mode of connected content based on marker strings."""
     if "--[SIGONLY:" in content:
         return "signatures"
     if "-- COMPRESSED:" in content:
@@ -103,11 +103,11 @@ _MULTIPASS_FUNC_THRESHOLD = 100
 
 def save_checkpoint(
     comp_name: str,
-    chunk_results: dict[int, str],  # đổi list → dict {chunk_index: result}
+    chunk_results: dict[int, str],  # change list → dict {chunk_index: result}
     last_index: int,
     failed_indices: list[int] | None = None,
 ) -> None:
-    """Lưu tiến độ sau mỗi chunk thành công (atomic write)."""
+    """Save progress after each successful chunk (atomic write)."""
     Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
     checkpoint_path = f"{CHECKPOINT_DIR}/{comp_name}.json"
     temp_path = f"{checkpoint_path}.tmp"
@@ -127,7 +127,7 @@ def save_checkpoint(
 
 def load_checkpoint(comp_name: str) -> tuple[dict[int, str], int, list[int]] | None:
     """
-    Load checkpoint nếu tồn tại.
+    Load checkpoint if exists.
     Returns (chunk_results, last_index, failed_indices) hoặc None nếu không có.
     """
     checkpoint_path = f"{CHECKPOINT_DIR}/{comp_name}.json"
@@ -147,17 +147,17 @@ def load_checkpoint(comp_name: str) -> tuple[dict[int, str], int, list[int]] | N
         chunk_results = {int(k): v for k, v in state["chunk_results"].items()}
         failed_indices = state.get("failed_indices", [])
         last_index = state["last_index"]
-        print(f"  [CHECKPOINT] Resume từ chunk {last_index + 2}")
+        print(f"  [CHECKPOINT] Resume from chunk {last_index + 2}")
         if failed_indices:
-            print(f"  [CHECKPOINT] Có {len(failed_indices)} chunk lỗi cần retry: {failed_indices}")
+            print(f"  [CHECKPOINT] There are {len(failed_indices)} failed chunks needing retry: {failed_indices}")
         return chunk_results, last_index, failed_indices
     except Exception as e:
-        print(f"  [CHECKPOINT] Không load được: {e}")
+        print(f"  [CHECKPOINT] Failed to load: {e}")
         return None
 
 
 def clear_checkpoint(comp_name: str) -> None:
-    """Xoá checkpoint sau khi merge thành công."""
+    """Clear checkpoint after successful merge."""
     checkpoint_path = f"{CHECKPOINT_DIR}/{comp_name}.json"
     if Path(checkpoint_path).exists():
         Path(checkpoint_path).unlink()
@@ -168,10 +168,10 @@ def clear_checkpoint(comp_name: str) -> None:
 def save_merge_checkpoint(
     comp_name: str,
     stage: str,           # "hierarchical_t1" | "rolling"
-    results: list[str],   # kết quả đã merge được đến hiện tại
-    last_index: int,      # index cuối đã xử lý thành công
+    results: list[str],   # merged results up to now
+    last_index: int,      # last successfully processed index
 ) -> None:
-    """Lưu tiến độ merge (atomic write)."""
+    """Save merge progress (atomic write)."""
     Path(CHECKPOINT_DIR).mkdir(parents=True, exist_ok=True)
     checkpoint_path = f"{CHECKPOINT_DIR}/{comp_name}.merge.json"
     temp_path = f"{checkpoint_path}.tmp"
@@ -188,22 +188,22 @@ def save_merge_checkpoint(
 
 
 def load_merge_checkpoint(comp_name: str) -> dict | None:
-    """Load merge checkpoint nếu tồn tại."""
+    """Load merge checkpoint if exists."""
     checkpoint_path = f"{CHECKPOINT_DIR}/{comp_name}.merge.json"
     if not Path(checkpoint_path).exists():
         return None
     try:
         with open(checkpoint_path, encoding="utf-8") as f:
             state = json.load(f)
-        print(f"  [MERGE CHECKPOINT] Resume stage='{state['stage']}' từ index {state['last_index'] + 1}")
+        print(f"  [MERGE CHECKPOINT] Resume stage='{state['stage']}' from index {state['last_index'] + 1}")
         return state
     except Exception as e:
-        print(f"  [MERGE CHECKPOINT] Không load được: {e}")
+        print(f"  [MERGE CHECKPOINT] Failed to load: {e}")
         return None
 
 
 def clear_merge_checkpoint(comp_name: str) -> None:
-    """Xoá merge checkpoint sau khi thành công."""
+    """Clear merge checkpoint after success."""
     checkpoint_path = f"{CHECKPOINT_DIR}/{comp_name}.merge.json"
     if Path(checkpoint_path).exists():
         Path(checkpoint_path).unlink()
@@ -218,17 +218,17 @@ def generate_chunk_analysis(
     label: str = "Chunk",
 ) -> str | None:
     """
-    Gọi Ollama để phân tích 1 chunk hoặc group. Trả về text kết quả (KHÔNG ghi file).
+    Call Ollama to analyze 1 chunk or group. Returns text result (DOES NOT write file).
 
     Args:
-        prompt: Prompt cho chunk này.
-        chunk_index: Số thứ tự (1-based).
-        total_chunks: Tổng số.
-        model_name: Tên model Ollama.
-        sleep_time: Nghỉ giữa các lần gọi (giây).
-        label: Nhãn hiển thị ("Chunk", "Group", "Rolling").
+        prompt: Prompt for this chunk.
+        chunk_index: Order number (1-based).
+        total_chunks: Total.
+        model_name: Ollama model name.
+        sleep_time: Rest between calls (seconds).
+        label: Display label ("Chunk", "Group", "Rolling").
     """
-    print(f"    [{label} {chunk_index}/{total_chunks}] Đang xử lý...")
+    print(f"    [{label} {chunk_index}/{total_chunks}] Processing...")
 
     if DEBUG_PROMPTS:
         _dump_debug(f"chunk_{label.lower()}{chunk_index}_prompt", prompt)
@@ -248,16 +248,16 @@ def generate_chunk_analysis(
             if not result:
                 remaining = BAD_RESPONSE_RETRIES + 1 - attempt
                 if remaining > 0:
-                    print(f"    [{label} {chunk_index}/{total_chunks}] Model trả về rỗng → retry ({remaining} left)")
+                    print(f"    [{label} {chunk_index}/{total_chunks}] Model returned empty → retry ({remaining} left)")
                     continue
-                print(f"    [{label} {chunk_index}/{total_chunks}] Thất bại — model trả về rỗng sau {attempt} lần")
+                print(f"    [{label} {chunk_index}/{total_chunks}] Failed — model trả về rỗng after {attempt} times")
                 return None
 
             lines_count = result.count("\n") + 1
-            print(f"    [{label} {chunk_index}/{total_chunks}] Xong — {lines_count} dòng kết quả")
+            print(f"    [{label} {chunk_index}/{total_chunks}] Done — {lines_count} lines kết quả")
 
             if sleep_time > 0 and not shutdown.stop_requested:
-                print(f"    Đang nghỉ {sleep_time} giây...")
+                print(f"    Resting {sleep_time} seconds...")
                 shutdown.interruptible_sleep(sleep_time)
 
             return result
@@ -265,10 +265,10 @@ def generate_chunk_analysis(
         except Exception as e:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
-                print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} → retry ({remaining} left)")
+                print(f"    [Error] {label} {chunk_index}/{total_chunks}: {e} → retry ({remaining} left)")
                 shutdown.interruptible_sleep(5)
             else:
-                print(f"    [Lỗi] {label} {chunk_index}/{total_chunks}: {e} — giving up")
+                print(f"    [Error] {label} {chunk_index}/{total_chunks}: {e} — giving up")
                 return None
 
     return None
@@ -284,28 +284,28 @@ def generate_merged_doc(
     retry_delay: int = 30,
 ) -> str | None:
     """
-    Gọi Ollama với merge prompt, ghi kết quả ra file .md.
-    Tự động retry nếu model trả về rỗng hoặc lỗi.
+    Call Ollama with merge prompt, write result to .md file.
+    Auto retry if model returns empty or error.
 
     Args:
-        prompt: Merge prompt chứa tất cả chunk results.
-        md_filepath: Đường dẫn file .md đầu ra.
-        model_name: Tên model Ollama.
-        sleep_time: Nghỉ sau khi ghi (giây).
-        max_retries: Số lần retry tối đa (mặc định 3).
-        retry_delay: Nghỉ giữa các lần retry (giây, mặc định 30).
+        prompt: Merge prompt containing all chunk results.
+        md_filepath: Output .md file path.
+        model_name: Ollama model name.
+        sleep_time: Rest after writing (seconds).
+        max_retries: Số times retry tối đa (mặc định 3).
+        retry_delay: Nghỉ giữa các times retry (giây, mặc định 30).
 
     Returns:
-        Tên file .md (basename) nếu thành công, None nếu thất bại.
+        .md file name (basename) if successful, None if failed.
     """
     md_filename = os.path.basename(md_filepath)
 
     for attempt in range(1, max_retries + 1):
         try:
             if attempt == 1:
-                print(f"    [Merge] Đang tổng hợp tài liệu...")
+                print(f"    [Merge] Synthesizing document...")
             else:
-                print(f"    [Merge retry {attempt}/{max_retries}] Đang thử lại...")
+                print(f"    [Merge retry {attempt}/{max_retries}] Retrying...")
 
             if DEBUG_PROMPTS and attempt == 1:
                 _dump_debug(f"merge_prompt_{md_filename}", prompt)
@@ -321,11 +321,11 @@ def generate_merged_doc(
                 _dump_debug(f"merge_response_{md_filename}", md_content)
             md_content = clean_model_output(md_content)
 
-            # Guard: model trả về rỗng (chỉ có thinking block hoặc lỗi)
+            # Guard: model returned empty (only thinking block or error)
             if not md_content:
                 print(f"    [Merge] Lần {attempt}/{max_retries} — model trả về rỗng")
                 if attempt < max_retries:
-                    print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
+                    print(f"    Resting {retry_delay} giây before retry...")
                     shutdown.interruptible_sleep(retry_delay)
                 continue
 
@@ -341,8 +341,8 @@ def generate_merged_doc(
                     shutdown.interruptible_sleep(retry_delay)
                     continue
                 print(
-                    f"    [Cảnh báo] Output merge của {md_filename} không bắt đầu bằng YAML frontmatter "
-                    f"sau {max_retries} lần thử — ghi file và tiếp tục"
+                    f"    [Warning] Output merge của {md_filename} không bắt đầu bằng YAML frontmatter "
+                    f"after {max_retries} times thử — ghi file và tiếp tục"
                 )
 
             if source_hash:
@@ -356,22 +356,22 @@ def generate_merged_doc(
                 f.write(md_content)
 
             if attempt > 1:
-                print(f"    [Merge] Thành công ở lần {attempt}")
-            print(f"    [Merge] Đã tạo {md_filename}")
+                print(f"    [Merge] Thành công ở times {attempt}")
+            print(f"    [Merge] Created {md_filename}")
 
             if sleep_time > 0 and not shutdown.stop_requested:
-                print(f"    Đang nghỉ {sleep_time} giây...")
+                print(f"    Resting {sleep_time} seconds...")
                 shutdown.interruptible_sleep(sleep_time)
 
             return md_filename
 
         except Exception as e:
-            print(f"    [Merge] Lần {attempt}/{max_retries} lỗi: {e}")
+            print(f"    [Merge] Lần {attempt}/{max_retries} error: {e}")
             if attempt < max_retries:
-                print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
+                print(f"    Resting {retry_delay} giây before retry...")
                 shutdown.interruptible_sleep(retry_delay)
 
-    print(f"    [Lỗi] Merge thất bại cho {md_filename} sau {max_retries} lần thử")
+    print(f"    [Error] Merge failed for {md_filename} after {max_retries} times thử")
     return None
 
 
@@ -543,7 +543,7 @@ def multipass_merge(
     with open(md_filepath, "w", encoding="utf-8") as f:
         f.write(assembled)
     md_filename = os.path.basename(md_filepath)
-    print(f"    [Multipass] Đã tạo {md_filename}")
+    print(f"    [Multipass] Created {md_filename}")
 
     return md_filename
 
@@ -568,14 +568,14 @@ def hierarchical_merge(
     sleep_time: int = 10,
 ) -> str | None:
     """
-    Merge hierarchical 2 tầng:
-      Tầng 1: Chia chunk_results thành nhóm group_size, merge mỗi nhóm → intermediate summary
-      Tầng 2: Merge tất cả intermediate summaries → final document
+    2-tier hierarchical merge:
+      Tier 1: Split chunk_results into group_size groups, merge each group → intermediate summary
+      Tier 2: Merge all intermediate summaries → final document
     """
     total = len(chunk_results)
 
-    # Tự động tính group_size dựa trên token thực tế
-    # Mục tiêu: mỗi nhóm fit trong MERGE_TOKEN_LIMIT
+    # Auto calculate group_size based on actual tokens
+    # Goal: each group fits within MERGE_TOKEN_LIMIT
     total_tokens = estimate_merge_tokens(chunk_results)
     if total_tokens > 0:
         avg_tokens = total_tokens / total
@@ -589,19 +589,19 @@ def hierarchical_merge(
     groups = [chunk_results[i:i + group_size] for i in range(0, total, group_size)]
     total_groups = len(groups)
 
-    print(f"  [HIERARCHICAL] {total} chunks → {total_groups} nhóm × {group_size}")
+    print(f"  [HIERARCHICAL] {total} chunks → {total_groups} groups × {group_size}")
 
     # ── Resume tầng 1 nếu có ──
     merge_ckpt = load_merge_checkpoint(comp_name)
     if merge_ckpt and merge_ckpt["stage"] == "hierarchical_t1":
         intermediate_results = merge_ckpt["results"]
         resume_group_from = merge_ckpt["last_index"]
-        print(f"  [HIERARCHICAL] Resume tầng 1 từ nhóm {resume_group_from + 2}")
+        print(f"  [HIERARCHICAL] Resume tầng 1 từ groups {resume_group_from + 2}")
     else:
         intermediate_results = []
         resume_group_from = -1
 
-    # Tầng 1: merge từng nhóm
+    # Tầng 1: merge từng groups
     for g_idx, group in enumerate(groups, 1):
         if g_idx - 1 <= resume_group_from:
             continue
@@ -627,17 +627,17 @@ def hierarchical_merge(
             intermediate_results.append(result)
             save_merge_checkpoint(comp_name, "hierarchical_t1", intermediate_results, g_idx - 1)
         else:
-            print(f"  [HIERARCHICAL] Nhóm {g_idx} thất bại, bỏ qua.")
+            print(f"  [HIERARCHICAL] Nhóm {g_idx} failed, skipping.")
 
     if not intermediate_results:
-        print("  [HIERARCHICAL] Tất cả nhóm trung gian đều thất bại!")
+        print("  [HIERARCHICAL] Tất cả groups trung gian đều thất bại!")
         return None
 
-    print(f"  [HIERARCHICAL] Tầng 1 xong: {len(intermediate_results)} intermediate summaries")
+    print(f"  [HIERARCHICAL] Tier 1 done: {len(intermediate_results)} intermediate summaries")
 
-    # Kiểm tra: tầng 2 có vượt ngưỡng không?
+    # Check: does tier 2 exceed threshold?
     if estimate_merge_tokens(intermediate_results) > MERGE_TOKEN_LIMIT:
-        print("  [HIERARCHICAL] Intermediate results vẫn lớn → rolling merge tầng 2")
+        print("  [HIERARCHICAL] Intermediate results still large → tier 2 rolling merge")
         rolled = rolling_merge_to_one(
             comp_name=comp_name,
             display_filepath=display_filepath,
@@ -646,10 +646,10 @@ def hierarchical_merge(
             sleep_time=sleep_time,
         )
         if rolled is None:
-            return None # checkpoint đã lưu trong rolling, lần sau resume
+            return None # checkpoint đã lưu trong rolling, times after resume
         rolled_tokens = estimate_merge_tokens([rolled])
         if rolled_tokens > MERGE_TOKEN_LIMIT:
-            print(f"  [HIERARCHICAL] Cảnh báo: rolled result vẫn lớn ({rolled_tokens:,} tok > {MERGE_TOKEN_LIMIT:,} limit) — tiếp tục merge tầng 2")
+            print(f"  [HIERARCHICAL] Warning: rolled result still large ({rolled_tokens:,} tok > {MERGE_TOKEN_LIMIT:,} limit) — continue tier 2 merge")
         intermediate_results = [rolled]
 
     # Tầng 2: final merge (legacy text-based prompt)
@@ -688,14 +688,14 @@ def rolling_merge_to_one(
     sleep_time: int,
 ) -> str | None:
     """
-    Fallback: merge tuần tự từng cặp. Trả về 1 string tổng hợp.
+    Fallback: sequential merge pair by pair. Returns 1 synthesized string.
     """
     # ── Resume nếu có ──
     merge_ckpt = load_merge_checkpoint(comp_name)
     if merge_ckpt and merge_ckpt["stage"] == "rolling":
         accumulated = merge_ckpt["results"][0]
         resume_from = merge_ckpt["last_index"]
-        print(f"  [ROLLING] Resume từ bước {resume_from + 2}")
+        print(f"  [ROLLING] Resume from step {resume_from + 2}")
     else:
         accumulated = results[0]
         resume_from = 0
@@ -726,7 +726,7 @@ def rolling_merge_to_one(
         else:
             # Lưu lại rồi trả về None để caller biết bị gián đoạn
             save_merge_checkpoint(comp_name, "rolling", [accumulated], i - 1)
-            print(f"  [ROLLING] Thất bại tại bước {i}, đã lưu checkpoint.")
+            print(f"  [ROLLING] Failed tại bước {i}, checkpoint saved.")
             return None
 
     return accumulated
@@ -755,25 +755,25 @@ def process_chunked_file(
     fresh_start: bool = False,
 ) -> str | None:
     """
-    Pipeline đầy đủ cho file Lua dài với Checkpoint và Hierarchical Merge.
+    Full pipeline for long Lua files with Checkpoint and Hierarchical Merge.
 
     Args:
-        full_refs: Refs của toàn bộ file Lua, dùng làm fallback trong
-                   extract_connected_for_chunk() cho các chunk không có local refs.
-                   Nếu None: smart fallback không hoạt động (graceful degrade).
-        fresh_start: Nếu True, xóa checkpoint cũ trước khi chạy (không resume).
+        full_refs: Refs of the entire Lua file, used as fallback in
+                   extract_connected_for_chunk() for chunks without local refs.
+                   If None: smart fallback doesn't work (graceful degrade).
+        fresh_start: If True, clear old checkpoint before running (no resume).
     """
-    # Bước 1: Strip dữ liệu số hàng loạt (tile data)
+    # Step 1: Strip bulk numerical data (tile data)
     stripped_code = strip_bulk_data(lua_code)
     original_chars = len(lua_code)
     stripped_chars = len(stripped_code)
     if stripped_chars < original_chars:
         saved = original_chars - stripped_chars
-        print(f"  [STRIP] Đã loại bỏ {saved:,} ký tự tile/map data ({saved*100//original_chars}% file)")
+        print(f"  [STRIP] Removed {saved:,} characters of tile/map data ({saved*100//original_chars}% file)")
 
-    # Bước 2: Tính token budget động (không có connected — CONTEXT_RESERVE trừ bên trong)
-    # Dùng CHUNK_PROMPT_TOKEN_LIMIT thay vì PROMPT_TOKEN_LIMIT để per-chunk budget đủ lớn.
-    # PROMPT_TOKEN_LIMIT chỉ dùng để trigger chunking, không phải giới hạn kích thước chunk.
+    # Step 2: Calculate dynamic token budget (no connected — CONTEXT_RESERVE subtracted internally)
+    # Use CHUNK_PROMPT_TOKEN_LIMIT instead of PROMPT_TOKEN_LIMIT for sufficient per-chunk budget.
+    # PROMPT_TOKEN_LIMIT only used to trigger chunking, not chunk size limit.
     token_budget = calc_token_budget(
         comp_name=comp_name,
         comp_title=comp_title,
@@ -788,16 +788,16 @@ def process_chunked_file(
         prompt_token_limit=CHUNK_PROMPT_TOKEN_LIMIT,
     )
 
-    # Bước 3: Chia chunks theo token budget
+    # Step 3: Split chunks by token budget
     chunks = split_lua_into_chunks(stripped_code, max_tokens=token_budget)
     total_chunks = len(chunks)
     if total_chunks > 30:
-        print(f"  [CHUNKED] Số lượng chunk lớn ({total_chunks} > 30), tăng sleep lên 20s")
+        print(f"  [CHUNKED] Large number of chunks ({total_chunks} > 30), increase sleep to 20s")
         chunk_sleep = 20
 
-    print(f"  [CHUNKED] Chia thành {total_chunks} chunks")
+    print(f"  [CHUNKED] Split into {total_chunks} chunks")
 
-    # ── SHORTCUT: 1 chunk → standard pipeline trực tiếp ──────────────────
+    # ── SHORTCUT: 1 chunk → direct standard pipeline ──────────────────
     # Khi chỉ có 1 chunk, không cần bước trung gian (chunk JSON → pre-synthesis).
     # Dùng standard pipeline với per-chunk connected content để tiết kiệm 1 LLM call.
     if total_chunks == 1:
@@ -887,11 +887,11 @@ def process_chunked_file(
     own_filename = os.path.basename(display_filepath)
 
     # ── MAIN LOOP ──
-    failed_indices: list[int] = list(pending_retries)  # giữ lại lỗi từ lần trước
+    failed_indices: list[int] = list(pending_retries)  # giữ lại lỗi từ times trước
 
     for i, chunk_code in enumerate(chunks, 1):
         if shutdown.stop_requested:
-            print("  [Hệ thống] Đã dừng chunked pipeline sau chunk hiện tại.")
+            print("  [System] Đã dừng chunked pipeline after chunk hiện tại.")
             break
         # Skip các chunk đã xử lý
         if i - 1 <= resume_from:
@@ -955,18 +955,18 @@ def process_chunked_file(
                 chunk_results[i] = result
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
             except (json.JSONDecodeError, ValueError):
-                print(f"    [Cảnh báo] Chunk {i} JSON không hợp lệ hoặc sai schema, sẽ retry.")
+                print(f"    [Warning] Chunk {i} JSON không hợp lệ hoặc sai schema, sẽ retry.")
                 failed_indices.append(i)
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
         else:
             failed_indices.append(i)
-            print(f"    [Cảnh báo] Chunk {i} thất bại.")
+            print(f"    [Warning] Chunk {i} thất bại.")
             save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
 
-    # ── RETRY LOOP — chạy sau khi hoàn thành 100/100 ──
+    # ── RETRY LOOP — chạy after khi hoàn thành 100/100 ──
     if failed_indices and not shutdown.stop_requested:
         print(f"\n  [RETRY] {len(failed_indices)} chunk thất bại: {failed_indices}")
-        print(f"  [RETRY] Bắt đầu retry (tối đa 3 lần, cách nhau 30s)...")
+        print(f"  [RETRY] Bắt đầu retry (tối đa 3 times, cách nhau 30s)...")
 
         still_failing: list[int] = []
 
@@ -1032,24 +1032,24 @@ def process_chunked_file(
                             raise ValueError("chunk JSON missing required shape")
                         chunk_results[chunk_i] = result
                         save_checkpoint(comp_name, chunk_results, total_chunks - 1, still_failing)
-                        print(f"    [Retry] Chunk {chunk_i} thành công ở lần {attempt}.")
+                        print(f"    [Retry] Chunk {chunk_i} thành công ở times {attempt}.")
                         success = True
                         break
                     except (json.JSONDecodeError, ValueError):
                         if attempt < 3:
                             print(f"    [Retry] Lần {attempt} JSON không hợp lệ hoặc sai schema, thử lại...")
                 elif attempt < 3:
-                    print(f"    [Retry] Lần {attempt} thất bại, thử lại sau 30s...")
+                    print(f"    [Retry] Lần {attempt} thất bại, thử lại after 30s...")
 
             if not success:
                 still_failing.append(chunk_i)
-                print(f"    [Retry] Chunk {chunk_i} vẫn thất bại sau 3 lần.")
+                print(f"    [Retry] Chunk {chunk_i} vẫn thất bại after 3 times.")
 
         failed_indices = still_failing
 
     # ── USER CONFIRM nếu vẫn còn chunk lỗi ──
     if failed_indices:
-        print(f"\n  ⚠️  Vẫn còn {len(failed_indices)} chunk thất bại sau 3 lần retry: {failed_indices}")
+        print(f"\n  ⚠️  Vẫn còn {len(failed_indices)} chunk thất bại after 3 times retry: {failed_indices}")
         print(f"  Tài liệu sẽ bị thiếu nội dung từ các chunk này.")
         save_checkpoint(comp_name, chunk_results, total_chunks - 1, failed_indices)
 
@@ -1065,7 +1065,7 @@ def process_chunked_file(
         print(f"  [TIẾP TỤC] Merge với {len(chunk_results)}/{total_chunks} chunks.")
 
     if not chunk_results:
-        print(f"  [Lỗi] Không có chunk nào thành công!")
+        print(f"  [Error] Không có chunk nào thành công!")
         return None
 
     # ── PRE-SYNTHESIS — pure Python aggregation, no LLM call ──
@@ -1132,7 +1132,7 @@ def process_chunked_file(
 
     if result_filename:
         # Giữ lại chunk checkpoint để kiểm tra lại nếu output LLM bị lỗi.
-        # Chỉ xóa merge checkpoint vì nó không còn cần thiết sau khi merge xong.
+        # Chỉ xóa merge checkpoint vì nó không còn cần thiết after khi merge xong.
         clear_merge_checkpoint(comp_name)
 
     return result_filename

@@ -13,7 +13,7 @@ from llm.paths import PROJECT_ROOT
 
 USAGE_CACHE = PROJECT_ROOT / ".cache" / "key_usage.json"
 WINDOW_SECONDS = 3600  # 1-hour rolling window
-RATE_LIMIT_COOLDOWN = 5 * 3600  # 5 giờ cooldown sau khi bị 429
+RATE_LIMIT_COOLDOWN = 5 * 3600  # 5 giờ cooldown after khi bị 429
 
 
 def _load_cache() -> dict:
