@@ -1,22 +1,22 @@
 """
-Script phát hiện file .lua thay đổi giữa các times cập nhật dst-scripts.
+Detects changed .lua files between dst-scripts update cycles.
 
-Cách dùng:
+Usage:
     mod-watcher
 
 Flow:
-    1. Đọc version_log.txt để lấy version hiện tại và version trước
-    2. Quét dst-scripts/ -> tính SHA-256 và nén content_z cho mỗi file
-    3. So sánh với snapshot cũ (diff_tracker.json)
-       - Auto-migrate data format cũ nếu cần
-    4. Phân loại: ADDED / MODIFIED / DELETED / MOVED
-    5. Tính unified diff cho các file bị thay đổi (MODIFIED / MOVED có đổi nội dung)
-    6. Ghi kết quả vào diff_report.json (và diff_log.txt để con người dễ đọc)
-    7. Lưu snapshot mới cho times after
+    1. Read version_log.txt to get the current version and the previous version
+    2. Scan dst-scripts/ -> compute SHA-256 and compressed content_z for each file
+    3. Compare against the old snapshot (diff_tracker.json)
+       - Auto-migrate legacy data format if needed
+    4. Classify changes: ADDED / MODIFIED / DELETED / MOVED
+    5. Compute unified diff for changed files (MODIFIED / MOVED with content changes)
+    6. Write results to diff_report.json (and diff_log.txt for human-readable output)
+    7. Save a new snapshot for the next run
 
-Lưu ý:
-    - version_log.txt được cập nhật THỦ CÔNG trước khi chạy script
-    - Script dùng diff_tracker.json riêng để lưu snapshot (hash + content_z)
+Notes:
+    - version_log.txt must be updated MANUALLY before running this script
+    - The script uses diff_tracker.json exclusively to store snapshots (hash + content_z)
 """
 
 import os
@@ -40,7 +40,7 @@ SCRIPTS_DIR = str(_WORKSPACE_ROOT / "dst-scripts")
 EXCLUDE_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".agent"}
 
 def read_version_log(path: str) -> dict:
-    """Đọc version_log.txt, trả về dict {now, previous}."""
+    """Read version_log.txt and return a dict {now, previous}."""
     result = {"now": "unknown", "previous": "none"}
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -51,11 +51,11 @@ def read_version_log(path: str) -> dict:
                 elif line.startswith("previous version:"):
                     result["previous"] = line.split(":", 1)[1].strip()
     except FileNotFoundError:
-        print(f"[Error] Không tìm thấy {path}")
+        print(f"[Error] Could not find {path}")
     return result
 
 def compute_file_hash_and_content(filepath: str) -> tuple:
-    """Tính SHA-256 hash và tạo content_z của file."""
+    """Compute the SHA-256 hash and create content_z for a file."""
     h = hashlib.sha256()
     size = os.path.getsize(filepath)
     with open(filepath, "rb") as f:
@@ -69,8 +69,8 @@ def compute_file_hash_and_content(filepath: str) -> tuple:
 
 def scan_files(root_dir: str) -> dict:
     """
-    Quét toàn bộ file trong root_dir (đệ quy).
-    Trả về dict {relative_path: {"hash": sha256_hash, "content_z": content_z}}.
+    Recursively scan all files in root_dir.
+    Returns a dict {relative_path: {"hash": sha256_hash, "content_z": content_z}}.
     """
     file_data = {}
     for dirpath, dirnames, filenames in os.walk(root_dir):
@@ -86,11 +86,11 @@ def scan_files(root_dir: str) -> dict:
                     "size": size
                 }
             except Exception as e:
-                print(f"  [Error] Không đọc được {rel_path}: {e}")
+                print(f"  [Error] Could not read {rel_path}: {e}")
     return file_data
 
 def load_tracker(path: str) -> dict:
-    """Load snapshot cũ từ diff_tracker.json và migrate nếu là format cũ."""
+    """Load the previous snapshot from diff_tracker.json and migrate it if it uses the legacy format."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -100,7 +100,7 @@ def load_tracker(path: str) -> dict:
             # Check for old format: if first value is string (hash)
             first_val = next(iter(data.values()))
             if isinstance(first_val, str):
-                print("  [Thông báo] Phát hiện format diff_tracker.json cũ, đang migrate...")
+                print("  [Notice] Legacy diff_tracker.json format detected, migrating...")
                 new_data = scan_files(SCRIPTS_DIR)
                 save_tracker(path, new_data)
                 return new_data
@@ -110,7 +110,7 @@ def load_tracker(path: str) -> dict:
         return {}
 
 def save_tracker(path: str, data: dict):
-    """Lưu snapshot mới vào diff_tracker.json."""
+    """Save the new snapshot to diff_tracker.json."""
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -119,8 +119,8 @@ def decode_content(content_z: str) -> bytes:
 
 def compute_diff(old_data: dict, new_data: dict) -> list:
     """
-    So sánh 2 snapshot, phát hiện ADDED, DELETED, MODIFIED, MOVED.
-    Trả về list các thay đổi (dùng cho diff_report.json).
+    Compare two snapshots and detect ADDED, DELETED, MODIFIED, and MOVED files.
+    Returns a list of changes (used for diff_report.json).
     """
     old_keys = set(old_data.keys())
     new_keys = set(new_data.keys())
@@ -247,7 +247,7 @@ def compute_diff(old_data: dict, new_data: dict) -> list:
     return changes
 
 def write_diff_log(log_path: str, report_path: str, changes: list, version_info: dict):
-    """Ghi diff_log.txt và diff_report.json."""
+    """Write diff_log.txt and diff_report.json."""
     now_ver = version_info["now"]
     prev_ver = version_info["previous"]
     today = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -322,33 +322,33 @@ def write_diff_log(log_path: str, report_path: str, changes: list, version_info:
 
 def main():
     print("=" * 60)
-    print("[watcher.diff] Phát hiện thay đổi trong dst-scripts")
+    print("[watcher.diff] Detecting changes in dst-scripts")
     print("=" * 60)
 
-    # 1. Đọc version
+    # 1. Read version
     version_info = read_version_log(VERSION_LOG)
-    print(f"  Version hiện tại : {version_info['now']}")
-    print(f"  Version trước    : {version_info['previous']}")
+    print(f"  Current version  : {version_info['now']}")
+    print(f"  Previous version : {version_info['previous']}")
 
-    # 2. Load snapshot cũ
+    # 2. Load old snapshot
     old_data = load_tracker(DIFF_TRACKER)
     if old_data:
-        print(f"  Snapshot cũ      : {len(old_data)} files")
+        print(f"  Old snapshot     : {len(old_data)} files")
     else:
-        print(f"  Snapshot cũ      : (chưa có — times chạy đầu tiên)")
+        print(f"  Old snapshot     : (none — first run)")
 
-    # 3. Quét file hiện tại
-    print(f"\n  Đang quét {SCRIPTS_DIR}...")
+    # 3. Scan current files
+    print(f"\n  Scanning {SCRIPTS_DIR}...")
     new_data = scan_files(SCRIPTS_DIR)
-    print(f"  Tìm thấy         : {len(new_data)} files")
+    print(f"  Found            : {len(new_data)} files")
 
-    # 4. Tính diff
+    # 4. Compute diff
     changes = compute_diff(old_data, new_data)
 
-    # 5. Ghi diff_log.txt & diff_report.json
+    # 5. Write diff_log.txt & diff_report.json
     added, modified, deleted, moved = write_diff_log(DIFF_LOG, DIFF_REPORT, changes, version_info)
 
-    print(f"\n--- Kết quả ---")
+    print(f"\n--- Results ---")
     print(f"  [ADDED]    {len(added)} files")
     print(f"  [MODIFIED] {len(modified)} files")
     print(f"  [DELETED]  {len(deleted)} files")
@@ -356,18 +356,18 @@ def main():
 
     print(f"  [TOTAL]    {len(changes)} changes")
 
-    print(f"\n  Đã ghi: {DIFF_LOG}")
-    print(f"  Đã ghi: {DIFF_REPORT}")
+    print(f"\n  Written: {DIFF_LOG}")
+    print(f"  Written: {DIFF_REPORT}")
 
-    # 6. Lưu snapshot mới
+    # 6. Save new snapshot
     save_tracker(DIFF_TRACKER, new_data)
-    print(f"  Đã lưu snapshot: {DIFF_TRACKER}")
+    print(f"  Snapshot saved: {DIFF_TRACKER}")
 
-    # 7. Cập nhật vector store (chỉ khi có thay đổi)
+    # 7. Update vector store (only when there are changes)
     if changes:
         try:
             from rag.indexer import reindex
-            print(f"\n--- Cập nhật vector store ---")
+            print(f"\n--- Updating vector store ---")
             stats = reindex()
             print(
                 f"  Vector store: {stats['processed']} indexed, "
@@ -375,7 +375,7 @@ def main():
                 f"{stats['total_chunks']} chunks"
             )
         except Exception as e:
-            print(f"  [WARN] Không thể cập nhật vector store: {e}")
+            print(f"  [WARN] Could not update vector store: {e}")
 
     print("=" * 60)
 

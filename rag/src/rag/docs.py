@@ -1,11 +1,11 @@
 """
-Module chứa các hàm xử lý file Lua dùng chung cho prompt.py và test.py.
-- Tìm file .lua trong thư mục
-- Đọc file Lua an toàn
+Shared Lua file processing utilities used by prompt.py and test.py.
+- Find .lua files in a directory
+- Safe Lua file reading
 - Extract references (require, components)
 - Format connected section
 - Hash source code
-- Làm sạch output từ model
+- Clean model output
 """
 
 import os
@@ -15,29 +15,29 @@ import hashlib
 
 def extract_lua_references(lua_code: str, own_filename: str) -> list[tuple[str, list[str]]]:
     """
-    Trích xuất các tham chiếu từ mã Lua:
+    Extract references from Lua code:
     - require("path/to/module") → file path
     - components.X:FuncName() → file path + function names
-    Trả về list[(file_path, [func_names]), ...] (bỏ chính file đang xử lý).
+    Returns list[(file_path, [func_names]), ...] (excluding the file being processed).
     """
     refs: dict[str, set[str]] = {}
     own_name = own_filename.replace(".lua", "")
 
-    # 1. Tìm require("...") → giữ nguyên path gốc
+    # 1. Find require("...") → preserve original path
     for match in re.finditer(r'require\s*\(\s*["\']([^"\']+)["\']\s*\)', lua_code):
         module_path = match.group(1)
         file_path = f"./{module_path}.lua"
         if module_path.split("/")[-1] != own_name:
             refs.setdefault(file_path, set())
 
-    # 2. Tìm components.X → map thành ./components/X.lua
+    # 2. Find components.X → map to ./components/X.lua
     for match in re.finditer(r'(?<!self\.)components\.(\w+)', lua_code):
         comp_name = match.group(1)
         if comp_name != own_name:
             file_path = f"./components/{comp_name}.lua"
             refs.setdefault(file_path, set())
 
-    # 3. Tìm components.X:FuncName() hoặc components.X.FuncName → trích function name
+    # 3. Find components.X:FuncName() or components.X.FuncName → extract function name
     for match in re.finditer(r'(?<!self\.)components\.(\w+)[:\.](\w+)', lua_code):
         comp_name = match.group(1)
         func_name = match.group(2)
@@ -50,28 +50,28 @@ def extract_lua_references(lua_code: str, own_filename: str) -> list[tuple[str, 
 
 def safe_read_lua(filepath: str) -> str | None:
     """
-    Đọc file Lua, bỏ qua lỗi encoding thay vì crash.
-    Trả về None nếu không đọc được hoặc là file binary (bytecode, data, etc.).
+    Read a Lua file, ignoring encoding errors instead of crashing.
+    Returns None if the file cannot be read or is binary (bytecode, data, etc.).
     """
     try:
-        # Detect binary file: đọc 8KB đầu, nếu chứa null byte → binary
+        # Detect binary file: read first 8KB, if it contains a null byte → binary
         with open(filepath, "rb") as bf:
             chunk = bf.read(8192)
         if b'\x00' in chunk:
-            print(f"  [SKIP] {filepath} — file binary (không phải source code), bỏ qua.")
+            print(f"  [SKIP] {filepath} — binary file (not source code), skipping.")
             return None
 
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
             return f.read()
     except Exception as e:
-        print(f"[Error] Không thể đọc file {filepath}: {e}")
+        print(f"[Error] Cannot read file {filepath}: {e}")
         return None
 
 
 def compute_source_hash(lua_code: str) -> str:
     """
-    Tính hash MD5 (8 ký tự đầu) của nội dung file Lua.
-    Dùng để so sánh khi code update, nhận biết file nào đã thay đổi.
+    Compute MD5 hash (first 8 characters) of Lua file contents.
+    Used for comparison during code updates to identify changed files.
     """
     return hashlib.md5(lua_code.encode("utf-8")).hexdigest()[:8]
 
@@ -90,8 +90,8 @@ def inject_frontmatter_field(text: str, field: str, value: str) -> str:
 
 def format_connected_section(lua_refs: list[tuple[str, list[str]]]) -> str:
     """
-    Format danh sách tham chiếu Lua thành chuỗi cho prompt.
-    Trả về chuỗi rỗng nếu không có tham chiếu.
+    Format a list of Lua references into a string for use in prompts.
+    Returns an empty string if there are no references.
     """
     if not lua_refs:
         return ""
@@ -107,9 +107,9 @@ def format_connected_section(lua_refs: list[tuple[str, list[str]]]) -> str:
 
 def clean_model_output(text: str) -> str:
     """
-    Làm sạch output từ model:
-    1. Xóa thinking block <think>...</think> của qwen3
-    2. Xóa markdown code fence nếu model vẫn bọc output
+    Clean model output:
+    1. Remove qwen3 thinking blocks <think>...</think>
+    2. Strip markdown code fences if the model wraps its output in them
     """
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     if '</think>' in text:
@@ -122,12 +122,12 @@ def clean_model_output(text: str) -> str:
 
 def get_lua_files(lua_dir: str, deep: bool = False) -> list[str]:
     """
-    Lấy danh sách file .lua trong thư mục, sắp xếp theo abc.
-    Nếu deep=True, duyệt đệ quy vào các thư mục con.
-    Trả về list đường dẫn tương đối so với lua_dir (dùng forward slash).
+    Get a sorted list of .lua files in a directory.
+    If deep=True, recurse into subdirectories.
+    Returns a list of paths relative to lua_dir (using forward slashes).
     """
     if not os.path.isdir(lua_dir):
-        print(f"[Error] Thư mục không tồn tại: {lua_dir}")
+        print(f"[Error] Directory does not exist: {lua_dir}")
         return []
 
     results = []

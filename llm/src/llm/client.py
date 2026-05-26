@@ -10,7 +10,7 @@ from llm.settings import OLLAMA_NUM_CTX, OLLAMA_TIMEOUT, OLLAMA_TIMEOUT_RETRIES
 from llm.settings import MODEL_COMPRESS as COMPRESSION_MODEL
 from llm.router import select_key, record_call, get_stats, mark_rate_limited, get_rate_limited
 
-# Load .env từ workspace root (parents[3] từ llm/src/llm/client.py)
+# Load .env from workspace root (parents[3] from llm/src/llm/client.py)
 load_dotenv(Path(__file__).parents[3] / ".env")
 
 # === OLLAMA CLOUD API ===
@@ -24,7 +24,7 @@ for _i in range(1, TOTAL_ACCOUNT + 1):
         OLLAMA_API_KEYS.append(_key)
 
 def _make_client(account_index: int) -> ollama.Client:
-    """Tạo ollama.Client cho account tại index."""
+    """Create an ollama.Client for the account at the given index."""
     api_key = OLLAMA_API_KEYS[account_index]
     return ollama.Client(
         host=OLLAMA_HOST,
@@ -35,8 +35,8 @@ def _make_client(account_index: int) -> ollama.Client:
 
 def get_ollama_client() -> ollama.Client:
     """
-    Trả về ollama.Client đã cấu hình host + API key.
-    Chọn key ít tải nhất (least-loaded), bỏ qua key đang bị rate limit.
+    Return a configured ollama.Client with host + API key.
+    Selects the least-loaded key, skipping any key currently rate-limited.
     """
     if not OLLAMA_API_KEYS:
         return ollama.Client()
@@ -47,14 +47,14 @@ def get_ollama_client() -> ollama.Client:
 
 
 def _is_rate_limit_error(error: Exception) -> bool:
-    """Kiểm tra xem lỗi có phải rate limit (HTTP 429) không."""
+    """Check whether an error is a rate limit error (HTTP 429)."""
     if isinstance(error, ollama.ResponseError):
         return error.status_code == 429
     return False
 
 
 def _is_timeout_error(error: Exception) -> bool:
-    """Kiểm tra xem lỗi có phải timeout hoặc connection drop không."""
+    """Check whether an error is a timeout or connection drop."""
     return isinstance(error, (
         httpx.ReadTimeout, httpx.ConnectTimeout, httpx.TimeoutException,
         httpx.RemoteProtocolError,  # "peer closed connection / incomplete chunked read"
@@ -62,7 +62,7 @@ def _is_timeout_error(error: Exception) -> bool:
 
 
 def _is_retryable_error(error: Exception) -> bool:
-    """Kiểm tra xem lỗi có thể retry không (500, 502, 504 — transient server errors)."""
+    """Check whether an error is retryable (500, 502, 504 — transient server errors)."""
     if isinstance(error, ollama.ResponseError):
         return error.status_code in (500, 502, 504)
     return False
@@ -73,16 +73,16 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                 format: dict | str | None = None,
                 **kwargs) -> dict:
     """
-    Wrapper gọi ollama chat với tự động failover khi bị rate limit,
-    và retry khi timeout.
+    Wrapper for ollama chat with automatic failover on rate limit
+    and retry on timeout.
 
     Args:
         model: Ollama model name.
-        messages: Danh sách message theo định dạng chat.
-        think: Bật/tắt extended thinking (mặc định True).
-        temperature: Nhiệt độ sampling; None = dùng default của model.
-        format: JSON schema hoặc "json" để ép Ollama trả về JSON.
-        **kwargs: Tham số thêm truyền thẳng vào client.chat().
+        messages: List of messages in chat format.
+        think: Enable/disable extended thinking (default True).
+        temperature: Sampling temperature; None = use model default.
+        format: JSON schema or "json" to force Ollama to return JSON.
+        **kwargs: Additional parameters passed directly to client.chat().
     """
     if not OLLAMA_API_KEYS:
         client = ollama.Client()
@@ -115,7 +115,7 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
         for _ in range(n):
             idx = select_key(n, tried_this_round)
             if idx < 0:
-                break  # không còn key khả dụng
+                break  # no keys available
             tried_this_round.add(idx)
             print(f"  [TRY] Account {idx + 1}...")
             try:
@@ -147,26 +147,26 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                     mark_rate_limited(idx)
                     limited = get_rate_limited(n)
                     available = n - len(limited)
-                    print(f"  [RATE LIMIT] Account {idx + 1} bị 429 → cooldown 5h ({available} còn lại)")
+                    print(f"  [RATE LIMIT] Account {idx + 1} got 429 → cooldown 5h ({available} remaining)")
                     errors.append(f"Account {idx + 1}: 429")
                 elif _is_timeout_error(e):
                     had_timeout = True
                     remaining = OLLAMA_TIMEOUT_RETRIES - timeout_attempt
-                    print(f"  [TIMEOUT] Account {idx + 1} timeout after {OLLAMA_TIMEOUT:.0f}s → switch account ({remaining} retry còn lại)")
+                    print(f"  [TIMEOUT] Account {idx + 1} timeout after {OLLAMA_TIMEOUT:.0f}s → switch account ({remaining} retries remaining)")
                     errors.append(f"Account {idx + 1}: timeout")
-                    # Không break — tiếp tục thử account khác trong round này
+                    # Do not break — continue trying other accounts in this round
                 elif _is_retryable_error(e):
                     status = e.status_code  # type: ignore[attr-defined]
-                    print(f"  [SERVER ERROR] Account {idx + 1} trả về {status} → switch account")
+                    print(f"  [SERVER ERROR] Account {idx + 1} returned {status} → switch account")
                     errors.append(f"Account {idx + 1}: {status}")
                 else:
                     raise
-        # Tất cả account trong round đã thử — nếu có timeout, retry toàn bộ
+        # All accounts in this round have been tried — if there was a timeout, retry the whole round
         if had_timeout and timeout_attempt < OLLAMA_TIMEOUT_RETRIES:
-            print(f"  [RETRY] Tất cả account đã thử, retry times {timeout_attempt + 1}/{OLLAMA_TIMEOUT_RETRIES}...")
+            print(f"  [RETRY] All accounts tried, retry attempt {timeout_attempt + 1}/{OLLAMA_TIMEOUT_RETRIES}...")
             continue
         break
 
-    raise Exception(f"Tất cả account thất bại: {'; '.join(errors)}")
+    raise Exception(f"All accounts failed: {'; '.join(errors)}")
 
 

@@ -8,7 +8,7 @@ from validator.format.checks import validate_all
 
 def validate_update(filepath: str, action: str, meta: dict) -> list[str]:
     """
-    Tầng A: Chạy validate_all() + các check đặc thù theo action.
+    Layer A: Run validate_all() + action-specific checks.
     """
     # FIX 1: Check existence BEFORE validate_all
     if not os.path.exists(filepath):
@@ -96,7 +96,7 @@ def validate_update(filepath: str, action: str, meta: dict) -> list[str]:
 
 def append_to_validation_log(filepath: str, action: str, errors: list[str]):
     """
-    Ghi log lỗi validation để fix after.
+    Write validation errors to log for later fixing.
     """
     log_file = Path(__file__).parent / "validation_update_errors.log"
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -117,7 +117,7 @@ def append_to_validation_log(filepath: str, action: str, errors: list[str]):
 
 def validate_batch(diff_report_path: str, docs_dir: str) -> list[str]:
     """
-    Tầng B: Kiểm tra tổng thể after toàn bộ batch.
+    Layer B: Overall check after the full batch.
     """
     batch_errors = []
     if not os.path.exists(diff_report_path):

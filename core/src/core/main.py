@@ -108,7 +108,7 @@ def _main_impl():
         if not shutdown.stop_requested:
             print("\n\n[System] Received Ctrl+C! Checkpoint saved, stopping...")
             shutdown.request_stop()
-            raise KeyboardInterrupt  # Ngắt blocking HTTP call ngay lập tức
+            raise KeyboardInterrupt  # Interrupt the blocking HTTP call immediately
         else:
             print("\n\n[System] Forced stop immediately!")
             sys.exit(1)
@@ -161,7 +161,7 @@ def _main_impl():
         # Ensure sub-directory exists
         os.makedirs(os.path.dirname(md_filepath), exist_ok=True)
 
-        # --resume-validate: bỏ qua generation, chỉ chạy lại validator từ checkpoint
+        # --resume-validate: skip generation, re-run validator from checkpoint only
         if args.resume_validate and os.path.exists(md_filepath):
             print(f"  [resume-validate] Skipping generation, re-validating {md_filename}...")
             generated_path = md_filepath
@@ -220,7 +220,7 @@ def _main_impl():
         else:
             print(f"  [REF] No references")
 
-        # Trích xuất nội dung function từ connected files
+        # Extract function content from connected files
         connected_content = extract_connected_content(lua_refs, max_lines_per_file=100)
         if connected_content:
             print(f"  [FNC] {connected_content.count(chr(10)) + 1} lines of source code")

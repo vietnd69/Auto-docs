@@ -288,7 +288,7 @@ With:
             continue
         except Exception as e:
             # Unexpected validator error (e.g. disk issue) — counts as validate_failed.
-            print(f"  [Lỗi validate] {filename}: {e}")
+            print(f"  [Validate error] {filename}: {e}")
             stats["failed"] += 1
             stats["validate_failed"] += 1
             stats["failed_list"].append(filename)
@@ -300,7 +300,7 @@ With:
             try:
                 os.remove(md_filepath)
             except OSError as e:
-                print(f"  [Cảnh báo] Không thể xóa {md_filepath}: {e}")
+                print(f"  [Warning] Cannot delete {md_filepath}: {e}")
             stats["failed"] += 1
             stats["validate_failed"] += 1
             stats["failed_list"].append(filename)
@@ -315,32 +315,32 @@ With:
 Replace the summary block (lines ~207–214):
 ```python
     print("\n" + "=" * 60)
-    print(f"[Thống kê] Hoàn tất!")
-    print(f"  Đã xử lý : {stats['processed']} file")
-    print(f"  Đã bỏ qua: {stats['skipped']} file")
-    print(f"  Thất bại : {stats['failed']} file")
+    print(f"[Stats] Done!")
+    print(f"  Processed: {stats['processed']} file(s)")
+    print(f"  Skipped  : {stats['skipped']} file(s)")
+    print(f"  Failed   : {stats['failed']} file(s)")
     if stats["failed_list"]:
-        print(f"  Danh sách file lỗi: {', '.join(stats['failed_list'])}")
+        print(f"  Failed files: {', '.join(stats['failed_list'])}")
     print("=" * 60)
 ```
 
 With:
 ```python
     print("\n" + "=" * 60)
-    print(f"[Thống kê] Hoàn tất!")
-    print(f"  Đã xử lý : {stats['processed']} file")
-    print(f"  Đã bỏ qua: {stats['skipped']} file")
+    print(f"[Stats] Done!")
+    print(f"  Processed: {stats['processed']} file(s)")
+    print(f"  Skipped  : {stats['skipped']} file(s)")
     if stats["failed"] > 0:
-        print(f"  Thất bại  : {stats['failed']} file")
+        print(f"  Failed   : {stats['failed']} file(s)")
         generate_fail = stats["failed"] - stats["validate_failed"]
         if not args.no_validate and stats["validate_failed"] > 0:
             print(f"    → Validation fail: {stats['validate_failed']}")
         if generate_fail > 0:
             print(f"    → Generate fail  : {generate_fail}")
     else:
-        print(f"  Thất bại  : 0 file")
+        print(f"  Failed   : 0 file(s)")
     if stats["failed_list"]:
-        print(f"  Danh sách file lỗi: {', '.join(stats['failed_list'])}")
+        print(f"  Failed files: {', '.join(stats['failed_list'])}")
     print("=" * 60)
 ```
 
@@ -400,7 +400,7 @@ Pick any `.lua` file that already has a corresponding `.md` in `dst-api-webdocs/
 uv run mod-document <path-to.lua> --no-validate
 ```
 
-Expected: doc generated, no `[content]` or `[pipeline]` lines in output, summary shows `Đã xử lý: 1 file`, `Thất bại: 0 file`.
+Expected: doc generated, no `[content]` or `[pipeline]` lines in output, summary shows `Processed: 1 file(s)`, `Failed: 0 file(s)`.
 
 - [x] **Step 3: Empty commit as sign-off** → `2f95e6b`
 

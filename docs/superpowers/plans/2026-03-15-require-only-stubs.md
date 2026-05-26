@@ -205,12 +205,12 @@ Add after `compress_connected_content()` (around line 406), before `extract_conn
 ```python
 def _compress_module_stub(lua_code: str, ref_path: str) -> str | None:
     """
-    Dùng LLM để tạo module-level summary (3–5 dòng) cho require-only refs.
+    Use LLM to generate a module-level summary (3–5 lines) for require-only refs.
     Reuses compression cache system.
 
     Returns:
-        Formatted stub string nếu thành công (contains "-- [REQUIRE MODULE: ...]").
-        None nếu LLM thất bại hoặc output không hợp lệ.
+        Formatted stub string on success (contains "-- [REQUIRE MODULE: ...]").
+        None if LLM fails or output is invalid.
     """
     cache_key = _compression_cache_key(lua_code)
     cached = _load_compression_cache(cache_key)
@@ -415,16 +415,16 @@ def extract_require_stubs(
     max_tokens: int = 0,
 ) -> str:
     """
-    Trích xuất stub content cho require-only refs (func_names rỗng).
+    Extract stub content for require-only refs (func_names empty).
 
-    - File nhỏ (≤ STUB_FULL_THRESHOLD tokens): include toàn bộ nội dung.
-    - File lớn: dùng LLM tạo module summary 3–5 dòng.
+    - Small files (≤ STUB_FULL_THRESHOLD tokens): include full content.
+    - Large files: use LLM to generate a 3–5 line module summary.
 
-    Budget được kiểm tra incrementally — dừng khi tổng vượt max_tokens.
+    Budget is checked incrementally — stops when total exceeds max_tokens.
 
     Returns:
-        str: nội dung ghép, prefix bởi marker "-- [REQUIRE FULL:" hoặc "-- [REQUIRE MODULE:".
-             Trả về "" nếu không có gì.
+        str: concatenated content, prefixed by marker "-- [REQUIRE FULL:" or "-- [REQUIRE MODULE:".
+             Returns "" if nothing found.
     """
     from chunked import count_tokens  # lazy import, same pattern as rest of this file
 
@@ -606,7 +606,7 @@ Old normal path (lines 581–599):
     if not connected_content:
         return "", "", len(chunk_refs)
 
-    # Rebuild section từ kept_refs thực tế
+    # Rebuild section from actual kept_refs
     if "--[SIGONLY:" in connected_content:
         _, kept_refs = extract_signatures_only(chunk_refs, max_output_tokens=max_total_tokens)
     elif "-- COMPRESSED:" in connected_content or "-- COMPACT:" in connected_content:
@@ -620,18 +620,18 @@ Old normal path (lines 581–599):
 
 New normal path:
 ```python
-    # Tách func_refs (có function calls) và req_refs (require-only)
+    # Split func_refs (have function calls) and req_refs (require-only)
     func_refs = [(path, funcs) for path, funcs in chunk_refs if funcs]
     req_refs  = [(path, funcs) for path, funcs in chunk_refs if not funcs]
 
-    # Pipeline cũ: func_refs với full budget
+    # Old pipeline: func_refs with full budget
     func_content = extract_connected_content(
         func_refs,
         max_lines_per_file=max_lines_per_file,
         max_total_tokens=max_total_tokens,
     )
 
-    # Pipeline mới: require-only stubs với budget còn lại
+    # New pipeline: require-only stubs with remaining budget
     from chunked import count_tokens
     func_tokens = count_tokens(func_content)
     if func_tokens == -1:
@@ -639,7 +639,7 @@ New normal path:
     remaining_budget = max_total_tokens - func_tokens
     req_content = extract_require_stubs(req_refs, max_tokens=remaining_budget)
 
-    # Ghép kết quả
+    # Combine results
     if func_content and req_content:
         connected_content = func_content + "\n\n" + req_content
     elif req_content:
@@ -650,7 +650,7 @@ New normal path:
     if not connected_content:
         return "", "", len(func_refs)
 
-    # Rebuild section từ kept_refs thực tế (chỉ func_refs — req_refs không có func_names)
+    # Rebuild section from actual kept_refs (func_refs only — req_refs have no func_names)
     if "--[SIGONLY:" in func_content:
         _, kept_refs = extract_signatures_only(func_refs, max_output_tokens=max_total_tokens)
     else:
@@ -735,7 +735,7 @@ Expected: `test_detect_context_mode_require_full` and `test_detect_context_mode_
 Replace (lines 27–35):
 ```python
 def _detect_context_mode(content: str) -> str:
-    """Xác định mode của connected content dựa trên marker strings."""
+    """Determine the mode of connected content based on marker strings."""
     if "--[SIGONLY:" in content:
         return "signatures"
     if "-- COMPRESSED:" in content:
@@ -748,7 +748,7 @@ def _detect_context_mode(content: str) -> str:
 With:
 ```python
 def _detect_context_mode(content: str) -> str:
-    """Xác định mode của connected content dựa trên marker strings."""
+    """Determine the mode of connected content based on marker strings."""
     if "--[SIGONLY:" in content:
         return "signatures"
     if "-- COMPRESSED:" in content:
@@ -778,9 +778,9 @@ Old:
             mode = _detect_context_mode(chunk_content)
             print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={mode}")
         elif ref_count > 0:
-            print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (require-only, không có function call)")
+            print(f"    [CTX] Chunk {i}: {ref_count} refs but no content could be extracted (require-only, no function call)")
         else:
-            print(f"    [CTX] Chunk {i}: không có external context (chunk độc lập)")
+            print(f"    [CTX] Chunk {i}: no external context (standalone chunk)")
 ```
 
 New — the spec calls for two separate `_detect_context_mode()` calls on `func_content` and `req_content`. However, `chunked_olm.py` only receives the combined `chunk_content` string (the signature of `extract_connected_for_chunk()` is unchanged). **Pragmatic deviation:** use marker-string detection on the combined string to infer both modes. `func_mode` is derived from `_detect_context_mode(chunk_content)` which correctly identifies the func-content mode because func markers (`-- COMPRESSED:`, `--[SIGONLY:`, etc.) appear before require markers in the combined string and match first. Require mode is detected by explicit `in` check:
@@ -797,9 +797,9 @@ New — the spec calls for two separate `_detect_context_mode()` calls on `func_
             else:
                 print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={func_mode}")
         elif ref_count > 0:
-            print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (require-only, không có function call)")
+            print(f"    [CTX] Chunk {i}: {ref_count} refs but no content could be extracted (require-only, no function call)")
         else:
-            print(f"    [CTX] Chunk {i}: không có external context (chunk độc lập)")
+            print(f"    [CTX] Chunk {i}: no external context (standalone chunk)")
 ```
 
 - [ ] **Step 6: Update logging in second call site (retry loop, `chunked_olm.py` ~line 646)**
@@ -810,9 +810,9 @@ Replace (lines ~646–652):
                 mode = _detect_context_mode(chunk_content)
                 print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={mode}")
             elif ref_count > 0:
-                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (require-only, không có function call)")
+                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs but no content could be extracted (require-only, no function call)")
             else:
-                print(f"    [CTX] Chunk {chunk_i} (retry): không có external context (chunk độc lập)")
+                print(f"    [CTX] Chunk {chunk_i} (retry): no external context (standalone chunk)")
 ```
 
 With:
@@ -827,9 +827,9 @@ With:
                 else:
                     print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={func_mode}")
             elif ref_count > 0:
-                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (require-only, không có function call)")
+                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs but no content could be extracted (require-only, no function call)")
             else:
-                print(f"    [CTX] Chunk {chunk_i} (retry): không có external context (chunk độc lập)")
+                print(f"    [CTX] Chunk {chunk_i} (retry): no external context (standalone chunk)")
 ```
 
 - [ ] **Step 7: Run full test suite**

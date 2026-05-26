@@ -1,6 +1,6 @@
 """
-Module chứa hàm build_update_prompt() — tạo prompt cho LLM dành cho tính năng UPDATE file.
-Dựa trên prompt.py gốc nhưng bổ sung logic xử lý cho file Added, Modified, Deleted, Moved.
+Module containing build_update_prompt() — builds the LLM prompt for the file UPDATE feature.
+Based on the original prompt.py but extended with logic for Added, Modified, Deleted, and Moved files.
 """
 
 def build_update_prompt(
@@ -25,14 +25,14 @@ def build_update_prompt(
     content_changed: bool = True,
 ) -> str:
     """
-    Tạo prompt cho LLM để cập nhật tài liệu cho một file Lua.
-    - action "added": giống prompt tạo mới.
-    - action "modified": update doc dựa vào unified diff và doc cũ.
-    - action "deleted": thêm block deprecation.
-    - action "moved": kết hợp đổi tên/path và update doc nếu content_changed.
+    Build the LLM prompt to update documentation for a Lua file.
+    - action "added": same as a fresh documentation prompt.
+    - action "modified": update the doc based on unified diff and existing doc.
+    - action "deleted": add a deprecation block.
+    - action "moved": combine rename/path change and update doc if content_changed.
     """
     
-    # 1. Xác định header text & directive dựa trên action
+    # 1. Determine header text & directive based on action
     if action == "deleted":
         action_directive = f"""This file has been DELETED in the new game update (build {build_version}).
 Your task is to update the frontmatter to `change_status: deprecated` and add a deprecation notice. 
@@ -40,8 +40,8 @@ Do NOT remove or restructure the existing documentation content.
 Add the following blockquote exactly as shown immediately after the `## Overview` heading:
 
 > [!WARNING]
-> **Deprecated in build {build_version}** — `{display_filepath}` đã bị xóa khỏi codebase.
-> Tài liệu này được giữ lại để tham khảo cho các build cũ hơn.
+> **Deprecated in build {build_version}** — `{display_filepath}` has been removed from the codebase.
+> This documentation is kept for reference on older builds.
 """
     elif action == "modified":
         action_directive = f"""This file has been MODIFIED in build {build_version}.

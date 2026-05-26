@@ -1,6 +1,6 @@
 """
-Trích xuất nội dung function/property từ file Lua dựa trên danh sách tham chiếu.
-Chỉ lấy đúng các function và property được yêu cầu, không lấy cả file.
+Extract function/property content from Lua files based on a list of references.
+Only retrieves the specific functions and properties requested, not the entire file.
 """
 
 import re
@@ -28,12 +28,12 @@ def _dump_debug(label: str, content: str) -> None:
 
 def _resolve_lua_path(ref_path: str) -> str | None:
     """
-    Chuyển đường dẫn tham chiếu (vd: ./components/health.lua)
-    thành đường dẫn thực trên ổ đĩa (vd: ./dst-scripts/components/health.lua).
-    Trả về None nếu file không tồn tại.
+    Resolve a reference path (e.g. ./components/health.lua)
+    to an absolute path on disk (e.g. ./dst-scripts/components/health.lua).
+    Returns None if the file does not exist.
     """
-    # ref_path dạng "./components/health.lua" hoặc "./util/sourcemodifierlist.lua"
-    # Bỏ "./" ở đầu rồi ghép với BASE_LUA_DIR
+    # ref_path is of the form "./components/health.lua" or "./util/sourcemodifierlist.lua"
+    # Strip leading "./" then join with BASE_LUA_DIR
     clean = ref_path.lstrip("./")
     full_path = os.path.join(BASE_LUA_DIR, clean)
     if os.path.isfile(full_path):
@@ -43,9 +43,9 @@ def _resolve_lua_path(ref_path: str) -> str | None:
 
 def _extract_class_name(lua_code: str) -> str | None:
     """
-    Tìm tên class chính trong file Lua.
+    Find the main class name in a Lua file.
     Pattern: local ClassName = Class(function(self, inst) ...)
-    Trả về tên class (vd: "Health", "Combat") hoặc None.
+    Returns the class name (e.g. "Health", "Combat") or None.
     """
     match = re.search(r'local\s+(\w+)\s*=\s*Class\(', lua_code)
     return match.group(1) if match else None
@@ -53,11 +53,11 @@ def _extract_class_name(lua_code: str) -> str | None:
 
 def _extract_function_body(lua_code: str, class_name: str, func_name: str) -> str | None:
     """
-    Trích xuất nội dung một function từ file Lua.
-    Tìm pattern: function ClassName:FuncName(...)  ...  end
-    Trả về toàn bộ nội dung function (bao gồm lines khai báo và end).
+    Extract the body of a single function from a Lua file.
+    Finds pattern: function ClassName:FuncName(...)  ...  end
+    Returns the full function body (including the declaration line and end).
     """
-    # Escape tên để dùng trong regex
+    # Escape names for use in regex
     escaped_class = re.escape(class_name)
     escaped_func = re.escape(func_name)
 
@@ -75,11 +75,11 @@ def _extract_function_body(lua_code: str, class_name: str, func_name: str) -> st
     if start_idx is None:
         return None
 
-    # Đếm cặp block (function/if/for/while/do ... end) để tìm end tương ứng
+    # Count block pairs (function/if/for/while/do ... end) to find the matching end
     depth = 0
     end_idx = start_idx
 
-    # Keywords mở block trong Lua
+    # Block-opening keywords in Lua
     block_openers = re.compile(
         r'\b(?:function|if|for|while|repeat)\b'
     )
@@ -90,11 +90,11 @@ def _extract_function_body(lua_code: str, class_name: str, func_name: str) -> st
 
         # Skipping comment (-- ...)
         code_part = re.sub(r'--.*$', '', line)
-        # Skipping string literals đơn giản
+        # Skip simple string literals
         code_part = re.sub(r'"[^"]*"', '""', code_part)
         code_part = re.sub(r"'[^']*'", "''", code_part)
 
-        # Đếm openers và closers
+        # Count openers and closers
         depth += len(block_openers.findall(code_part))
         depth -= len(block_closers.findall(code_part))
 
@@ -107,9 +107,9 @@ def _extract_function_body(lua_code: str, class_name: str, func_name: str) -> st
 
 def _extract_property_info(lua_code: str, prop_name: str) -> str | None:
     """
-    Tìm property trong constructor hoặc khai báo biến.
+    Find a property in the constructor or variable declaration.
     Pattern: self.propName = value
-    Trả về lines chứa property hoặc None.
+    Returns the line containing the property or None.
     """
     pattern = rf'^\s*self\.{re.escape(prop_name)}\s*='
 
@@ -143,8 +143,8 @@ def _truncate_sections_to_budget(
         if running_tokens > max_tokens:
             if truncation_label:
                 print(
-                    f"  {truncation_label} Truncated: giữ {len(kept_sections)}/{len(sections)} refs "
-                    f"để fit trong {max_tokens} tokens"
+                    f"  {truncation_label} Truncated: keeping {len(kept_sections)}/{len(sections)} refs "
+                    f"to fit within {max_tokens} tokens"
                 )
             break
         kept_sections.append(section)
@@ -154,14 +154,14 @@ def _truncate_sections_to_budget(
 
 
 def _compression_cache_key(full_content: str) -> str:
-    """Content-addressed key: MD5 của full_content."""
+    """Content-addressed key: MD5 of full_content."""
     return hashlib.md5(full_content.encode("utf-8")).hexdigest()
 
 
 def _load_compression_cache(cache_key: str) -> str | None:
     """
-    Load compressed result từ cache nếu tồn tại.
-    Trả về None nếu cache miss.
+    Load a compressed result from cache if it exists.
+    Returns None on cache miss.
     """
     cache_path = Path(COMPRESSION_CACHE_DIR) / f"{cache_key}.json"
     try:
@@ -175,8 +175,8 @@ def _load_compression_cache(cache_key: str) -> str | None:
 
 def _save_compression_cache(cache_key: str, compressed: str) -> None:
     """
-    Lưu compressed result vào cache (atomic write).
-    Không bao giờ tự xóa — cache tồn tại vĩnh viễn cho đến khi source thay đổi.
+    Save a compressed result to cache (atomic write).
+    Never self-deletes — cache persists indefinitely until the source changes.
     """
     cache_dir = Path(COMPRESSION_CACHE_DIR)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -188,13 +188,13 @@ def _save_compression_cache(cache_key: str, compressed: str) -> None:
         temp_path.replace(cache_path)
         print(f"  [COMPRESS CACHE] Saved: {cache_key[:8]}...")
     except Exception as e:
-        print(f"  [COMPRESS CACHE] Không lưu được: {e}")
+        print(f"  [COMPRESS CACHE] Could not save: {e}")
 
 
 def _extract_compact_signature(lua_code: str, class_name: str, func_name: str) -> str | None:
     """
     Static extraction: sig + return values + error conditions.
-    Không cần LLM. Output cố định 1–3 lines/function.
+    No LLM required. Fixed output of 1–3 lines per function.
     """
     body = _extract_function_body(lua_code, class_name, func_name)
     if not body:
@@ -207,7 +207,7 @@ def _extract_compact_signature(lua_code: str, class_name: str, func_name: str) -
     errors = []
     for idx, line in enumerate(lines[1:], 1):
         stripped = line.strip()
-        # return có giá trị thực (bỏ qua "return self" và return đơn thuần)
+        # return with a real value (skip "return self" and bare returns)
         if re.match(r'^return\s+\S+', stripped):
             val = stripped[len("return "):].strip().rstrip(",")
             if val not in ("self", "true", "false", "nil", ""):
@@ -233,11 +233,11 @@ def extract_compact_content(
     max_output_tokens: int = 0,
 ) -> tuple[str, list[tuple[str, list[str]]]]:
     """
-    Trích xuất COMPACT summaries (static, không cần LLM) cho tất cả refs.
-    Dùng làm fallback khi LLM compression thất bại.
+    Extract COMPACT summaries (static, no LLM required) for all refs.
+    Used as a fallback when LLM compression fails.
 
     Returns:
-        (content, kept_refs) — tương tự extract_signatures_only().
+        (content, kept_refs) — similar to extract_signatures_only().
     """
     sections = []
     resolved_refs = []
@@ -282,21 +282,21 @@ def extract_compact_content(
 
 def extract_signatures_only(
     lua_refs: list[tuple[str, list[str]]],
-    max_output_tokens: int = 0,   # 0 = không giới hạn
+    max_output_tokens: int = 0,   # 0 = no limit
 ) -> tuple[str, list[tuple[str, list[str]]]]:
     """
-    Fallback mode: chỉ lấy lines khai báo function (signature), không lấy body.
+    Fallback mode: only retrieve function declaration lines (signatures), not bodies.
 
-    Nếu max_output_tokens > 0 và output vượt ngưỡng, refs cuối danh sách sẽ bị
-    bỏ qua (truncate by ref, không truncate giữa chừng một ref).
+    If max_output_tokens > 0 and output exceeds the limit, refs at the end of the
+    list are dropped (truncate by ref, never mid-ref).
 
     Returns:
         (content, kept_refs)
-        content:    chuỗi signatures; empty string nếu không tìm được gì.
-        kept_refs:  list các ref tuple thực sự xuất hiện trong output.
+        content:    string of signatures; empty string if nothing was found.
+        kept_refs:  list of ref tuples that actually appear in the output.
     """
     sections = []
-    resolved_refs = []   # track refs đã resolve được ít nhất 1 sig
+    resolved_refs = []   # track refs that resolved at least 1 signature
 
     for ref_path, func_names in lua_refs:
         if not func_names:
@@ -350,21 +350,21 @@ def compress_connected_content(
     model_name: str | None = None,
 ) -> str | None:
     """
-    Dùng LLM để rút gọn full function bodies xuống 3–5 lines/function.
-    Giữ lại: signature, return values, error conditions, side effects quan trọng.
+    Use LLM to compress full function bodies down to 3–5 lines per function.
+    Preserves: signature, return values, error conditions, important side effects.
 
     Args:
-        full_content: Output của extract_connected_content() — full function bodies.
-        max_output_tokens: Giới hạn token cho output compressed.
-        model_name: Model name. None = dùng COMPRESSION_MODEL.
+        full_content: Output of extract_connected_content() — full function bodies.
+        max_output_tokens: Token limit for the compressed output.
+        model_name: Model name. None = use COMPRESSION_MODEL.
 
     Returns:
-        Compressed string nếu thành công và nằm trong budget.
-        None nếu LLM call thất bại.
+        Compressed string if successful and within budget.
+        None if the LLM call fails.
     """
     _model = model_name or COMPRESSION_MODEL
 
-    # Cache lookup trước khi gọi LLM
+    # Cache lookup before calling LLM
     cache_key = _compression_cache_key(full_content)
     cached = _load_compression_cache(cache_key)
     if cached is not None:
@@ -397,9 +397,9 @@ SOURCE:
         except Exception as e:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
-                print(f"  [COMPRESS] LLM call thất bại: {e} → retry ({remaining} left)")
+                print(f"  [COMPRESS] LLM call failed: {e} → retry ({remaining} left)")
                 continue
-            print(f"  [COMPRESS] LLM call thất bại after {attempt} times: {e}")
+            print(f"  [COMPRESS] LLM call failed after {attempt} attempts: {e}")
             return None
 
         raw = response["message"]["content"]
@@ -411,15 +411,15 @@ SOURCE:
             if remaining > 0:
                 print(f"  [COMPRESS] Model returned empty → retry ({remaining} left)")
                 continue
-            print("  [COMPRESS] Model trả về rỗng after nhiều times thử")
+            print("  [COMPRESS] Model returned empty output after multiple attempts")
             return None
 
         if "-- COMPRESSED:" not in result:
             remaining = BAD_RESPONSE_RETRIES + 1 - attempt
             if remaining > 0:
-                print(f"  [COMPRESS] Output không đúng format → retry ({remaining} left)")
+                print(f"  [COMPRESS] Output has wrong format → retry ({remaining} left)")
                 continue
-            print("  [COMPRESS] Output không đúng format after nhiều times thử, fallback về signatures")
+            print("  [COMPRESS] Output has wrong format after multiple attempts, falling back to signatures")
             return None
 
         _save_compression_cache(cache_key, result)
@@ -430,12 +430,12 @@ SOURCE:
 
 def _compress_module_stub(lua_code: str, ref_path: str) -> str | None:
     """
-    Dùng LLM để tạo module-level summary (3–5 lines) cho require-only refs.
-    Reuses compression cache system.
+    Use LLM to generate a module-level summary (3–5 lines) for require-only refs.
+    Reuses the compression cache system.
 
     Returns:
-        Formatted stub string nếu thành công (contains "-- [REQUIRE MODULE: ...]").
-        None nếu LLM thất bại hoặc output không hợp lệ.
+        Formatted stub string if successful (contains "-- [REQUIRE MODULE: ...]").
+        None if LLM fails or output is invalid.
     """
     cache_key = _compression_cache_key(lua_code)
     cached = _load_compression_cache(cache_key)
@@ -489,16 +489,16 @@ def extract_require_stubs(
     max_tokens: int = 0,
 ) -> str:
     """
-    Trích xuất stub content cho require-only refs (func_names rỗng).
+    Extract stub content for require-only refs (empty func_names).
 
-    - File nhỏ (≤ STUB_FULL_THRESHOLD tokens): include toàn bộ nội dung.
-    - File lớn: dùng LLM tạo module summary 3–5 lines.
+    - Small files (≤ STUB_FULL_THRESHOLD tokens): include full content.
+    - Large files: use LLM to generate a 3–5 line module summary.
 
-    Budget được kiểm tra incrementally — dừng khi tổng vượt max_tokens.
+    Budget is checked incrementally — stops when the total exceeds max_tokens.
 
     Returns:
-        str: nội dung ghép, prefix bởi marker "-- [REQUIRE FULL:" hoặc "-- [REQUIRE MODULE:".
-             Trả về "" nếu không có gì.
+        str: concatenated content, prefixed by "-- [REQUIRE FULL:" or "-- [REQUIRE MODULE:".
+             Returns "" if nothing was found.
     """
     if not req_refs or max_tokens <= 0:
         return ""
@@ -548,17 +548,17 @@ def extract_require_stubs(
 def extract_connected_content(
     lua_refs: list[tuple[str, list[str]]],
     max_lines_per_file: int = 100,
-    max_total_tokens: int = 0,    # 0 = không giới hạn
+    max_total_tokens: int = 0,    # 0 = no limit
 ) -> str:
     """
-    Trích xuất nội dung function/property từ danh sách tham chiếu.
+    Extract function/property content from a list of references.
 
     Args:
-        lua_refs: Danh sách [(file_path, [func_names]), ...] từ extract_lua_references()
-        max_lines_per_file: Giới hạn số lines tối đa cho mỗi connected files
+        lua_refs: List of [(file_path, [func_names]), ...] from extract_lua_references()
+        max_lines_per_file: Maximum number of lines per connected file
 
     Returns:
-        Chuỗi formatted chứa nội dung các function liên quan, hoặc "" nếu không có gì.
+        Formatted string containing the relevant function bodies, or "" if nothing was found.
     """
     if not lua_refs:
         return ""
@@ -566,7 +566,7 @@ def extract_connected_content(
     sections = []
 
     for ref_path, func_names in lua_refs:
-        # Skipping nếu không có function cụ thể cần trích xuất
+        # Skip if there are no specific functions to extract
         if not func_names:
             continue
 
@@ -591,7 +591,7 @@ def extract_connected_content(
             if total_lines >= max_lines_per_file:
                 break
 
-            # Thử tìm function trước
+            # Try to find the function first
             body = _extract_function_body(lua_code, class_name, func_name)
             if body:
                 body_lines = body.count('\n') + 1
@@ -600,7 +600,7 @@ def extract_connected_content(
                     total_lines += body_lines
                 continue
 
-            # Nếu không phải function, thử tìm property
+            # If not a function, try finding a property
             prop = _extract_property_info(lua_code, func_name)
             if prop:
                 extracted_items.append(f"-- [property] {prop}")
@@ -616,18 +616,18 @@ def extract_connected_content(
 
     full_result = "\n\n".join(sections)
 
-    # Kiểm tra token budget nếu có giới hạn
+    # Check token budget if a limit is set
     if max_total_tokens > 0:
         total_tokens = count_tokens(full_result)
 
         if total_tokens == -1:
-            # Fallback khi tiktoken không có: ước tính bằng char count (1 token ≈ 4 chars)
+            # Fallback when tiktoken is unavailable: estimate by char count (1 token ≈ 4 chars)
             total_tokens = len(full_result) // 4
 
         if total_tokens > max_total_tokens:
             print(
                 f"  [CONTEXT] Full content ~{total_tokens} tokens "
-                f"> ngưỡng {max_total_tokens} → LLM compression"
+                f"> threshold {max_total_tokens} → LLM compression"
             )
             compressed = compress_connected_content(
                 full_result,
@@ -643,11 +643,11 @@ def extract_connected_content(
                         f"({100 - compressed_tokens * 100 // total_tokens}% reduction)"
                     )
                     return compressed
-                print(f"  [CONTEXT] Compressed vẫn > ngưỡng → COMPACT fallback")
+                print(f"  [CONTEXT] Compressed still exceeds threshold → COMPACT fallback")
             else:
-                print(f"  [CONTEXT] LLM thất bại → COMPACT fallback")
+                print(f"  [CONTEXT] LLM failed → COMPACT fallback")
 
-            # Fallback 1: COMPACT static extraction (sig + returns + errors, không cần LLM)
+            # Fallback 1: COMPACT static extraction (sig + returns + errors, no LLM required)
             compact_content, _ = extract_compact_content(
                 lua_refs, max_output_tokens=max_total_tokens
             )
@@ -675,25 +675,25 @@ def extract_connected_for_chunk(
     max_total_tokens: int = 8000,
 ) -> tuple[str, str, int]:
     """
-    Trích xuất connected_section + connected_content + ref_count cho 1 chunk cụ thể.
+    Extract connected_section + connected_content + ref_count for a specific chunk.
 
-    Smart fallback (khi chunk_refs rỗng):
-        Chỉ kích hoạt cho 2 trường hợp biên:
-        - Cross-chunk require: require() ở chunk trước, chunk này dùng module nhưng không re-import.
-        - self.components.X: bị negative lookbehind của extract_lua_references bỏ qua.
+    Smart fallback (when chunk_refs is empty):
+        Only activates for two edge cases:
+        - Cross-chunk require: require() is in a prior chunk, this chunk uses the module without re-importing.
+        - self.components.X: skipped by the negative lookbehind in extract_lua_references.
 
     Known limitation:
-        Require-based cross-chunk KHÔNG bị bắt bởi filter `components.<name>`.
-        Chunk đó nhận ("", "", 0) — graceful degrade.
+        Require-based cross-chunk references are NOT caught by the `components.<name>` filter.
+        That chunk receives ("", "", 0) — graceful degrade.
 
     Returns:
         (connected_section, connected_content, ref_count)
     """
     chunk_refs = extract_lua_references(chunk_code, own_filename)
 
-    # Fallback: chunk không có ref cục bộ nhưng full file có refs.
+    # Fallback: chunk has no local refs but the full file does.
     if not chunk_refs and full_refs:
-        # Filter full_refs xuống chỉ còn refs mà chunk thực sự reference
+        # Filter full_refs down to only the refs the chunk actually references
         filtered_refs = [
             (ref_path, funcs)
             for ref_path, funcs in full_refs
@@ -706,7 +706,7 @@ def extract_connected_for_chunk(
         if not filtered_refs:
             return "", "", 0
 
-        print(f"    [CTX] Chunk không có local refs nhưng có external call → fallback signatures từ filtered_refs ({len(filtered_refs)} refs)")
+        print(f"    [CTX] Chunk has no local refs but has external calls → fallback signatures from filtered_refs ({len(filtered_refs)} refs)")
         fallback_content, fallback_kept_refs = extract_signatures_only(filtered_refs, max_output_tokens=max_total_tokens)
 
         if not fallback_content:
@@ -715,25 +715,25 @@ def extract_connected_for_chunk(
         fallback_section = format_connected_section(fallback_kept_refs)
         return fallback_section, fallback_content, len(fallback_kept_refs)
 
-    # Tách func_refs (có function calls) và req_refs (require-only)
+    # Split into func_refs (have function calls) and req_refs (require-only)
     func_refs = [(path, funcs) for path, funcs in chunk_refs if funcs]
     req_refs  = [(path, funcs) for path, funcs in chunk_refs if not funcs]
 
-    # Pipeline cũ: func_refs với full budget
+    # Original pipeline: func_refs with full budget
     func_content = extract_connected_content(
         func_refs,
         max_lines_per_file=max_lines_per_file,
         max_total_tokens=max_total_tokens,
     )
 
-    # Pipeline mới: require-only stubs với budget còn lại
+    # New pipeline: require-only stubs with remaining budget
     func_tokens = count_tokens(func_content)
     if func_tokens == -1:
         func_tokens = len(func_content) // 4
     remaining_budget = max_total_tokens - func_tokens
     req_content = extract_require_stubs(req_refs, max_tokens=remaining_budget)
 
-    # Ghép kết quả
+    # Merge results
     if func_content and req_content:
         connected_content = func_content + "\n\n" + req_content
     elif req_content:
@@ -744,7 +744,7 @@ def extract_connected_for_chunk(
     if not connected_content:
         return "", "", len(func_refs)
 
-    # Rebuild section từ kept_refs thực tế (chỉ func_refs — req_refs không có func_names)
+    # Rebuild section from actual kept_refs (func_refs only — req_refs have no func_names)
     if "--[SIGONLY:" in func_content:
         _, kept_refs = extract_signatures_only(func_refs, max_output_tokens=max_total_tokens)
     else:
@@ -754,9 +754,9 @@ def extract_connected_for_chunk(
     return connected_section, connected_content, len(kept_refs)
 
 
-# === Cho phép chạy độc lập để test ===
+# === Allows running standalone for testing ===
 if __name__ == "__main__":
-    # Test nhanh với một vài ref giả
+    # Quick test with a few dummy refs
     test_refs = [
         ("./components/health.lua", ["DoDelta", "GetPercent", "IsDead", "IsInvincible", "minhealth"]),
         ("./components/weapon.lua", ["GetDamage", "CanRangedAttack", "LaunchProjectile", "OnAttack"]),
@@ -766,8 +766,8 @@ if __name__ == "__main__":
     result = extract_connected_content(test_refs)
 
     if result:
-        print("=== KẾT QUẢ TRÍCH XUẤT ===")
+        print("=== EXTRACTION RESULT ===")
         print(result)
-        print(f"\n=== Tổng: {result.count(chr(10)) + 1} lines ===")
+        print(f"\n=== Total: {result.count(chr(10)) + 1} lines ===")
     else:
-        print("Không trích xuất được gì!")
+        print("Nothing extracted!")

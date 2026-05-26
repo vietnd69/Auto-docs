@@ -128,7 +128,7 @@ def save_checkpoint(
 def load_checkpoint(comp_name: str) -> tuple[dict[int, str], int, list[int]] | None:
     """
     Load checkpoint if exists.
-    Returns (chunk_results, last_index, failed_indices) hoặc None nếu không có.
+    Returns (chunk_results, last_index, failed_indices) or None if not available.
     """
     checkpoint_path = f"{CHECKPOINT_DIR}/{comp_name}.json"
     if not Path(checkpoint_path).exists():
@@ -250,11 +250,11 @@ def generate_chunk_analysis(
                 if remaining > 0:
                     print(f"    [{label} {chunk_index}/{total_chunks}] Model returned empty → retry ({remaining} left)")
                     continue
-                print(f"    [{label} {chunk_index}/{total_chunks}] Failed — model trả về rỗng after {attempt} times")
+                print(f"    [{label} {chunk_index}/{total_chunks}] Failed — model returned empty after {attempt} attempts")
                 return None
 
             lines_count = result.count("\n") + 1
-            print(f"    [{label} {chunk_index}/{total_chunks}] Done — {lines_count} lines kết quả")
+            print(f"    [{label} {chunk_index}/{total_chunks}] Done — {lines_count} lines of output")
 
             if sleep_time > 0 and not shutdown.stop_requested:
                 print(f"    Resting {sleep_time} seconds...")
@@ -292,8 +292,8 @@ def generate_merged_doc(
         md_filepath: Output .md file path.
         model_name: Ollama model name.
         sleep_time: Rest after writing (seconds).
-        max_retries: Số times retry tối đa (mặc định 3).
-        retry_delay: Nghỉ giữa các times retry (giây, mặc định 30).
+        max_retries: Maximum number of retries (default 3).
+        retry_delay: Sleep between retries (seconds, default 30).
 
     Returns:
         .md file name (basename) if successful, None if failed.
@@ -323,26 +323,26 @@ def generate_merged_doc(
 
             # Guard: model returned empty (only thinking block or error)
             if not md_content:
-                print(f"    [Merge] Lần {attempt}/{max_retries} — model trả về rỗng")
+                print(f"    [Merge] Attempt {attempt}/{max_retries} — model returned empty")
                 if attempt < max_retries:
-                    print(f"    Resting {retry_delay} giây before retry...")
+                    print(f"    Resting {retry_delay} seconds before retry...")
                     shutdown.interruptible_sleep(retry_delay)
                 continue
 
             md_content = _ensure_events_section(md_content)
 
-            # Sanity check: output phải bắt đầu bằng YAML frontmatter
+            # Sanity check: output must start with YAML frontmatter
             if not md_content.startswith("---"):
                 if attempt < max_retries:
                     print(
-                        f"    [Bad response] Lần {attempt}/{max_retries} — output merge của {md_filename} "
-                        f"không bắt đầu bằng YAML frontmatter, retry..."
+                        f"    [Bad response] Attempt {attempt}/{max_retries} — merge output of {md_filename} "
+                        f"does not start with YAML frontmatter, retrying..."
                     )
                     shutdown.interruptible_sleep(retry_delay)
                     continue
                 print(
-                    f"    [Warning] Output merge của {md_filename} không bắt đầu bằng YAML frontmatter "
-                    f"after {max_retries} times thử — ghi file và tiếp tục"
+                    f"    [Warning] Merge output of {md_filename} does not start with YAML frontmatter "
+                    f"after {max_retries} attempts — writing file and continuing"
                 )
 
             if source_hash:
@@ -356,7 +356,7 @@ def generate_merged_doc(
                 f.write(md_content)
 
             if attempt > 1:
-                print(f"    [Merge] Thành công ở times {attempt}")
+                print(f"    [Merge] Succeeded on attempt {attempt}")
             print(f"    [Merge] Created {md_filename}")
 
             if sleep_time > 0 and not shutdown.stop_requested:
@@ -366,12 +366,12 @@ def generate_merged_doc(
             return md_filename
 
         except Exception as e:
-            print(f"    [Merge] Lần {attempt}/{max_retries} error: {e}")
+            print(f"    [Merge] Attempt {attempt}/{max_retries} error: {e}")
             if attempt < max_retries:
-                print(f"    Resting {retry_delay} giây before retry...")
+                print(f"    Resting {retry_delay} seconds before retry...")
                 shutdown.interruptible_sleep(retry_delay)
 
-    print(f"    [Error] Merge failed for {md_filename} after {max_retries} times thử")
+    print(f"    [Error] Merge failed for {md_filename} after {max_retries} attempts")
     return None
 
 
@@ -410,7 +410,7 @@ def multipass_merge(
     ckpt = load_merge_checkpoint(comp_name)
     if ckpt and ckpt["stage"] == "multipass":
         completed_sections = ckpt["results"]
-        print(f"  [MULTIPASS] Resume từ section {ckpt['last_index'] + 2}")
+        print(f"  [MULTIPASS] Resuming from section {ckpt['last_index'] + 2}")
     else:
         completed_sections = []
 
@@ -591,17 +591,17 @@ def hierarchical_merge(
 
     print(f"  [HIERARCHICAL] {total} chunks → {total_groups} groups × {group_size}")
 
-    # ── Resume tầng 1 nếu có ──
+    # ── Resume tier 1 if available ──
     merge_ckpt = load_merge_checkpoint(comp_name)
     if merge_ckpt and merge_ckpt["stage"] == "hierarchical_t1":
         intermediate_results = merge_ckpt["results"]
         resume_group_from = merge_ckpt["last_index"]
-        print(f"  [HIERARCHICAL] Resume tầng 1 từ groups {resume_group_from + 2}")
+        print(f"  [HIERARCHICAL] Resuming tier 1 from group {resume_group_from + 2}")
     else:
         intermediate_results = []
         resume_group_from = -1
 
-    # Tầng 1: merge từng groups
+    # Tier 1: merge each group
     for g_idx, group in enumerate(groups, 1):
         if g_idx - 1 <= resume_group_from:
             continue
@@ -627,10 +627,10 @@ def hierarchical_merge(
             intermediate_results.append(result)
             save_merge_checkpoint(comp_name, "hierarchical_t1", intermediate_results, g_idx - 1)
         else:
-            print(f"  [HIERARCHICAL] Nhóm {g_idx} failed, skipping.")
+            print(f"  [HIERARCHICAL] Group {g_idx} failed, skipping.")
 
     if not intermediate_results:
-        print("  [HIERARCHICAL] Tất cả groups trung gian đều thất bại!")
+        print("  [HIERARCHICAL] All intermediate groups failed!")
         return None
 
     print(f"  [HIERARCHICAL] Tier 1 done: {len(intermediate_results)} intermediate summaries")
@@ -646,13 +646,13 @@ def hierarchical_merge(
             sleep_time=sleep_time,
         )
         if rolled is None:
-            return None # checkpoint đã lưu trong rolling, times after resume
+            return None # checkpoint already saved in rolling, resume on next run
         rolled_tokens = estimate_merge_tokens([rolled])
         if rolled_tokens > MERGE_TOKEN_LIMIT:
             print(f"  [HIERARCHICAL] Warning: rolled result still large ({rolled_tokens:,} tok > {MERGE_TOKEN_LIMIT:,} limit) — continue tier 2 merge")
         intermediate_results = [rolled]
 
-    # Tầng 2: final merge (legacy text-based prompt)
+    # Tier 2: final merge (legacy text-based prompt)
     merge_prompt = _build_merge_prompt_legacy(
         comp_name=comp_name,
         comp_title=comp_title,
@@ -676,7 +676,7 @@ def hierarchical_merge(
         sleep_time=sleep_time,
     )
     if result:
-        clear_merge_checkpoint(comp_name)   # chỉ xóa khi chắc chắn thành công
+        clear_merge_checkpoint(comp_name)   # only delete when success is confirmed
     return result
 
 
@@ -690,7 +690,7 @@ def rolling_merge_to_one(
     """
     Fallback: sequential merge pair by pair. Returns 1 synthesized string.
     """
-    # ── Resume nếu có ──
+    # ── Resume if available ──
     merge_ckpt = load_merge_checkpoint(comp_name)
     if merge_ckpt and merge_ckpt["stage"] == "rolling":
         accumulated = merge_ckpt["results"][0]
@@ -724,9 +724,9 @@ def rolling_merge_to_one(
             accumulated = merged
             save_merge_checkpoint(comp_name, "rolling", [accumulated], i)
         else:
-            # Lưu lại rồi trả về None để caller biết bị gián đoạn
+            # Save progress and return None so the caller knows processing was interrupted
             save_merge_checkpoint(comp_name, "rolling", [accumulated], i - 1)
-            print(f"  [ROLLING] Failed tại bước {i}, checkpoint saved.")
+            print(f"  [ROLLING] Failed at step {i}, checkpoint saved.")
             return None
 
     return accumulated
@@ -798,10 +798,10 @@ def process_chunked_file(
     print(f"  [CHUNKED] Split into {total_chunks} chunks")
 
     # ── SHORTCUT: 1 chunk → direct standard pipeline ──────────────────
-    # Khi chỉ có 1 chunk, không cần bước trung gian (chunk JSON → pre-synthesis).
-    # Dùng standard pipeline với per-chunk connected content để tiết kiệm 1 LLM call.
+    # With only 1 chunk, the intermediate step (chunk JSON → pre-synthesis) is unnecessary.
+    # Use standard pipeline with per-chunk connected content to save 1 LLM call.
     if total_chunks == 1:
-        print(f"  [1-CHUNK] Chỉ 1 chunk — dùng standard pipeline trực tiếp (tiết kiệm 1 LLM call)")
+        print(f"  [1-CHUNK] Only 1 chunk — using standard pipeline directly (saves 1 LLM call)")
         _own_filename = os.path.basename(display_filepath)
         chunk_section, chunk_content, ref_count = extract_connected_for_chunk(
             chunk_code=stripped_code,
@@ -820,9 +820,9 @@ def process_chunked_file(
             else:
                 print(f"    [CTX] {ref_count} refs, mode={_func_mode}")
         elif ref_count > 0:
-            print(f"    [CTX] {ref_count} refs nhưng không extract được content")
+            print(f"    [CTX] {ref_count} refs but could not extract content")
         else:
-            print(f"    [CTX] không có external context (file độc lập)")
+            print(f"    [CTX] no external context (standalone file)")
 
         from prompts.standard import build_prompt as _build_std_prompt
         from core.pipeline.standard import generate_doc as _generate_doc
@@ -859,7 +859,7 @@ def process_chunked_file(
     resume = load_checkpoint(comp_name)
     if resume:
         chunk_results, resume_from, pending_retries = resume
-        print(f"  [CHECKPOINT] Đã có {len(chunk_results)} chunk")
+        print(f"  [CHECKPOINT] Found {len(chunk_results)} existing chunks")
     else:
         chunk_results: dict[int, str] = {}
         resume_from = -1
@@ -879,7 +879,7 @@ def process_chunked_file(
             except (json.JSONDecodeError, ValueError):
                 stale_bad.append(k)
         if stale_bad:
-            print(f"  [CHECKPOINT] {len(stale_bad)} checkpoint entries có shape sai, sẽ retry: {stale_bad}")
+            print(f"  [CHECKPOINT] {len(stale_bad)} checkpoint entries have incorrect shape, will retry: {stale_bad}")
             pending_retries = list(set(pending_retries) | set(stale_bad))
             chunk_results = clean_results
 
@@ -887,16 +887,16 @@ def process_chunked_file(
     own_filename = os.path.basename(display_filepath)
 
     # ── MAIN LOOP ──
-    failed_indices: list[int] = list(pending_retries)  # giữ lại lỗi từ times trước
+    failed_indices: list[int] = list(pending_retries)  # carry over failures from previous run
 
     for i, chunk_code in enumerate(chunks, 1):
         if shutdown.stop_requested:
-            print("  [System] Đã dừng chunked pipeline after chunk hiện tại.")
+            print("  [System] Chunked pipeline stopped after current chunk.")
             break
-        # Skip các chunk đã xử lý
+        # Skip chunks already processed
         if i - 1 <= resume_from:
             continue
-        if i in chunk_results:  # đã có từ checkpoint
+        if i in chunk_results:  # already present from checkpoint
             continue
 
         # ── PER-CHUNK CONTEXT ──
@@ -918,9 +918,9 @@ def process_chunked_file(
             else:
                 print(f"    [CTX] Chunk {i}: {ref_count} refs, mode={func_mode}")
         elif ref_count > 0:
-            print(f"    [CTX] Chunk {i}: {ref_count} refs nhưng không extract được content (require-only, không có function call)")
+            print(f"    [CTX] Chunk {i}: {ref_count} refs but could not extract content (require-only, no function call)")
         else:
-            print(f"    [CTX] Chunk {i}: không có external context (chunk độc lập)")
+            print(f"    [CTX] Chunk {i}: no external context (standalone chunk)")
 
         prompt = build_chunk_prompt(
             comp_name=comp_name,
@@ -955,18 +955,18 @@ def process_chunked_file(
                 chunk_results[i] = result
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
             except (json.JSONDecodeError, ValueError):
-                print(f"    [Warning] Chunk {i} JSON không hợp lệ hoặc sai schema, sẽ retry.")
+                print(f"    [Warning] Chunk {i} JSON is invalid or has wrong schema, will retry.")
                 failed_indices.append(i)
                 save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
         else:
             failed_indices.append(i)
-            print(f"    [Warning] Chunk {i} thất bại.")
+            print(f"    [Warning] Chunk {i} failed.")
             save_checkpoint(comp_name, chunk_results, i - 1, failed_indices)
 
-    # ── RETRY LOOP — chạy after khi hoàn thành 100/100 ──
+    # ── RETRY LOOP — runs after all chunks have been processed ──
     if failed_indices and not shutdown.stop_requested:
-        print(f"\n  [RETRY] {len(failed_indices)} chunk thất bại: {failed_indices}")
-        print(f"  [RETRY] Bắt đầu retry (tối đa 3 times, cách nhau 30s)...")
+        print(f"\n  [RETRY] {len(failed_indices)} chunks failed: {failed_indices}")
+        print(f"  [RETRY] Starting retry (up to 3 attempts, 30s apart)...")
 
         still_failing: list[int] = []
 
@@ -974,7 +974,7 @@ def process_chunked_file(
             if shutdown.stop_requested:
                 still_failing.extend(failed_indices[failed_indices.index(chunk_i):])
                 break
-            chunk_code = chunks[chunk_i - 1]  # chunks list là 0-based
+            chunk_code = chunks[chunk_i - 1]  # chunks list is 0-based
 
             # Per-chunk context cho retry
             chunk_section, chunk_content, ref_count = extract_connected_for_chunk(
@@ -994,9 +994,9 @@ def process_chunked_file(
                 else:
                     print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs, mode={func_mode}")
             elif ref_count > 0:
-                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs nhưng không extract được content (require-only, không có function call)")
+                print(f"    [CTX] Chunk {chunk_i} (retry): {ref_count} refs but could not extract content (require-only, no function call)")
             else:
-                print(f"    [CTX] Chunk {chunk_i} (retry): không có external context (chunk độc lập)")
+                print(f"    [CTX] Chunk {chunk_i} (retry): no external context (standalone chunk)")
 
             prompt = build_chunk_prompt(
                 comp_name=comp_name,
@@ -1032,40 +1032,40 @@ def process_chunked_file(
                             raise ValueError("chunk JSON missing required shape")
                         chunk_results[chunk_i] = result
                         save_checkpoint(comp_name, chunk_results, total_chunks - 1, still_failing)
-                        print(f"    [Retry] Chunk {chunk_i} thành công ở times {attempt}.")
+                        print(f"    [Retry] Chunk {chunk_i} succeeded on attempt {attempt}.")
                         success = True
                         break
                     except (json.JSONDecodeError, ValueError):
                         if attempt < 3:
-                            print(f"    [Retry] Lần {attempt} JSON không hợp lệ hoặc sai schema, thử lại...")
+                            print(f"    [Retry] Attempt {attempt} JSON invalid or wrong schema, retrying...")
                 elif attempt < 3:
-                    print(f"    [Retry] Lần {attempt} thất bại, thử lại after 30s...")
+                    print(f"    [Retry] Attempt {attempt} failed, retrying after 30s...")
 
             if not success:
                 still_failing.append(chunk_i)
-                print(f"    [Retry] Chunk {chunk_i} vẫn thất bại after 3 times.")
+                print(f"    [Retry] Chunk {chunk_i} still failed after 3 attempts.")
 
         failed_indices = still_failing
 
-    # ── USER CONFIRM nếu vẫn còn chunk lỗi ──
+    # ── USER CONFIRM if chunks still failing ──
     if failed_indices:
-        print(f"\n  ⚠️  Vẫn còn {len(failed_indices)} chunk thất bại after 3 times retry: {failed_indices}")
-        print(f"  Tài liệu sẽ bị thiếu nội dung từ các chunk này.")
+        print(f"\n  ⚠️  {len(failed_indices)} chunks still failed after 3 retry attempts: {failed_indices}")
+        print(f"  The document will be missing content from these chunks.")
         save_checkpoint(comp_name, chunk_results, total_chunks - 1, failed_indices)
 
         if not sys.stdin.isatty():
-            print(f"  [HEADLESS] Không thể nhận input (stdin không phải TTY). Dừng pipeline.")
-            print(f"  [HEADLESS] {len(failed_indices)} chunk vẫn thất bại. Chạy lại thủ công để tiếp tục.")
+            print(f"  [HEADLESS] Cannot receive input (stdin is not a TTY). Stopping pipeline.")
+            print(f"  [HEADLESS] {len(failed_indices)} chunks still failed. Re-run manually to continue.")
             return None
-        confirm = input("\n  Tiếp tục merge với dữ liệu hiện có? [y/N]: ").strip().lower()
+        confirm = input("\n  Continue merge with available data? [y/N]: ").strip().lower()
         if confirm != "y":
-            print(f"  [DỪNG] Tiến trình đã lưu. Chạy lại để retry {len(failed_indices)} chunk còn lại.")
+            print(f"  [STOPPED] Progress saved. Re-run to retry {len(failed_indices)} remaining chunks.")
             return None
 
-        print(f"  [TIẾP TỤC] Merge với {len(chunk_results)}/{total_chunks} chunks.")
+        print(f"  [CONTINUING] Merging with {len(chunk_results)}/{total_chunks} chunks.")
 
     if not chunk_results:
-        print(f"  [Error] Không có chunk nào thành công!")
+        print(f"  [Error] No chunks succeeded!")
         return None
 
     # ── PRE-SYNTHESIS — pure Python aggregation, no LLM call ──
@@ -1075,7 +1075,7 @@ def process_chunked_file(
     if malformed:
         save_checkpoint(comp_name, chunk_results, total_chunks - 1, malformed)
         print(f"  [PRE-SYNTHESIS] {len(malformed)} chunk malformed JSON: {malformed}")
-        print(f"  [PRE-SYNTHESIS] Retry các chunk trên rồi chạy lại.")
+        print(f"  [PRE-SYNTHESIS] Retry the above chunks then re-run.")
         return None
 
     print(f"  [PRE-SYNTHESIS] OK — {len(presynthesis.game_tags)} game_tags, "
@@ -1131,8 +1131,8 @@ def process_chunked_file(
         )
 
     if result_filename:
-        # Giữ lại chunk checkpoint để kiểm tra lại nếu output LLM bị lỗi.
-        # Chỉ xóa merge checkpoint vì nó không còn cần thiết after khi merge xong.
+        # Keep chunk checkpoint in case LLM output has errors and needs review.
+        # Only delete merge checkpoint since it is no longer needed after merge completes.
         clear_merge_checkpoint(comp_name)
 
     return result_filename

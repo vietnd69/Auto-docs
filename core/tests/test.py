@@ -1,6 +1,6 @@
 """
-Test script — chạy prompt trên 1 file duy nhất để kiểm tra.
-Dùng chung build_prompt() từ prompt.py, config riêng cho test.
+Test script — runs the prompt on a single file for inspection.
+Shares build_prompt() from prompt.py, with test-specific configuration.
 """
 
 import os
@@ -15,7 +15,7 @@ from rag.docs import (
 )
 from prompts.standard import build_prompt
 
-# === CẤU HÌNH TEST ===
+# === TEST CONFIGURATION ===
 TEST_FILE = "combat.lua"
 LUA_DIR = "./dst-scripts/components"
 DOCS_DIR = "./dst-api-webdocs/docs/components"
@@ -26,13 +26,13 @@ FILE_TREE = generate_slim_tree("./dst-scripts", max_depth=6)
 
 os.makedirs(DOCS_DIR, exist_ok=True)
 
-# --- Tìm và đọc file ---
+# --- Find and read file ---
 filepath = os.path.join(LUA_DIR, TEST_FILE)
 display_filepath = filepath.replace("./dst-scripts", ".").replace("\\", "/")
 
 lua_code = safe_read_lua(filepath)
 if lua_code is None:
-    print(f"[Error] Không đọc được file: {filepath}")
+    print(f"[Error] Could not read file: {filepath}")
     exit(1)
 
 comp_name = TEST_FILE.replace(".lua", "")
@@ -43,21 +43,21 @@ source_hash = compute_source_hash(lua_code)
 lua_refs = extract_lua_references(lua_code, TEST_FILE)
 
 if lua_refs:
-    print(f"[REF] Tìm thấy {len(lua_refs)} connected files")
+    print(f"[REF] Found {len(lua_refs)} connected files")
 else:
-    print(f"[REF] Không tìm thấy tham chiếu nào")
+    print(f"[REF] No references found")
 
 connected_section = format_connected_section(lua_refs)
 
-# --- Trích xuất nội dung function/property từ connected files ---
+# --- Extract function/property content from connected files ---
 connected_content = extract_connected_content(lua_refs, max_lines_per_file=100)
 if connected_content:
     content_lines = connected_content.count('\n') + 1
-    print(f"[FNC] Đã trích xuất {content_lines} lines of source code từ connected files")
+    print(f"[FNC] Extracted {content_lines} lines of source code from connected files")
 else:
-    print(f"[FNC] Không trích xuất được nội dung function nào")
+    print(f"[FNC] No function content extracted")
 
-# --- Tạo prompt ---
+# --- Build prompt ---
 prompt = build_prompt(
     comp_name=comp_name,
     comp_title=comp_title,
@@ -72,8 +72,8 @@ prompt = build_prompt(
     category_type=CATEGORY_TYPE,
 )
 
-# --- Ghi ra file test.md ---
+# --- Write to test.md ---
 with open("test.md", "w", encoding="utf-8") as f:
     f.write(prompt)
 
-print(f"\n[OK] Đã xuất prompt cho '{TEST_FILE}' ra file test.md ({len(prompt)} ký tự)")
+print(f"\n[OK] Wrote prompt for '{TEST_FILE}' to test.md ({len(prompt)} chars)")

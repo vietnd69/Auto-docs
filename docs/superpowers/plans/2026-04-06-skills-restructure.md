@@ -1165,8 +1165,8 @@ If only `build_prompt` and `build_single_prompt` are imported from this file, re
 
 ```python
 """
-Module chứa hàm build_prompt() — tạo prompt cho LLM.
-Không chứa constants, chỉ chứa template.
+Module containing build_prompt() — creates the prompt for the LLM.
+Contains no constants, only the template.
 """
 
 from prompts.skills_loader import combine_skills
@@ -1209,8 +1209,8 @@ def build_prompt(
     category_type: str = "",
 ) -> str:
     """
-    Tạo prompt đầy đủ để gửi cho LLM tạo tài liệu cho một file Lua.
-    Tất cả config (version, date, tree...) được truyền vào qua tham số.
+    Build the full prompt to send to the LLM for generating documentation for a Lua file.
+    All config (version, date, tree...) is passed in via parameters.
     """
     file_type = _detect_file_type(display_filepath)
     exclude = ["few_shot_data"] if file_type == "component" else ["few_shot"]

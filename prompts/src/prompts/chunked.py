@@ -1,10 +1,10 @@
 """
-Module chứa prompt templates cho xử lý file Lua dài (chunked processing).
+Module containing prompt templates for processing long Lua files (chunked processing).
 
 Templates:
-  - build_chunk_prompt():  prompt cho mỗi chunk — output JSON matching schema
-  - build_merge_prompt():  prompt tổng hợp — nhận PreSynthesisResult, pre-filled YAML
-  - build_single_prompt(): re-export prompt cũ cho file ngắn
+  - build_chunk_prompt():  prompt for each chunk — output JSON matching schema
+  - build_merge_prompt():  synthesis prompt — receives PreSynthesisResult, pre-filled YAML
+  - build_single_prompt(): re-export of the original prompt for short files
 
 Legacy (kept for backward compat, not used in JSON pipeline):
   - _build_merge_prompt_legacy():  old text-based merge prompt
@@ -26,10 +26,10 @@ def build_intermediate_merge_prompt(
     total_groups: int,
 ) -> str:
     """
-    Prompt gọn cho merge trung gian (tầng 1 của hierarchical merge).
-    KHÔNG cần file_tree, connected_content, YAML frontmatter.
-    Output được dùng làm input cho build_merge_prompt() ở tầng 2,
-    nên phải giữ đầy đủ thông tin — KHÔNG được mất function/event nào.
+    Compact prompt for intermediate merge (layer 1 of hierarchical merge).
+    Does NOT require file_tree, connected_content, or YAML frontmatter.
+    Output is used as input for build_merge_prompt() at layer 2,
+    so all information must be preserved — no function or event may be lost.
     """
     combined = ""
     for i, r in enumerate(group_results, 1):
@@ -109,9 +109,9 @@ def build_chunk_prompt(
     lua_type: str = "",
 ) -> str:
     """
-    Tạo prompt cho 1 chunk của file Lua.
+    Build the prompt for a single chunk of a Lua file.
     LLM output ONLY JSON matching the fixed schema — no markdown, no prose.
-    JSON sẽ được parse bởi pre_synthesize() trong pre_synthesis.py.
+    The JSON will be parsed by pre_synthesize() in pre_synthesis.py.
     """
     _exclude = [*few_shot_excludes(lua_type), "writing_guide"]
     _skills = combine_skills("analyst_chunk", exclude=_exclude)
@@ -257,8 +257,8 @@ def build_merge_prompt(
     lua_type: str = "",
 ) -> str:
     """
-    Tạo prompt tổng hợp — nhận PreSynthesisResult đã pre-filled.
-    LLM chỉ viết description, Overview, Usage example, và format các section từ JSON.
+    Build the synthesis prompt — receives a pre-filled PreSynthesisResult.
+    The LLM only writes the description, Overview, Usage example, and formats the sections from JSON.
     """
     # Game tags and external deps for Dependencies section body
     game_tags_json    = json.dumps(presynthesis.game_tags, indent=2, ensure_ascii=False)

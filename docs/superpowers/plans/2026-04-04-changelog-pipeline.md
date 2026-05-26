@@ -308,7 +308,7 @@ Replace the stub in `pipeline.py`:
 def load_diff_report() -> dict | None:
     path = Path(DATA_DIR) / "diff_report.json"
     if not path.exists():
-        print(f"[Lỗi] Không tìm thấy {path}. Hãy chạy watcher trước.")
+        print(f"[Error] {path} not found. Run the watcher first.")
         return None
     with open(path, encoding="utf-8") as f:
         return json.load(f)
@@ -512,12 +512,12 @@ def build_changelog_entry(report: dict) -> str | None:
             think=False,
         )
     except Exception as e:
-        print(f"[Changelog] Cảnh báo: LLM call thất bại — {e}")
+        print(f"[Changelog] Warning: LLM call failed — {e}")
         return None
 
     content = response["message"]["content"].strip()
     if not content:
-        print("[Changelog] Cảnh báo: LLM trả về empty response.")
+        print("[Changelog] Warning: LLM returned empty response.")
         return None
     return content
 ```
@@ -662,7 +662,7 @@ def main() -> None:
     if CHANGELOG_PATH.exists():
         existing = CHANGELOG_PATH.read_text(encoding="utf-8")
         if f"## Build {new_ver}" in existing:
-            print(f"[Changelog] Already logged: Build {new_ver}. Dùng --force để ghi đè.")
+            print(f"[Changelog] Already logged: Build {new_ver}. Use --force to overwrite.")
             sys.exit(0)
 
     entry = build_changelog_entry(report)

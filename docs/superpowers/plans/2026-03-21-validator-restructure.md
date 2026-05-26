@@ -415,7 +415,7 @@ def check_emoji(text: str) -> list[ValidationError]:
         details = ", ".join([f"'{e['emoji']}' at {e['match_start']}" for e in found_emojis])
         return [ValidationError(
             "format", "warning",
-            f"Chứa emoji hoặc unicode symbol: {details}"
+            f"Contains emoji or unicode symbol: {details}"
         )]
     return []
 
@@ -425,7 +425,7 @@ def check_filler_text(text: str) -> list[ValidationError]:
     if re.search(r'\(End of (documentation|example)\)', text, re.IGNORECASE):
         return [ValidationError(
             "format", "error",
-            "Chứa text rác: (End of documentation) hoặc (End of example)"
+            "Contains filler text: (End of documentation) or (End of example)"
         )]
     return []
 
@@ -524,11 +524,11 @@ from validator.format.checks import ValidationError
 def validate_mdx(filepath: str) -> list[ValidationError]:
     """Validate MDX by calling validate_mdx.mjs via Node.js subprocess."""
     if not shutil.which("node"):
-        return [ValidationError("mdx", "error", "Node.js không tìm thấy — hãy cài Node.js")]
+        return [ValidationError("mdx", "error", "Node.js not found — please install Node.js")]
 
     script = Path(__file__).parent / "validate_mdx.mjs"
     if not script.exists():
-        return [ValidationError("mdx", "error", f"Không tìm thấy {script}")]
+        return [ValidationError("mdx", "error", f"Script not found: {script}")]
 
     try:
         result = subprocess.run(

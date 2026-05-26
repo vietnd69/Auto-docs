@@ -13,7 +13,7 @@ from llm.paths import PROJECT_ROOT
 
 USAGE_CACHE = PROJECT_ROOT / ".cache" / "key_usage.json"
 WINDOW_SECONDS = 3600  # 1-hour rolling window
-RATE_LIMIT_COOLDOWN = 5 * 3600  # 5 giờ cooldown after khi bị 429
+RATE_LIMIT_COOLDOWN = 5 * 3600  # 5-hour cooldown after receiving a 429
 
 
 def _load_cache() -> dict:
@@ -43,7 +43,7 @@ def _tokens_in_window(token_log: list[dict], cutoff: float) -> int:
 
 
 def record_call(key_index: int, tokens: int) -> None:
-    """Ghi nhận 1 API call thành công cho key, kèm số tokens."""
+    """Record a successful API call for the given key, including token count."""
     cache = _load_cache()
     key = str(key_index)
     if key not in cache:
@@ -61,7 +61,7 @@ def record_call(key_index: int, tokens: int) -> None:
 
 
 def mark_rate_limited(key_index: int) -> None:
-    """Ghi nhận key bị rate limit (429). Sẽ không dùng lại trong 5h."""
+    """Mark a key as rate-limited (429). It will not be used again for 5 hours."""
     cache = _load_cache()
     key = str(key_index)
     if key not in cache:
@@ -71,7 +71,7 @@ def mark_rate_limited(key_index: int) -> None:
 
 
 def get_rate_limited(num_keys: int) -> set[int]:
-    """Trả về set các key index đang bị rate limit (chưa hết 5h cooldown)."""
+    """Return the set of key indices currently rate-limited (still within the 5-hour cooldown)."""
     cache = _load_cache()
     now = time.time()
     limited: set[int] = set()
@@ -85,13 +85,13 @@ def get_rate_limited(num_keys: int) -> set[int]:
 
 def select_key(num_keys: int, exclude: set[int]) -> int:
     """
-    Chọn key ít tải nhất (theo token weight).
+    Select the least-loaded key (by token weight).
 
-    Tự động loại key đang bị rate limit (cooldown 5h từ cache).
-    Param exclude: các key cần bỏ qua thêm (vd: đã thử trong round hiện tại).
+    Automatically excludes keys that are currently rate-limited (5-hour cooldown from cache).
+    The exclude parameter lists additional keys to skip (e.g. already tried in the current round).
 
-    Thuật toán: key có ít tokens nhất trong rolling window (1h).
-    Nếu bằng nhau → chọn key có ít total_tokens nhất (cumulative).
+    Algorithm: prefer the key with the fewest tokens in the rolling window (1h).
+    On a tie, prefer the key with the lowest total_tokens (cumulative).
     """
     cache = _load_cache()
     now = time.time()
@@ -116,12 +116,12 @@ def select_key(num_keys: int, exclude: set[int]) -> int:
             best_tokens_1h = tokens_1h
             best_total_tokens = total_tokens
 
-    # -1 = không còn key khả dụng
+    # -1 = no keys available
     return best_idx
 
 
 def get_stats() -> dict:
-    """Trả về thống kê usage để log/debug."""
+    """Return usage statistics for logging and debugging."""
     cache = _load_cache()
     now = time.time()
     cutoff = now - WINDOW_SECONDS

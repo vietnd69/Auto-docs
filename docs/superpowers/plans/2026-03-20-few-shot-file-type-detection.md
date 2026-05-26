@@ -231,14 +231,14 @@ Then update `build_prompt()` to select the correct few-shot before the `return`.
 
 **Before** (lines 37-39):
 ```python
-    Tất cả config (version, date, tree...) được truyền vào qua tham số.
+    All config (version, date, tree...) is passed in via parameters.
     """
     return f"""You are an expert technical writer...
 ```
 
 **After**:
 ```python
-    Tất cả config (version, date, tree...) được truyền vào qua tham số.
+    All config (version, date, tree...) is passed in via parameters.
     """
     _few_shot = (
         _FEW_SHOT_DATA

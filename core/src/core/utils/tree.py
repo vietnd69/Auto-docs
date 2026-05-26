@@ -16,7 +16,7 @@ def generate_slim_tree(start_path, max_depth=3):
         result.append(f"{indent}{os.path.basename(root)}/")
 
         sub_indent = ' ' * 4 * (level + 1)
-        # Sửa error: hiển thị tối đa 5 file, after đó mới hiện ... (N files)
+        # Fix: show at most 3 files, then display ... (N files)
         lua_files = [f for f in files if f.endswith('.lua')]
 
         for i, f in enumerate(lua_files):

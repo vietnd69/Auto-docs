@@ -1,8 +1,8 @@
 """
-FastAPI server cho vector similarity search trên dst-scripts.
+FastAPI server for vector similarity search over dst-scripts.
 
-Chỉ chứa logic query — indexing được tách sang indexer.py.
-Khi chạy trực tiếp (__main__), sẽ gọi reindex() trước khi khởi động server.
+Contains only query logic — indexing is separated into indexer.py.
+When run directly (__main__), calls reindex() before starting the server.
 """
 
 import chromadb
@@ -19,18 +19,18 @@ from rag.indexer import (
     EMBED_BATCH_SIZE,
 )
 
-# Setup embedding model (cần cho query — embed câu hỏi thành vector)
+# Setup embedding model (required for query — embeds the question into a vector)
 Settings.embed_model = HuggingFaceEmbedding(
     model_name=EMBED_MODEL_NAME,
     embed_batch_size=EMBED_BATCH_SIZE,
 )
 
-# Kết nối ChromaDB (chỉ đọc, không index)
+# Connect to ChromaDB (read-only, no indexing)
 db = chromadb.PersistentClient(path=CHROMA_DIR)
 chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
 vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
 
-# Khởi tạo Retriever (chỉ dùng embedding local, KHÔNG gọi LLM)
+# Initialize Retriever (uses local embedding only, does NOT call LLM)
 index = VectorStoreIndex.from_vector_store(vector_store)
 retriever = index.as_retriever(similarity_top_k=50)
 
@@ -44,12 +44,12 @@ class QueryRequest(BaseModel):
 @app.post("/query")
 def query_rag(request: QueryRequest):
     try:
-        print(f"\n Nhận câu hỏi: {request.question}")
+        print(f"\n Received question: {request.question}")
 
-        # Chỉ tìm kiếm vector similarity (local, không gọi LLM)
+        # Vector similarity search only (local, no LLM call)
         nodes = retriever.retrieve(request.question)
 
-        # Parse danh sách source files (lọc trùng, giữ score cao nhất)
+        # Parse source file list (deduplicate, keep highest score)
         seen = {}
         for node in nodes:
             fname = node.metadata.get('file_name', 'Unknown')
@@ -57,14 +57,14 @@ def query_rag(request: QueryRequest):
             if fname not in seen or score > seen[fname]:
                 seen[fname] = score
 
-        # Sắp xếp theo score giảm dần
+        # Sort by score descending
         sources = [{"file_name": k, "score": v} for k, v in sorted(seen.items(), key=lambda x: x[1], reverse=True)]
 
         print(f"--- Sources: {len(sources)} files ---")
         for s in sources[:10]:
             print(f"  - {s['file_name']} (score: {s['score']:.4f})")
         if len(sources) > 10:
-            print(f"  ... và {len(sources) - 10} file khác")
+            print(f"  ... and {len(sources) - 10} more files")
         print("-------------------\n")
 
         return {
@@ -78,10 +78,10 @@ if __name__ == "__main__":
     import uvicorn
     from rag.indexer import reindex
 
-    # Index trước khi chạy server
-    print("\n--- Cập nhật vector store ---")
+    # Index before starting server
+    print("\n--- Updating vector store ---")
     reindex()
 
-    print("\n Khởi động RAG API Server...")
-    print("Truy cập http://localhost:8000/docs để test API bằng giao diện Swagger UI")
+    print("\n Starting RAG API Server...")
+    print("Visit http://localhost:8000/docs to test the API via Swagger UI")
     uvicorn.run(app, host="0.0.0.0", port=8000)

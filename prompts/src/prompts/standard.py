@@ -1,6 +1,6 @@
 """
-Module chua ham build_prompt() -- tao prompt cho LLM.
-Khong chua constants, chi chua template.
+Module containing build_prompt() -- builds the prompt for the LLM.
+Does not contain constants, only the template.
 """
 
 from prompts.skills_loader import combine_skills, few_shot_excludes, load_trimmed_writing_guide
@@ -22,8 +22,8 @@ def build_prompt(
     category_type: str = "",
 ) -> str:
     """
-    Tao prompt day du de gui cho LLM tao tai lieu cho mot file Lua.
-    Tat ca config (version, date, tree...) duoc truyen vao qua tham so.
+    Build the complete prompt to send to the LLM for documenting a Lua file.
+    All config (version, date, tree...) is passed in via parameters.
     """
     lua_type = detect_lua_type(display_filepath)
     exclude = [*few_shot_excludes(lua_type), "writing_guide"]

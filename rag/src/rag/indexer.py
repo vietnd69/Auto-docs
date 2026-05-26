@@ -1,11 +1,11 @@
 """
-Indexing ChromaDB vector store cho dst-scripts.
+ChromaDB vector store indexing for dst-scripts.
 
-Tách riêng từ search.py để có thể gọi từ bất kỳ đâu (watcher, CLI, etc.)
-mà không cần khởi động FastAPI server.
+Separated from search.py so it can be called from anywhere (watcher, CLI, etc.)
+without starting a FastAPI server.
 
-Tất cả heavy imports (chromadb, torch, llama-index) chỉ xảy ra khi gọi reindex(),
-không phải khi import module — an toàn cho lazy import.
+All heavy imports (chromadb, torch, llama-index) only happen when reindex() is called,
+not when the module is imported — safe for lazy import.
 """
 
 import json
@@ -35,20 +35,20 @@ def reindex(
     chroma_dir: str | None = None,
 ) -> dict:
     """
-    Quét dst-scripts/ và cập nhật ChromaDB vector store.
-    Chỉ index file mới hoặc file có nội dung thay đổi (hash check via file_tracker.json).
+    Scan dst-scripts/ and update the ChromaDB vector store.
+    Only indexes new files or files whose content has changed (hash check via file_tracker.json).
 
-    Heavy imports (chromadb, torch, llama-index) xảy ra bên trong hàm này,
-    nên import module-level là nhẹ.
+    Heavy imports (chromadb, torch, llama-index) happen inside this function,
+    so module-level import is lightweight.
 
     Args:
-        scripts_dir: Đường dẫn đến thư mục chứa file .lua. Default: dst-scripts/
-        chroma_dir: Đường dẫn đến ChromaDB persistent storage. Default: dst_chroma_db/
+        scripts_dir: Path to the directory containing .lua files. Default: dst-scripts/
+        chroma_dir: Path to ChromaDB persistent storage. Default: dst_chroma_db/
 
     Returns:
         dict: {"processed": int, "skipped": int, "total_chunks": int}
     """
-    # Heavy imports — chỉ load khi thực sự cần index
+    # Heavy imports — only load when indexing is actually needed
     import chromadb
     from llama_index.vector_stores.chroma import ChromaVectorStore
     from llama_index.core import SimpleDirectoryReader, Settings
@@ -70,17 +70,17 @@ def reindex(
     chroma_collection = db.get_or_create_collection(COLLECTION_NAME)
     vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
 
-    # 3. Load file tracker (chống nạp lặp)
+    # 3. Load file tracker (prevent re-indexing unchanged files)
     try:
         with open(TRACKER_FILE, "r") as f:
             file_tracker = json.load(f)
-        print("  [INDEX] Đã tải File Tracker")
+        print("  [INDEX] File Tracker loaded")
     except (FileNotFoundError, json.JSONDecodeError):
         file_tracker = {}
-        print("  [INDEX] Khởi tạo File Tracker mới")
+        print("  [INDEX] Initializing new File Tracker")
 
-    # 4. Quét file và lọc file chưa thay đổi
-    print(f"  [INDEX] Đang quét {scripts_dir}...")
+    # 4. Scan files and filter out unchanged ones
+    print(f"  [INDEX] Scanning {scripts_dir}...")
     documents = SimpleDirectoryReader(scripts_dir, filename_as_id=True).load_data()
 
     docs_to_process = [
@@ -95,12 +95,12 @@ def reindex(
     }
 
     if not docs_to_process:
-        print(f"  [INDEX] Toàn bộ {len(documents)} file không thay đổi — bỏ qua")
+        print(f"  [INDEX] All {len(documents)} files unchanged — skipping")
         return stats
 
-    print(f"  [INDEX] {len(docs_to_process)} file cần index/cập nhật")
+    print(f"  [INDEX] {len(docs_to_process)} files need indexing/updating")
 
-    # 5. Chạy ingestion pipeline theo batch
+    # 5. Run ingestion pipeline in batches
     pipeline = IngestionPipeline(
         transformations=[
             TokenTextSplitter(chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP),
@@ -112,19 +112,19 @@ def reindex(
     for i in range(0, len(docs_to_process), BATCH_SIZE):
         batch_docs = docs_to_process[i : i + BATCH_SIZE]
         batch_num = i // BATCH_SIZE + 1
-        print(f"  [INDEX] Mẻ {batch_num} ({len(batch_docs)} files)...", end=" ")
+        print(f"  [INDEX] Batch {batch_num} ({len(batch_docs)} files)...", end=" ")
 
         nodes = pipeline.run(documents=batch_docs)
         print(f"→ {len(nodes)} chunks")
         stats["total_chunks"] += len(nodes)
 
-        # Cập nhật tracker after mỗi mẻ (checkpoint)
+        # Update tracker after each batch (checkpoint)
         for doc in batch_docs:
             file_tracker[doc.id_] = doc.hash
         with open(TRACKER_FILE, "w") as f:
             json.dump(file_tracker, f)
 
-        # Dọn RAM & VRAM
+        # Free RAM & VRAM
         del batch_docs
         gc.collect()
         try:
@@ -134,5 +134,5 @@ def reindex(
         except ImportError:
             pass
 
-    print(f"  [INDEX] Hoàn tất — {stats['total_chunks']} chunks mới")
+    print(f"  [INDEX] Done — {stats['total_chunks']} new chunks")
     return stats

@@ -11,8 +11,8 @@ if (!filepath) {
 }
 
 /**
- * Tìm dòng chứa identifier bên trong {…} (bare, không nằm trong backtick/code block)
- * Trả về { line, col } (1-indexed) hoặc { line: -1, col: -1 }
+ * Find the line containing an identifier inside {…} (bare, not inside backtick/code block)
+ * Returns { line, col } (1-indexed) or { line: -1, col: -1 }
  */
 function findBareIdentInSource(raw, ident) {
   const lines = raw.split('\n')
@@ -30,7 +30,7 @@ function findBareIdentInSource(raw, ident) {
     const m = lines[i].match(bracePattern)
     if (m) {
       const idx = lines[i].indexOf(m[0])
-      // Đếm backtick trước vị trí match — nếu lẻ thì đang nằm trong inline code
+      // Count backticks before the match position — if odd, we are inside inline code
       const before = lines[i].substring(0, idx)
       const backtickCount = (before.match(/`/g) || []).length
       if (backtickCount % 2 === 0) {
@@ -58,7 +58,7 @@ async function run() {
   try {
     compiled = await compile(raw, { format: 'mdx' })
   } catch (e) {
-    // Parse lỗi thường có location info
+    // Parse errors usually include location info
     const loc = e.line && e.column
       ? ` (line ${e.line}, col ${e.column})`
       : ''
@@ -71,13 +71,13 @@ async function run() {
   try {
     const code = String(compiled)
     const context = createContext({
-      // Cung cấp console để debug nếu cần
+      // Provide console for debugging if needed
       console: { log: () => {}, error: () => {}, warn: () => {} }
     })
 
     const mod = new SourceTextModule(code, { context })
 
-    // Link: cung cấp stub modules cho tất cả imports
+    // Link: provide stub modules for all imports
     await mod.link((specifier) => {
       const stubModule = new SyntheticModule(
         ['default', 'Fragment', 'jsx', 'jsxs', 'jsxDEV', 'useMDXComponents'],
@@ -96,13 +96,13 @@ async function run() {
 
     await mod.evaluate()
 
-    // Gọi MDXContent() export để trigger ReferenceError
+    // Call MDXContent() export to trigger ReferenceError
     const ns = mod.namespace
     if (ns.default && typeof ns.default === 'function') {
       try {
         ns.default({ components: {} })
       } catch (e) {
-        throw e  // Re-throw để xử lý ở catch bên ngoài
+        throw e  // Re-throw to be handled in the outer catch
       }
     }
   } catch (e) {
@@ -113,8 +113,8 @@ async function run() {
       const loc = findBareIdentInSource(raw, ident)
       errors.push(`[mdx] ReferenceError: ${e.message} (line ${loc.line}, col ${loc.col})`)
     } else if (errName !== 'TypeError') {
-      // TypeError thường do stub args — bỏ qua
-      // Các lỗi khác thì report
+      // TypeError is usually caused by stub args — ignore
+      // Other errors should be reported
       errors.push(`[mdx] RuntimeError: ${e.message}`)
     }
   }

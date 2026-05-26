@@ -537,17 +537,17 @@ In `generate_merged_doc()`, locate the section (around line 262-282):
 md_content = response["message"]["content"]
 md_content = clean_model_output(md_content)
 
-# Guard: model trả về rỗng (chỉ có thinking block hoặc lỗi)
+# Guard: model returned empty (only a thinking block or error)
 if not md_content:
-    print(f"    [Merge] Lần {attempt}/{max_retries} — model trả về rỗng")
+    print(f"    [Merge] Attempt {attempt}/{max_retries} — model returned empty")
     if attempt < max_retries:
-        print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
+        print(f"    Waiting {retry_delay} seconds before retry...")
         time.sleep(retry_delay)
     continue
 
 # Sanity check
 if not md_content.startswith("---"):
-    print(f"    [Cảnh báo] Output merge không bắt đầu bằng YAML frontmatter!")
+    print(f"    [Warning] Merge output does not start with YAML frontmatter!")
 
 dir_name = os.path.dirname(md_filepath)
 if dir_name:
@@ -563,11 +563,11 @@ Insert `_ensure_events_section()` call AFTER the empty-content guard and BEFORE 
 md_content = response["message"]["content"]
 md_content = clean_model_output(md_content)
 
-# Guard: model trả về rỗng (chỉ có thinking block hoặc lỗi)
+# Guard: model returned empty (only a thinking block or error)
 if not md_content:
-    print(f"    [Merge] Lần {attempt}/{max_retries} — model trả về rỗng")
+    print(f"    [Merge] Attempt {attempt}/{max_retries} — model returned empty")
     if attempt < max_retries:
-        print(f"    Đang nghỉ {retry_delay} giây trước khi retry...")
+        print(f"    Waiting {retry_delay} seconds before retry...")
         time.sleep(retry_delay)
     continue
 
@@ -575,7 +575,7 @@ md_content = _ensure_events_section(md_content)   # ← NEW
 
 # Sanity check
 if not md_content.startswith("---"):
-    print(f"    [Cảnh báo] Output merge không bắt đầu bằng YAML frontmatter!")
+    print(f"    [Warning] Merge output does not start with YAML frontmatter!")
 
 dir_name = os.path.dirname(md_filepath)
 if dir_name:

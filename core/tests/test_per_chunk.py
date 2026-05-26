@@ -1,12 +1,12 @@
 """
-Smoke test cho per-chunk connected content (plan section 7.1 + 7.1b).
-Chạy: python test_per_chunk.py
+Smoke test for per-chunk connected content (plan section 7.1 + 7.1b).
+Run: python test_per_chunk.py
 """
 
 import sys
 import os
 
-# Đảm bảo import từ thư mục gốc
+# Ensure imports resolve from the project root
 sys.path.insert(0, os.path.dirname(__file__))
 
 from rag.content import (
@@ -67,8 +67,8 @@ if content2:
 else:
     test("content empty OK (files may not resolve)", True)
 
-# Test 3: chunk độc lập thực sự → không inject gì
-print("\n--- Test 3: chunk độc lập ---")
+# Test 3: truly independent chunk → nothing should be injected
+print("\n--- Test 3: independent chunk ---")
 chunk_independent = '''
 local x = 1 + 2
 return x * 3
@@ -102,7 +102,7 @@ else:
     test("sig_content empty (files may not resolve)", True)
 
 # Test 5: guard section/content mismatch — file refs không tồn tại trên disk
-print("\n--- Test 5: file không tồn tại → guard ---")
+print("\n--- Test 5: file does not exist → guard ---")
 section5, content5, ref_count5 = extract_connected_for_chunk(
     chunk_code="inst.components.nonexistent:Foo()",
     own_filename="combat.lua",
@@ -133,7 +133,7 @@ test("ref_count == 0 (known gap)", ref_count6 == 0, f"ref_count={ref_count6}")
 
 
 print("\n" + "=" * 60)
-print("TEST 7.1b: extract_connected_content() với max_total_tokens")
+print("TEST 7.1b: extract_connected_content() with max_total_tokens")
 print("=" * 60)
 
 # Test B1: full bodies FIT
@@ -145,8 +145,8 @@ if content_b1:
 else:
     test("content empty (file may not resolve)", True)
 
-# Test B2: full bodies VƯỢT → fallback signatures
-print("\n--- Test B2: budget cực nhỏ → fallback ---")
+# Test B2: full bodies EXCEED budget → fallback to signatures
+print("\n--- Test B2: very small budget → fallback ---")
 content_b2 = extract_connected_content(
     [("./components/health.lua", ["DoDelta", "GetPercent", "SetMax"])],
     max_total_tokens=10,

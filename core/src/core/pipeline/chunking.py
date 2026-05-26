@@ -1,9 +1,9 @@
 """
-Module xử lý file Lua dài — chia thành chunks và xử lý từng phần.
-Chứa logic:
-  - needs_chunking():        kiểm tra file có cần chunking không
-  - split_lua_into_chunks():  chia Lua code tại ranh giới function
-  - process_chunked_file():   pipeline chính: split → chunk prompts → merge
+Module for processing long Lua files — splits into chunks and processes each part.
+Contains logic for:
+  - needs_chunking():        check whether a file needs chunking
+  - split_lua_into_chunks():  split Lua code at function boundaries
+  - process_chunked_file():   main pipeline: split → chunk prompts → merge
 """
 
 import re
@@ -17,10 +17,10 @@ from llm.tokens import count_tokens
 from llm.settings import PROMPT_TOKEN_LIMIT, MERGE_TOKEN_LIMIT, CONTEXT_RESERVE
 from prompts.chunked import build_chunk_prompt   # used in calc_token_budget
 
-# ── Ngưỡng và cấu hình ──────────────────────────────────────────
+# ── Thresholds and configuration ──────────────────────────────────────────
 
-CHUNK_THRESHOLD = 3000       # Ngưỡng lines fallback nếu không có tiktoken
-CHUNK_MAX_LINES = 1500       # Mỗi chunk tối đa ~1500 lines (fallback)
+CHUNK_THRESHOLD = 3000       # Fallback line threshold when tiktoken is not available
+CHUNK_MAX_LINES = 1500       # Maximum ~1500 lines per chunk (fallback)
 
 
 def calc_token_budget(
@@ -38,31 +38,31 @@ def calc_token_budget(
     prompt_token_limit: int = PROMPT_TOKEN_LIMIT,
 ) -> int:
     """
-    Tính số token còn lại dành cho nội dung Lua code trong mỗi chunk.
+    Calculate the remaining token budget for Lua code content in each chunk.
 
-    Cách tính:
-      1. Build prompt "vỏ" (shell) = chunk prompt với code rỗng
-      2. Đếm token của shell
-      3. Trả về: prompt_token_limit - shell_tokens
+    Calculation:
+      1. Build a prompt "shell" = chunk prompt with empty code
+      2. Count tokens in the shell
+      3. Return: prompt_token_limit - shell_tokens
 
     Returns:
-        Số token tối đa cho code Lua trong mỗi chunk.
-        Nếu không có tiktoken, trả về fallback dựa trên CHUNK_MAX_LINES.
+        Maximum token count for Lua code in each chunk.
+        If tiktoken is not available, returns a fallback based on CHUNK_MAX_LINES.
     """
-    # Warning: nếu connected_content non-empty, CONTEXT_RESERVE sẽ bị trừ 2 times.
+    # Warning: if connected_content is non-empty, CONTEXT_RESERVE will be deducted twice.
     if connected_content:
         print(
-            "[WARN] calc_token_budget() nhận connected_content non-empty. "
-            "Trong chunked pipeline phải truyền connected_content='' vì CONTEXT_RESERVE "
-            "đã được trừ nội bộ. Double-deduction có thể xảy ra."
+            "[WARN] calc_token_budget() received non-empty connected_content. "
+            "In the chunked pipeline, pass connected_content='' because CONTEXT_RESERVE "
+            "is already deducted internally. Double-deduction may occur."
         )
 
-    # Build prompt shell = chunk prompt KHÔNG CÓ code (code rỗng)
+    # Build prompt shell = chunk prompt WITHOUT code (empty code)
     shell = build_chunk_prompt(
         comp_name=comp_name,
         comp_title=comp_title,
         display_filepath=display_filepath,
-        chunk_code="",  # Code rỗng để đo vỏ
+        chunk_code="",  # Empty code to measure shell size
         chunk_index=1,
         total_chunks=1,
         file_tree=file_tree,
@@ -75,11 +75,11 @@ def calc_token_budget(
 
     shell_tokens = count_tokens(shell)
 
-    # Guard tiktoken missing: count_tokens() trả về -1
+    # Guard tiktoken missing: count_tokens() returns -1
     if shell_tokens < 0:
         print(
-            f"  [TOKEN BUDGET] tiktoken missing — dùng fallback budget "
-            f"(CONTEXT_RESERVE không được áp dụng trong fallback mode)"
+            f"  [TOKEN BUDGET] tiktoken missing — using fallback budget "
+            f"(CONTEXT_RESERVE is not applied in fallback mode)"
         )
         return max(PROMPT_TOKEN_LIMIT - CONTEXT_RESERVE, 1000)
 
@@ -92,24 +92,24 @@ def calc_token_budget(
     )
     if effective_budget < 3000:
         print(
-            f"  [WARN] Code budget chỉ còn {effective_budget} tokens — "
-            f"file_tree có thể quá lớn hoặc shell quá nặng. "
-            f"Xem xét giảm max_depth của get_shared_file_tree()."
+            f"  [WARN] Code budget only {effective_budget} tokens remaining — "
+            f"file_tree may be too large or the shell is too heavy. "
+            f"Consider reducing max_depth in get_shared_file_tree()."
         )
     return effective_budget
 
 def strip_bulk_data(lua_code: str) -> str:
     """
-    Loại bỏ dữ liệu số hàng loạt (tile data, map data) khỏi source Lua.
-    Thay thế mảng số dài bằng comment tóm tắt.
+    Remove bulk numeric data (tile data, map data) from Lua source.
+    Replaces long numeric arrays with a summarizing comment.
 
-    Ví dụ:
+    Example:
         data = {
-            0, 0, 0, 0, 0, 0, ...  (hàng trăm lines)
+            0, 0, 0, 0, 0, 0, ...  (hundreds of lines)
         }
     →   data = { --[[ 360000 numeric values (tile data) ]] }
 
-    Điều này giảm file 1.1MB xuống ~80KB mà không mất thông tin cấu trúc.
+    This reduces a 1.1MB file to ~80KB without losing structural information.
     """
     lines = lua_code.split("\n")
     result: list[str] = []
@@ -119,9 +119,9 @@ def strip_bulk_data(lua_code: str) -> str:
         line = lines[i]
         stripped = line.strip()
 
-        # Phát hiện bắt đầu block data: "data = {" hoặc tương tự
+        # Detect start of data block: "data = {" or similar
         if re.match(r"^\s*\w+\s*=\s*\{\s*$", stripped):
-            # Kiểm tra xem các lines tiếp theo có phải toàn số không
+            # Check whether the following lines consist entirely of numbers
             j = i + 1
             num_count = 0
             data_lines = 0
@@ -129,14 +129,14 @@ def strip_bulk_data(lua_code: str) -> str:
             while j < len(lines):
                 next_stripped = lines[j].strip()
 
-                # Dòng đóng }
+                # Closing line }
                 if next_stripped in ("}", "},"):
                     break
 
-                # Dòng chỉ chứa số, phẩy, khoảng trắng
+                # Line containing only numbers, commas, and whitespace
                 clean = next_stripped.rstrip(",")
                 if clean and all(c in "0123456789, " for c in clean):
-                    # Đếm số lượng giá trị
+                    # Count the number of values
                     nums = [x.strip() for x in clean.split(",") if x.strip()]
                     num_count += len(nums)
                     data_lines += 1
@@ -144,16 +144,16 @@ def strip_bulk_data(lua_code: str) -> str:
                     break
                 j += 1
 
-            # Nếu có >= 10 lines data số → strip
+            # If there are >= 10 lines of numeric data → strip
             if data_lines >= 10 and j < len(lines):
-                # Lấy tên field (vd: "data")
+                # Get the field name (e.g. "data")
                 field_match = re.match(r"^(\s*\w+\s*=\s*)\{", stripped)
                 indent = re.match(r"^(\s*)", line).group(1)
                 field = field_match.group(1) if field_match else ""
                 result.append(
                     f"{indent}{field}{{--[[ {num_count} numeric values (tile/map data) ]]}}"
                 )
-                # Skip đến lines đóng } (bao gồm)
+                # Skip to closing } line (inclusive)
                 closing = lines[j].strip()
                 if closing in ("}", "},"):
                     i = j + 1
@@ -172,13 +172,13 @@ def strip_bulk_data(lua_code: str) -> str:
 
 def needs_chunking(text: str, token_limit: int = PROMPT_TOKEN_LIMIT) -> bool:
     """
-    Kiểm tra xem text (full prompt hoặc lua code) có vượt ngưỡng token không.
+    Check whether text (full prompt or lua code) exceeds the token threshold.
 
-    Khuyên dùng: truyền full prompt text (từ build_prompt) để đo chính xác nhất.
-    Nếu truyền lua_code thô thì fallback về đếm lines.
+    Recommended: pass the full prompt text (from build_prompt) for the most accurate measurement.
+    If raw lua_code is passed, falls back to line counting.
 
     Returns:
-        True nếu cần chunking (text quá dài).
+        True if chunking is needed (text is too long).
     """
     token_count = count_tokens(text)
     if token_count >= 0:
@@ -189,12 +189,12 @@ def needs_chunking(text: str, token_limit: int = PROMPT_TOKEN_LIMIT) -> bool:
 
 def _find_safe_cut_points(lines: list[str]) -> list[int]:
     """
-    Quét toàn bộ file Lua, theo dõi block depth (function/if/for/while/repeat ↔ end).
-    Trả về danh sách các line index (0-based) mà tại đó depth == 0 — đây là
-    những điểm an toàn để cắt chunk mà KHÔNG bao giờ cắt giữa function body.
+    Scan the entire Lua file, tracking block depth (function/if/for/while/repeat ↔ end).
+    Returns a list of line indices (0-based) where depth == 0 — these are
+    safe points to cut a chunk that will NEVER split in the middle of a function body.
 
-    Chỉ đánh dấu safe tại lines trống hoặc lines bắt đầu function/local function
-    ở depth 0 để chunk bắt đầu gọn gàng.
+    Only marks safe at blank lines or lines starting with function/local function
+    at depth 0 so chunks begin cleanly.
     """
     block_open = re.compile(r"\b(?:function|if|for|while|repeat)\b")
     block_close = re.compile(r"\bend\b")
@@ -203,7 +203,7 @@ def _find_safe_cut_points(lines: list[str]) -> list[int]:
     safe_points: list[int] = []
 
     for i, line in enumerate(lines):
-        # Bỏ comment và string literals trước khi đếm keyword
+        # Strip comments and string literals before counting keywords
         code = re.sub(r"--.*$", "", line)
         code = re.sub(r'"[^"]*"', '""', code)
         code = re.sub(r"'[^']*'", "''", code)
@@ -211,10 +211,10 @@ def _find_safe_cut_points(lines: list[str]) -> list[int]:
         depth += len(block_open.findall(code))
         depth -= len(block_close.findall(code))
 
-        # Depth == 0 → nằm ngoài mọi block
+        # Depth == 0 → outside all blocks
         if depth == 0:
             stripped = line.strip()
-            # Đánh dấu safe tại: lines trống, hoặc lines bắt đầu function
+            # Mark safe at: blank lines, or lines starting with function
             if stripped == "" or re.match(r"^(local\s+)?function\s+", stripped):
                 safe_points.append(i)
 
@@ -227,22 +227,22 @@ def split_lua_into_chunks(
     fallback_max_lines: int = CHUNK_MAX_LINES
 ) -> list[str]:
     """
-    Chia source Lua thành các chunk, ĐẢM BẢO không cắt giữa function body.
-    Cố gắng gói tối đa code vào mỗi chunk dựa trên giới hạn tokens.
+    Split Lua source into chunks, GUARANTEEING no cut in the middle of a function body.
+    Packs as much code as possible into each chunk based on the token limit.
 
-    Chiến lược:
-    - File có function (component): dùng depth-tracking, cắt tại depth==0
-      → 100% không bao giờ cắt giữa function body.
-    - File dạng data/config (wrapped trong return {}): depth không bao giờ
-      về 0 → fallback cắt tại lines trống (file data không có function nên OK).
+    Strategy:
+    - Files with functions (components): use depth-tracking, cut at depth==0
+      → 100% guaranteed never to cut in the middle of a function body.
+    - Data/config files (wrapped in return {}): depth never returns to 0
+      → fallback to cutting at blank lines (data files have no functions, so this is safe).
 
     Returns:
-        list[str] — danh sách các chunk.
+        list[str] — list of chunks.
     """
     lines = lua_code.split("\n")
     total = len(lines)
 
-    # 1. Hàm helper để tính length/limit linh động
+    # 1. Helper function to dynamically compute length/limit
     def _is_over_limit(start_idx: int, end_idx: int, limit: int = max_tokens) -> bool:
         chunk_str = "\n".join(lines[start_idx:end_idx])
         if tiktoken:
@@ -253,34 +253,34 @@ def split_lua_into_chunks(
                 pass
         return (end_idx - start_idx) > fallback_max_lines
 
-    # Nếu toàn bộ file đã an toàn theo TOKEN_MAX_PER_CHUNK
+    # If the entire file is already within TOKEN_MAX_PER_CHUNK
     if not _is_over_limit(0, total):
         return [lua_code]
 
-    # Tìm safe cut points (depth == 0)
+    # Find safe cut points (depth == 0)
     safe_points = _find_safe_cut_points(lines)
 
-    # Kiểm tra: safe_points có đủ để split không?
-    # Nếu không có safe point nào ở giữa file → file dạng data,
-    # fallback sang blank-line splitting.
+    # Check: are there enough safe_points to split?
+    # If no safe points exist in the middle of the file → data file,
+    # fall back to blank-line splitting.
     usable_points = [sp for sp in safe_points if sp > 0 and sp < total - 1]
     if len(usable_points) < 2:
-        # File dạng data (return { ... }) hoặc quá ít function
+        # Data file (return { ... }) or too few functions
         return _split_data_file(lines, max_tokens, fallback_max_lines)
 
-    # Lọc chunk bằng thuật toán greedy dựa trên token/lines
+    # Filter chunks using a greedy algorithm based on token/lines
     chunks: list[str] = []
     chunk_start = 0
     last_safe = 0
 
     for sp in usable_points:
-        # Nhép thử thêm block code kế tiếp vào chunk xem có bị quá tải không
+        # Try appending the next code block to the chunk to see if it exceeds the limit
         if _is_over_limit(chunk_start, sp) and sp > chunk_start:
-            # Nếu thêm sp hiện tại vào thì QUÁ GIỚI HẠN
-            # => Chốt chunk tại last_safe (điểm an toàn liền trước)
+            # Adding the current sp would EXCEED THE LIMIT
+            # => Commit the chunk at last_safe (the most recent safe point)
 
-            # Cạnh tranh biên: nếu last_safe vẫn là chunk_start (tức 1 function quá béo bự vượt limit)
-            # Không thể làm gì khác, đành phải cắt đại tại split point hiện tại (sp)
+            # Edge case: if last_safe is still chunk_start (a single oversized function exceeds the limit)
+            # Nothing else can be done — must cut at the current split point (sp)
             cut_point = last_safe if last_safe > chunk_start else sp
 
             chunk_text = "\n".join(lines[chunk_start:cut_point])
@@ -290,13 +290,13 @@ def split_lua_into_chunks(
 
         last_safe = sp
 
-    # Chunk cuối cùng
+    # Final chunk
     if chunk_start < total:
         chunk_text = "\n".join(lines[chunk_start:total])
         chunks.append(chunk_text)
 
-    # Nếu kết quả chỉ có 1 chunk (tất cả function nằm liền nhau nhưng code béo),
-    # fallback cắt tại lines trống
+    # If the result has only 1 chunk (all functions are consecutive but the code is large),
+    # fall back to cutting at blank lines
     if len(chunks) <= 1:
         return _split_data_file(lines, max_tokens, fallback_max_lines)
 
@@ -309,15 +309,15 @@ def _split_data_file(
     fallback_max_lines: int
 ) -> list[str]:
     """
-    Cắt file data/config Lua (dạng return { ... } lồng nhau).
-    Theo dõi brace depth { / } và chỉ cắt tại lines kết thúc bằng '},'.
-    Đảm bảo mỗi table entry không bị cắt nửa chừng.
+    Split a Lua data/config file (nested return { ... } form).
+    Tracks brace depth { / } and only cuts at lines ending with '},'.
+    Ensures no table entry is split mid-way.
 
-    Ưu tiên cắt tại vị trí depth thấp nhất gần ranh giới max_lines.
+    Prefers cutting at the lowest depth position near the max_lines boundary.
     """
     total = len(lines)
 
-    # 1. Tương tự như trên, hàm helper check limit
+    # 1. Same as above, helper function to check limit
     def _is_over_limit(start_idx: int, end_idx: int, limit: int = max_tokens) -> bool:
         chunk_str = "\n".join(lines[start_idx:end_idx])
         if tiktoken:
@@ -331,7 +331,7 @@ def _split_data_file(
     if not _is_over_limit(0, total):
         return ["\n".join(lines)]
 
-    # Tính brace depth cho mỗi lines
+    # Compute brace depth for each line
     depths: list[int] = []
     depth = 0
     for line in lines:
@@ -345,31 +345,31 @@ def _split_data_file(
     chunk_start = 0
 
     while chunk_start < total:
-        # Thay vì tịnh tiến cộng thêm max_lines tĩnh, ta binary search hoặc đoán line index
-        # Ở đây đơn giản nhất: ta dùng line count = fallback_max_lines làm baseline để lùi tìm điểm cắt,
-        # vì 1 token thường ứng với linh tinh text, ta có thể dùng fallback + check lại.
-        # Nhưng để chuẩn xác nhất (với token), ta tịnh tiến dò dần.
-        # Tối ưu: Nếu có tiktoken, thường 25000 tokens ≈ 25000 / 3 ≈ 8000 line, nên dò từ fallback = max_lines sẽ an toàn.
+        # Instead of advancing by a static max_lines, we binary search or estimate the line index.
+        # Simplest approach: use line count = fallback_max_lines as baseline to search back for a cut point,
+        # since 1 token typically corresponds to a few characters of text, fallback + recheck is fine.
+        # For the most accurate result (with tokens), we probe forward incrementally.
+        # Optimization: with tiktoken, ~25000 tokens ≈ 25000 / 3 ≈ 8000 lines, so probing from fallback = max_lines is safe.
 
         guess_end = min(chunk_start + fallback_max_lines, total)
-        # Nếu có tiktoken, tăng nhịp độ lên nhiều lines hơn vì 1 lines rất ít token
+        # With tiktoken, increase step size because each line has very few tokens
         if tiktoken:
              guess_end = min(chunk_start + 5000, total)
 
-        # Dò dần cho tới khi vượt / chạm ngưỡng
+        # Probe forward until exceeding / reaching the threshold
         while guess_end < total and not _is_over_limit(chunk_start, guess_end + 10):
             guess_end = min(guess_end + 1000, total)
 
-        # Và lùi lại nếu ngay từ đầu bị trớt quá limit
+        # Back off if we overshot the limit from the start
         while guess_end > chunk_start + 10 and _is_over_limit(chunk_start, guess_end):
              guess_end -= 100
 
-        # Nếu đã hết file, lấy hết
+        # If we've reached the end of the file, take the rest
         if guess_end >= total:
             chunks.append("\n".join(lines[chunk_start:total]))
             break
 
-        # Tìm điểm cắt tốt nhất gần guess_end (lùi lại khoảng 300 lines)
+        # Find the best cut point near guess_end (search back ~300 lines)
         search_start = max(chunk_start + 50, guess_end - 300)
 
         best_cut = guess_end
@@ -379,12 +379,12 @@ def _split_data_file(
             stripped = lines[i].strip()
             d = depths[i]
 
-            # Ưu tiên lines kết thúc bằng "},", "}" hoặc lines trống
+            # Prefer lines ending with "},", "}" or blank lines
             is_block_end = stripped.endswith("},") or stripped == "}" or stripped == "},"
             is_blank = stripped == ""
 
             if is_block_end and d < best_depth:
-                best_cut = i + 1  # Cắt SAU lines đóng }
+                best_cut = i + 1  # Cut AFTER the closing } line
                 best_depth = d
             elif is_blank and d <= best_depth:
                 best_cut = i + 1

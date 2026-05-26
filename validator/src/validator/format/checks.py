@@ -208,7 +208,7 @@ def check_filler_text(text: str) -> list[ValidationError]:
     if re.search(r'\(End of (documentation|example)\)', text, re.IGNORECASE):
         return [ValidationError(
             "format", "error",
-            "Chứa text rác: (End of documentation) hoặc (End of example)"
+            "Contains filler text: (End of documentation) or (End of example)"
         )]
     return []
 

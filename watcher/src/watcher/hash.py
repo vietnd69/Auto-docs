@@ -1,8 +1,8 @@
 """
-Script patch: Thêm source_hash vào YAML frontmatter của các file .md already exists.
-Chạy 1 times duy nhất để migrate docs cũ.
+One-time migration script: adds source_hash to the YAML frontmatter of existing .md files.
+Run once to migrate legacy docs.
 
-Cách dùng: python -m watcher.hash
+Usage: python -m watcher.hash
 """
 
 import os
@@ -12,7 +12,7 @@ from pathlib import Path
 
 _WORKSPACE_ROOT = Path(__file__).parents[3]
 
-# Cấu hình các cặp thư mục (docs_dir, lua_dir)
+# Configure directory pairs (docs_dir, lua_dir)
 PATCH_CONFIGS = [
     (str(_WORKSPACE_ROOT / "dst-api-webdocs" / "docs" / "components"), str(_WORKSPACE_ROOT / "dst-scripts" / "components")),
     (str(_WORKSPACE_ROOT / "dst-api-webdocs" / "docs" / "behaviours"), str(_WORKSPACE_ROOT / "dst-scripts" / "behaviours")),
@@ -20,37 +20,37 @@ PATCH_CONFIGS = [
 
 
 def compute_source_hash(lua_code: str) -> str:
-    """Tính hash MD5 (8 ký tự đầu) của nội dung file Lua."""
+    """Compute the MD5 hash (first 8 characters) of a Lua file's content."""
     return hashlib.md5(lua_code.encode("utf-8")).hexdigest()[:8]
 
 
 def patch_md_file(md_path: str, source_hash: str) -> bool:
     """
-    Thêm source_hash vào YAML frontmatter của file .md.
-    Trả về True nếu đã patch, False nếu đã có hoặc lỗi.
+    Add source_hash to the YAML frontmatter of a .md file.
+    Returns True if patched, False if already present or on error.
     """
     try:
         with open(md_path, "r", encoding="utf-8") as f:
             content = f.read()
     except Exception as e:
-        print(f"  [Error] Không đọc được {md_path}: {e}")
+        print(f"  [Error] Could not read {md_path}: {e}")
         return False
 
-    # Kiểm tra nếu đã có source_hash
+    # Check if source_hash is already present
     if "source_hash:" in content:
         return False
 
-    # Tìm YAML frontmatter: --- ... ---
+    # Find YAML frontmatter block: --- ... ---
     match = re.match(r'^(---\n.*?\n)(---)', content, re.DOTALL)
     if not match:
-        print(f"  [Error] Không tìm thấy YAML frontmatter trong {md_path}")
+        print(f"  [Error] No YAML frontmatter found in {md_path}")
         return False
 
     frontmatter = match.group(1)
     closing = match.group(2)
     rest = content[match.end():]
 
-    # Chèn source_hash trước dấu --- đóng
+    # Insert source_hash before the closing ---
     new_content = f"{frontmatter}source_hash: {source_hash}\n{closing}{rest}"
 
     try:
@@ -58,7 +58,7 @@ def patch_md_file(md_path: str, source_hash: str) -> bool:
             f.write(new_content)
         return True
     except Exception as e:
-        print(f"  [Error] Không ghi được {md_path}: {e}")
+        print(f"  [Error] Could not write {md_path}: {e}")
         return False
 
 
@@ -69,10 +69,10 @@ def main():
 
     for docs_dir, lua_dir in PATCH_CONFIGS:
         if not os.path.isdir(docs_dir):
-            print(f"[Skipping] Thư mục docs không tồn tại: {docs_dir}")
+            print(f"[Skipping] Docs directory does not exist: {docs_dir}")
             continue
 
-        print(f"\n=== Đang patch: {docs_dir} ===")
+        print(f"\n=== Patching: {docs_dir} ===")
 
         for md_filename in sorted(os.listdir(docs_dir)):
             if not md_filename.endswith(".md"):
@@ -82,13 +82,13 @@ def main():
             lua_path = os.path.join(lua_dir, lua_filename)
             md_path = os.path.join(docs_dir, md_filename)
 
-            # Tìm file .lua tương ứng
+            # Find the corresponding .lua file
             if not os.path.isfile(lua_path):
-                print(f"  [?] Không tìm thấy {lua_filename} → bỏ qua")
+                print(f"  [?] Could not find {lua_filename} → skipping")
                 total_missing += 1
                 continue
 
-            # Đọc lua và tính hash
+            # Read Lua source and compute hash
             try:
                 with open(lua_path, "r", encoding="utf-8", errors="ignore") as f:
                     lua_code = f.read()
@@ -98,7 +98,7 @@ def main():
 
             source_hash = compute_source_hash(lua_code)
 
-            # Patch file .md
+            # Patch the .md file
             if patch_md_file(md_path, source_hash):
                 print(f"  ✔ {md_filename} → hash: {source_hash}")
                 total_patched += 1
@@ -106,10 +106,10 @@ def main():
                 total_skipped += 1
 
     print("\n" + "=" * 50)
-    print(f"[Kết quả]")
-    print(f"  ✔ Đã patch : {total_patched} file")
-    print(f"  ⏭ Đã có hash: {total_skipped} file")
-    print(f"  ? Thiếu .lua: {total_missing} file")
+    print(f"[Results]")
+    print(f"  ✔ Patched     : {total_patched} file(s)")
+    print(f"  ⏭ Already has hash: {total_skipped} file(s)")
+    print(f"  ? Missing .lua: {total_missing} file(s)")
     print("=" * 50)
 
 

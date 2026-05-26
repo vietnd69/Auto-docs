@@ -8,8 +8,8 @@ except ImportError:
 
 def count_tokens(text: str) -> int:
     """
-    Đếm số token của một chuỗi text bằng tiktoken.
-    Trả về -1 nếu không có tiktoken (fallback sang đếm lines).
+    Count the number of tokens in a text string using tiktoken.
+    Returns -1 if tiktoken is not available (fallback to line counting).
     """
     if tiktoken:
         try:
@@ -22,11 +22,11 @@ def count_tokens(text: str) -> int:
 
 def estimate_merge_tokens(chunk_results: list[str]) -> int:
     """
-    Ước tính tổng số token của tất cả chunk results.
-    Dùng để quyết định strategy trước khi gọi LLM merge.
+    Estimate the total token count across all chunk results.
+    Used to decide the merge strategy before calling the LLM merge step.
 
     Returns:
-        Số token ước tính. -1 nếu không có tiktoken.
+        Estimated token count. -1 if tiktoken is not available.
     """
     combined = "\n".join(chunk_results)
     return count_tokens(combined)

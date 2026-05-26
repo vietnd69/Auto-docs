@@ -116,8 +116,8 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
                 format: dict | str | None = None,
                 **kwargs) -> dict:
     """
-    Wrapper gọi ollama chat với tự động failover khi bị rate limit,
-    và retry khi timeout.
+    Wrapper for ollama chat with automatic failover on rate limit,
+    and retry on timeout.
     """
     global _account_counter
     if not OLLAMA_API_KEYS:
@@ -144,7 +144,7 @@ def ollama_chat(model: str, messages: list[dict], *, think: bool = True,
         for attempt in range(n):
             idx = (_account_counter + attempt) % n
             if idx in _rate_limited:
-                errors.append(f"Account {idx + 1}: đã bị limit")
+                errors.append(f"Account {idx + 1}: rate limited")
                 continue
             try:
                 client = _make_client(idx)

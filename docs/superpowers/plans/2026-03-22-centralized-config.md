@@ -195,7 +195,7 @@ Expected: all 7 tests PASS
 # config.toml is git-excluded; this template is tracked.
 
 [model]
-main     = "qwen3.5:cloud"             # Pipeline chính (doc gen + validator)
+main     = "qwen3.5:cloud"             # Main pipeline (doc gen + validator)
 update   = "qwen3-coder-next:cloud"    # core/update/docs.py
 embed    = "BAAI/bge-small-en-v1.5"   # RAG embedding model
 compress = "qwen3.5:cloud"            # Compression stub generation
@@ -204,19 +204,19 @@ compress = "qwen3.5:cloud"            # Compression stub generation
 prompt_limit     = 16000   # Full prompt > limit → chunked doc gen
 merge_limit      = 20000   # Chunk results > limit → hierarchical merge
 context_reserve  = 7000    # Reserved cho connected content per chunk
-stub_threshold   = 400     # File ≤ threshold → include full (không compress)
+stub_threshold   = 400     # File ≤ threshold → include full (no compression)
 chunked_validate = 16000   # Lua tokens ≥ threshold → per-section validation
 ollama_ctx       = 256000  # Ollama context window size
 
 [timing]
-chunk_sleep  = 10   # Giây chờ giữa các chunk LLM call
-merge_sleep  = 40   # Giây chờ sau merge
-normal_sleep = 20   # Giây chờ trong standard pipeline
+chunk_sleep  = 10   # Seconds to wait between chunk LLM calls
+merge_sleep  = 40   # Seconds to wait after merge
+normal_sleep = 20   # Seconds to wait in standard pipeline
 
 [validator]
 max_iterations      = 10    # PipelineConfig default (CLI entry point)
 loop_max_iterations = 5     # ContentLoopConfig default (standalone)
-mdx_timeout         = 20    # Timeout (giây) cho Node.js MDX validation
+mdx_timeout         = 20    # Timeout (seconds) for Node.js MDX validation
 lua_context_tokens  = 8000  # Token guard cho Lua context extract per section
 ```
 
@@ -305,7 +305,7 @@ from llm.settings import OLLAMA_NUM_CTX
 Replace line 122 only (keep the `# === COMPRESSION CONFIG ===` comment on line 121 intact):
 ```python
 # Before (line 122 only):
-COMPRESSION_MODEL = "qwen3.5:cloud"   # model dùng cho compression (có thể override)
+COMPRESSION_MODEL = "qwen3.5:cloud"   # model used for compression (can be overridden)
 ```
 ```python
 # After (line 122 only):
@@ -403,7 +403,7 @@ TODAY_DATE = datetime.now().strftime("%Y-%m-%d")
 
 
 def get_shared_file_tree(max_depth=3):
-    """Sinh cây thư mục thu gọn cho prompt content."""
+    """Generate a condensed directory tree for prompt content."""
     from core.utils.tree import generate_slim_tree
     from llm.paths import BASE_LUA_DIR
     return generate_slim_tree(BASE_LUA_DIR, max_depth=max_depth)
@@ -479,16 +479,16 @@ git commit -m "refactor(core): import MODEL_NAME from llm.settings instead of co
 Replace lines 24-33 (the three-constant block including comments):
 ```python
 # Before (lines 24-33)
-# Ngưỡng token cho TOÀN BỘ PROMPT (bao gồm system instruction + context + code)
-PROMPT_TOKEN_LIMIT = 16000   # Nếu full prompt > 16K token thì phải chunk
+# Token threshold for the ENTIRE PROMPT (includes system instruction + context + code)
+PROMPT_TOKEN_LIMIT = 16000   # If full prompt > 16K tokens, chunked pipeline is used
 
-# Ngưỡng token cho MERGE (tổng chunk results)
+# Token threshold for MERGE (total chunk results)
 MERGE_TOKEN_LIMIT = 20000
 
-# Token reserve dành cho per-chunk connected context (signatures hoặc full bodies).
-# calc_token_budget() sẽ tự trừ khoản này khỏi code budget.
+# Token reserve for per-chunk connected context (signatures or full bodies).
+# calc_token_budget() subtracts this from the code budget.
 # CALIBRATION: Full bodies 3–5 refs ~2000–3000 tokens; signatures 30 refs ~1500 tokens.
-CONTEXT_RESERVE = 7000    # Nếu tổng chunk results > ngưỡng này → dùng hierarchical
+CONTEXT_RESERVE = 7000    # If total chunk results > this threshold → use hierarchical merge
 ```
 ```python
 # After (single line replacing the entire block)
