@@ -35,6 +35,9 @@ tmp/
 .claude
 .pytest_cache
 
+# Internal dev docs
+docs/superpowers/
+
 # Logs
 format_errors.txt
 *.log
