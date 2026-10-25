@@ -433,3 +433,25 @@ FAIL/BUDGET_EXHAUSTED → improve.py (Harness² recursion) nếu được bật
 4. **Harness² là code nghiên cứu** (3 commit trên `main`). Fork được pin commit và chỉ merge upstream khi cần.
 5. **Bảo mật:** Harness² cảnh báo executor có mạng không giới hạn. Tool gate tắt `bash` và `webfetch` của OpenCode, nên agent chỉ thao tác qua MCP.
 6. **Harness² trên Windows** chưa được kiểm chứng (mục 3.1). Phương án dự phòng là WSL.
+
+## 11. Ghi chú triển khai (2026-10-25)
+
+Các điểm khác so với thiết kế ban đầu, phát sinh khi code:
+
+| Thiết kế | Thực tế | Lý do |
+|---|---|---|
+| Fork Harness² làm submodule | `harness2-dst/PIN` (commit `1cfe254`) cùng `patches/0001-add-dst-bench.patch`. Lệnh `mod-harness setup-harness2` clone vào `harness2-dst/vendor/` rồi apply patch | Không cần tạo repo fork; patch chỉ ~10 dòng và dễ rebase |
+| Skill nằm ở `.opencode/skills/` | Nguồn thật là `.opencode/harness/` (đúng surface c1..c8 của Harness²). `mod-harness sync-opencode` sinh ra `.opencode/skills`, `agent` và `plugin`; `opencode.json` khai báo `skills.paths` | Harness² và OpenCode dùng chung một cây, nên promote chỉ là thay cây rồi materialise lại |
+| `orchestrator` là một subagent có thể sửa | `orchestrator` và `reflector` là agent cố định (`.opencode/agent/`); hành vi được điều khiển bằng `systemprompt.md` (c1) | Harness² yêu cầu `sub_agents/*` có `mode: subagent` |
+| Plugin export class và helper | Plugin chỉ export `default`; class và helper được gắn kèm làm thuộc tính | OpenCode 1.18 gọi **mọi** hàm được export như một plugin |
+| Đường dẫn MCP cố định | `"command": ["{env:HARNESS_MCP_BIN}"]`; `session.py` đặt biến này theo hệ điều hành | `.venv/bin` (Linux) khác `.venv/Scripts` (Windows) |
+| Đếm token bằng tiktoken | Ước lượng ≈3.5 ký tự/token (`textutil.estimate_tokens`) | Nhanh, tất định, không cần tải encoding; index 4084 file mất khoảng 35 giây và được cache theo SHA |
+| `source_hash` trong frontmatter | `source_sha` (commit) và `sources` (danh sách file); hash theo từng symbol nằm trong `sync-state.json` | Trang có thể gồm nhiều file |
+
+Đã kiểm chứng trong môi trường dev:
+- OpenCode 1.18.35 nạp đủ agent và skill, kết nối được MCP `dst-tools`.
+- Harness² nhận `--bench dst` và validate cây harness hợp lệ.
+- Plan cho 4084 file ra 4114 trang, `validate_plan` không có lỗi.
+- 71 test pytest pass (coverage nhánh 90%), 7 test plugin pass, `ruff`, `mypy --strict` và `tsc --strict` sạch.
+
+**Chưa kiểm chứng:** P0 spike với model thật (tỉ lệ tool call hợp lệ của `qwen3.5:cloud` qua proxy) cần API key Ollama Cloud, mà môi trường dev không có.

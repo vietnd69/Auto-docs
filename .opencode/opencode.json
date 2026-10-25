@@ -1,0 +1,64 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "share": "disabled",
+  "autoupdate": false,
+  "model": "dst-proxy/qwen3.5:cloud",
+  "provider": {
+    "dst-proxy": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "DST Ollama proxy (mod-harness)",
+      "options": {
+        "baseURL": "http://127.0.0.1:4141/v1",
+        "headers": {
+          "X-Harness-Job": "{env:HARNESS_JOB}"
+        }
+      },
+      "models": {
+        "qwen3.5:cloud": {
+          "name": "qwen3.5 (Ollama Cloud)",
+          "tool_call": true,
+          "limit": {
+            "context": 256000,
+            "output": 32000
+          }
+        }
+      }
+    }
+  },
+  "mcp": {
+    "dst-tools": {
+      "type": "local",
+      "command": [
+        "{env:HARNESS_MCP_BIN}"
+      ],
+      "enabled": true
+    }
+  },
+  "tools": {
+    "bash": false,
+    "write": false,
+    "edit": false,
+    "patch": false,
+    "webfetch": false,
+    "websearch": false,
+    "todowrite": true,
+    "task": true,
+    "skill": true
+  },
+  "permission": {
+    "edit": "deny",
+    "bash": "deny",
+    "webfetch": "deny"
+  },
+  "instructions": [
+    ".opencode/harness/systemprompt.md",
+    ".opencode/harness/guardrails.md",
+    ".opencode/harness/LongTermMEMORY.md",
+    ".opencode/harness/tool_descriptions/tool_guidance.md"
+  ],
+  "skills": {
+    "paths": [
+      ".opencode/skills"
+    ]
+  }
+}

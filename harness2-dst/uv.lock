@@ -1,0 +1,29 @@
+version = 1
+revision = 3
+requires-python = ">=3.12, <3.14"
+
+[[package]]
+name = "harness2"
+version = "0.1.0"
+source = { editable = "vendor/harness2" }
+
+[package.metadata]
+requires-dist = [
+    { name = "fastapi", marker = "extra == 'bridge'", specifier = "==0.139.2" },
+    { name = "google-auth", marker = "extra == 'bridge'", specifier = "==2.56.3" },
+    { name = "litellm", extras = ["proxy"], marker = "extra == 'bridge'", specifier = "==1.95.0" },
+    { name = "openpyxl", marker = "extra == 'render'", specifier = ">=3.1,<4" },
+    { name = "python-pptx", marker = "extra == 'render'", specifier = ">=1,<2" },
+]
+provides-extras = ["render", "bridge"]
+
+[[package]]
+name = "harness2-dst"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "harness2" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "harness2", editable = "vendor/harness2" }]

@@ -1,0 +1,23 @@
+[
+ "agent/planner.md",
+ "agent/reviewer.md",
+ "agent/writer.md",
+ "plugin/budget.ts",
+ "skills/data-reference/SKILL.md",
+ "skills/doc-job/SKILL.md",
+ "skills/dst-conventions/SKILL.md",
+ "skills/example-behaviour/SKILL.md",
+ "skills/example-brain/SKILL.md",
+ "skills/example-component/SKILL.md",
+ "skills/example-data/SKILL.md",
+ "skills/example-prefab/SKILL.md",
+ "skills/example-screen/SKILL.md",
+ "skills/example-stategraph/SKILL.md",
+ "skills/example-widget/SKILL.md",
+ "skills/function-format/SKILL.md",
+ "skills/plan-pages/SKILL.md",
+ "skills/replica-pattern/SKILL.md",
+ "skills/review-symbols/SKILL.md",
+ "skills/update-page/SKILL.md",
+ "skills/writing-guide/SKILL.md"
+]

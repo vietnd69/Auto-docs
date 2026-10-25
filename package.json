@@ -1,0 +1,18 @@
+{
+  "name": "auto-docs-harness",
+  "private": true,
+  "description": "OpenCode runtime and TypeScript checks for the DST docs harness",
+  "type": "module",
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test:plugin": "node --experimental-strip-types --test harness/tests/ts/budget.test.ts",
+    "typecheck": "tsc -p harness/tests/ts/tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.3",
+    "opencode-ai": "1.18.35",
+    "typescript": "7.0.2"
+  }
+}
