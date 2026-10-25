@@ -1,0 +1,17 @@
+[project]
+name = "harness2-dst"
+version = "0.1.0"
+description = "Harness² benchmark adapter for the DST documentation harness"
+requires-python = ">=3.12,<3.14"
+dependencies = ["harness2"]
+
+[tool.uv.sources]
+# vendor/harness2 is created by `mod-harness setup-harness2` (pinned commit + patches/)
+harness2 = { path = "vendor/harness2", editable = true }
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

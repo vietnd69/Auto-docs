@@ -45,3 +45,21 @@ nul
 
 # Git worktrees
 .worktrees/
+
+# Harness runtime state (plan, sync-state, library and regression set are tracked)
+.harness/cache/
+.harness/drafts/
+.harness/ledger/
+.harness/notes/
+.harness/queue/
+.harness/reports/
+.harness/backups/
+.harness/regression/
+
+# Harness² checkout and venv
+harness2-dst/vendor/
+harness2-dst/.venv/
+harness2-dst/runs/
+
+# Coverage data
+.coverage

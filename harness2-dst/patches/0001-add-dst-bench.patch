@@ -1,0 +1,34 @@
+diff --git a/harness2/cli/_common.py b/harness2/cli/_common.py
+index 06d4130..0807d93 100644
+--- a/harness2/cli/_common.py
++++ b/harness2/cli/_common.py
+@@ -27,7 +27,7 @@ from ..core import library as LIB
+ from ..core import schedule as SCHED
+ from ..core.spec import BenchmarkAdapter
+ 
+-BENCHES = ("jb", "wb", "lab")
++BENCHES = ("jb", "wb", "lab", "dst")
+ WB_SUBSETS = ("office", "web", "code")
+ SUBSTRATES = ("oc", "cx")
+ 
+@@ -56,6 +56,11 @@ def make_adapter(
+         from ..benchmarks.workbuddy import WbAdapter
+ 
+         return WbAdapter(subset, substrate=substrate, split_file=split_file)
++    if bench == "dst":
++        # External adapter shipped by vietnd69/Auto-docs (harness2-dst/src/dst_bench).
++        from dst_bench.adapter import DstAdapter
++
++        return DstAdapter(substrate=substrate, split_file=split_file)
+     if subset:
+         raise ValueError(f"--subset applies to --bench wb only, got {subset!r} for {bench}")
+     if bench == "jb":
+@@ -96,7 +101,7 @@ def summary_namespace(adapter: BenchmarkAdapter, k: int, *, seed: int | None, ta
+ 
+ def add_cell_args(p: argparse._ActionsContainer) -> None:
+     """The (benchmark, substrate) cell selectors; `p` may be a parser or an argument group."""
+-    p.add_argument("--bench", required=True, choices=BENCHES, help="jb | wb | lab")
++    p.add_argument("--bench", required=True, choices=BENCHES, help="jb | wb | lab | dst")
+     p.add_argument(
+         "--subset", default=None, choices=WB_SUBSETS, help="WB only: office | web | code"
+     )

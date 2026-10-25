@@ -134,6 +134,37 @@ Auto-docs/
 .venv/Scripts/pytest watcher/tests/
 ```
 
+## OpenCode Harness (new, `harness/`)
+
+A second pipeline built on **OpenCode** (agent runtime) + **Harness²** (harness optimisation),
+designed in `docs/2026-10-25-opencode-harness-design.md`. It does not modify the old pipeline;
+it only imports `llm` (key router). Linux/macOS use `.venv/bin/`, Windows `.venv/Scripts/`.
+
+```bash
+uv sync                                   # installs the harness workspace member too
+npm ci                                    # OpenCode CLI + TypeScript (root package.json)
+.venv/Scripts/ollama-proxy                # start first: OpenAI-compatible proxy, key rotation, per-job token cap
+.venv/Scripts/mod-harness plan            # deterministic doc-plan.json (pages ↔ symbols)
+.venv/Scripts/mod-harness generate --prefix components/ --limit 5
+.venv/Scripts/mod-harness update          # latest build after the baseline (759671)
+.venv/Scripts/mod-harness update --dry-run
+.venv/Scripts/mod-harness page verdict components/combat/index
+.venv/Scripts/mod-harness memory          # render .opencode/harness/LongTermMEMORY.md
+.venv/Scripts/mod-harness sync-opencode   # after editing .opencode/harness/
+.venv/Scripts/mod-harness setup-harness2  # then: uv sync --project harness2-dst
+.venv/Scripts/mod-harness improve --promote stategraph   # regression-gated skill promotion
+```
+
+Key points:
+- `dst-scripts/` must be a clone of `vietnd69/dst-scripts` (git history is read with `git show`).
+- `.opencode/harness/` is the Harness² editable tree (c1..c8) and the source of truth;
+  `.opencode/skills|agent|plugin` are generated from it by `mod-harness sync-opencode`.
+- Only deterministic checks + evidenced ledger findings decide PASS (`harness/checks.py`).
+- State lives in `.harness/` (plan, sync-state and library tracked; drafts/ledger/notes ignored).
+- Quality gate (ISO mapping in spec §3.2), run from `harness/`:
+  `../.venv/Scripts/ruff check src tests`, `../.venv/Scripts/mypy`,
+  `../.venv/Scripts/pytest --cov`; plugin: `npm run test:plugin`, `npm run typecheck`.
+
 ## Architecture Notes
 
 ### Key Token Thresholds
