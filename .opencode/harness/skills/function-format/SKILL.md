@@ -9,6 +9,10 @@ description: Exact format for ### entries (functions, methods, states, handlers)
 > `page_checklist` (e.g. `` ### `GetAttacked(attacker, damage, weapon, stimuli, spdamage)` ``,
 > `` ### `state: idle` ``, `` ### `event: attacked` ``). The body format below still applies.
 
+When calling `doc_write_section`, put the heading in the `heading` argument and only
+the body in `markdown`. Omit `parent` for checklist entries; the tool infers the correct
+section. If supplied, use the full parent heading, e.g. `## Main functions`.
+
 ## Function Format
 
 Use EXACTLY this structure for every entry in ## Main functions:

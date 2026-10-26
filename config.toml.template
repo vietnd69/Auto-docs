@@ -57,3 +57,28 @@ bad_response_retries       = 3
 
 [debug]
 prompts = 1   # Set 1 to dump full prompts/responses into .cache/debug_prompts/
+
+# OpenCode multi-provider documentation flow (separate from legacy [model]).
+[harness]
+claude_model = "claude-sonnet-5-5"
+deepseek_model = "deepseek-flash"
+deepseek_base_url = "https://api.deepseek.com"
+planner_model = "gpt-oss:120b"
+reviewer_model = "gpt-oss:120b"
+reflector_model = "gemma4:31b"
+experimental_writer_model = "beam"
+parallel = 1
+review_rounds = 2
+proxy_port = 4141
+# Final review can use locally logged-in official CLI subscriptions.
+# Other roles keep the OpenCode/API routing above. No automatic paid fallback.
+final_review_backend = "opencode" # opencode | claude-code | codex
+review_runtime_evidence = 0       # 1: verified standalone LuaJIT probes in review context
+runtime_lua_bin = ""              # Empty: find luajit on PATH; probe failure stops review
+claude_bin = ""                  # Empty: discover official claude on PATH
+codex_bin = ""                   # Empty: discover official codex on PATH
+claude_subscription_model = ""   # Empty: account/CLI default; e.g. sonnet
+codex_subscription_model = ""    # Empty: account/CLI default
+
+codex_subscription_effort = ""  # e.g. medium; supported levels depend on model
+claude_subscription_effort = "" # low | medium | high | max

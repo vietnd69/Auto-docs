@@ -1,0 +1,25 @@
+{
+  "baseline": {
+    "build": "759671",
+    "sha": "b729a8f68d4b635c21279e71723b9627f24c5c38"
+  },
+  "pages": 4250,
+  "page_kinds": {
+    "data": 63,
+    "overview": 137,
+    "api": 4050
+  },
+  "files": 4084,
+  "parser_public_symbols": 31475,
+  "work_units": 6945,
+  "oversized_units_need_range_split": 150,
+  "candidate_objects_unresolved": 2725,
+  "injected_state_calls_unresolved": 879,
+  "validation_issues": 0,
+  "work_unit_ownership_verified": true,
+  "file_disposition_verified": true,
+  "execution_ready": false,
+  "backup": ".harness\\backups\\doc-plan-before-structure-1ffcb2887fce.json",
+  "backup_sha256": "1ffcb2887fce656e3532fa72646ac9fdda4bd1cdaf44b404f491daad2bdc6183",
+  "plan_sha256": "a199b35eafe54d6d0d2350ef8b82f37df23af24c1cea14e11cedec5b2b329556"
+}

@@ -10,7 +10,7 @@ import frontmatter
 
 from harness.checks import CheckIssue, run_checks
 from harness.codeindex import index_codebase
-from harness.ledger import Finding, Ledger
+from harness.ledger import Finding, Ledger, LedgerCorruptError
 from harness.pages import read_draft
 from harness.plan import DocPlan, Page, owned_symbols
 from harness.syncstate import SyncState
@@ -41,7 +41,10 @@ def evaluate(ws: Workspace, plan: DocPlan, page: Page) -> Verdict:
     if text is None:
         return Verdict(page.id, FAIL, [CheckIssue("NO_DRAFT", "page has no draft yet")])
     issues = run_checks(ws, plan, page, text)
-    findings = Ledger(ws, page.id).open_findings()
+    try:
+        findings = Ledger(ws, page.id).open_findings()
+    except LedgerCorruptError as exc:
+        return Verdict(page.id, FAIL, [*issues, CheckIssue("LEDGER_CORRUPT", str(exc))])
     return Verdict(page.id, PASS if not issues and not findings else FAIL, issues, findings)
 
 

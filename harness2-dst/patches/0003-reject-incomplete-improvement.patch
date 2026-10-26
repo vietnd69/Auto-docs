@@ -1,0 +1,87 @@
+diff --git a/harness2/core/proposer.py b/harness2/core/proposer.py
+index 4a23507..ed7b3f2 100644
+--- a/harness2/core/proposer.py
++++ b/harness2/core/proposer.py
+@@ -163,8 +163,10 @@ class Proposer:
+                         self._claude_cli if self.spec.kind == "claude_cli" else self._opencode
+                     )(tmp, mission, system, wall)
+                 spent_usd += cost
+-                if not text.strip():
++                if err or not text.strip():
+                     last = err or "empty reply"
++                    if "BUDGET_EXHAUSTED" in last:
++                        break
+                     continue
+                 r = Reply(
+                     label=label,
+@@ -301,12 +303,14 @@ class Proposer:
+             timeout=wall,
+         )
+         cost = _opencode_cost(p.stdout)
++        text, err = _opencode_stdout(p.stdout)
++        if err or p.returncode != 0:
++            return "", cost, err or f"rc={p.returncode}"
+         ans = out / "answer.md"
+         if ans.is_file() and ans.read_text(errors="replace").strip():
+             return ans.read_text(errors="replace"), cost, ""
+-        text, err = _opencode_stdout(p.stdout)
+         if text.strip():
+-            return text, cost, ""
++            return "", cost, "PROPOSAL_INCOMPLETE: missing output/answer.md"
+         tail = _strip_oc_banner(p.stderr or "").strip()[-300:]
+         return "", cost, f"rc={p.returncode}: {err or tail or 'empty reply'}"
+ 
+@@ -511,6 +515,7 @@ def _call_fingerprint(label: str, mission: str, system: str, context_dir: Path |
+     and must still be independent draws.
+     """
+     h = hashlib.sha256()
++    h.update(b"dst-proposer-completion-v2\0")
+     for value in (label, mission, system):
+         h.update(value.encode("utf-8", errors="replace"))
+         h.update(b"\0")
+diff --git a/harness2/core/recursion.py b/harness2/core/recursion.py
+index dda6b98..3d46b47 100644
+--- a/harness2/core/recursion.py
++++ b/harness2/core/recursion.py
+@@ -70,7 +70,17 @@ class ModeResult:
+ 
+     @property
+     def ok(self) -> bool:
+-        return bool(self.finals) and not self.errors
++        return (
++            bool(self.finals)
++            and not self.errors
++            and not any(s.error or s.fell_back for s in self.stages)
++            and all(
++                label in self.rollouts
++                and self.rollouts[label].ok
++                and self.rollouts[label].delivered
++                for label in self.finals
++            )
++        )
+ 
+     @property
+     def fell_back(self) -> list[str]:
+@@ -278,13 +288,20 @@ def _roll(
+     try:
+         rd = adapter.execute(task_id, hdir, run_id)
+         exists = Path(rd).exists()
++        score = adapter.score(Path(rd), task_id) if exists else None
++        passed = (
++            exists
++            and score is not None
++            and score.get("status", "PASS") == "PASS"
++            and float(score.get("score", 0)) >= 1.0
++        )
+         rv = RunView(
+             label=label,
+             run_id=run_id,
+             run_dir=rd,
+-            ok=exists,
++            ok=passed,
+             delivered=exists and adapter.delivered(rd),
+-            error="" if exists else "adapter returned a missing run directory",
++            error="" if passed else "rollout did not pass its independent score",
+         )
+     except Exception as exc:
+         rv = RunView(

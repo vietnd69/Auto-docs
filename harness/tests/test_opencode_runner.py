@@ -145,12 +145,23 @@ def test_regression_gate_promotes_or_restores(
     cand = tmp_path / "cand"
     cand.mkdir()
     (cand / "systemprompt.md").write_text("candidate", encoding="utf-8")
-    scores = iter([improve.Score(1, 3, 2), improve.Score(2, 1, 2)])
-    monkeypatch.setattr(improve, "score_harness", lambda ws, pages, label: next(scores))
+    monkeypatch.setattr(improve, "regression_pages", lambda *args: ["a", "b"])
+    scores = iter(
+        [
+            improve.Score(1, 3, 2, {"a": "PASS", "b": "FAIL"}, 0.1),
+            improve.Score(2, 0, 2, {"a": "PASS", "b": "PASS"}, 0.09),
+        ]
+    )
+    monkeypatch.setattr(improve, "score_harness", lambda ws, pages, label, **kwargs: next(scores))
     assert improve.promote(planned, "component", str(cand)) == 0
     assert (oc / "harness" / "systemprompt.md").read_text() == "candidate"
-    worse = iter([improve.Score(2, 0, 2), improve.Score(1, 0, 2)])
-    monkeypatch.setattr(improve, "score_harness", lambda ws, pages, label: next(worse))
+    worse = iter(
+        [
+            improve.Score(2, 0, 2, {"a": "PASS", "b": "PASS"}, 0.1),
+            improve.Score(1, 0, 2, {"a": "PASS", "b": "FAIL"}, 0.09),
+        ]
+    )
+    monkeypatch.setattr(improve, "score_harness", lambda ws, pages, label, **kwargs: next(worse))
     other = tmp_path / "other"
     other.mkdir()
     (other / "systemprompt.md").write_text("worse", encoding="utf-8")
@@ -170,3 +181,49 @@ def test_escalate_without_harness2_and_harvest(planned: Workspace, tmp_path: Pat
     (adopted / "systemprompt.md").write_text("won", encoding="utf-8")
     target = improve.harvest(planned, page)
     assert target is not None and (target / "harness" / "systemprompt.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("returncode", "timed_out", "log_text", "reason", "completed"),
+    [
+        (0, False, '{"type":"step"}', "completed", True),
+        (0, True, '{"type":"step"}', "timeout", False),
+        (0, False, "BUDGET_EXHAUSTED", "budget_stop", False),
+        (2, False, '{"type":"step"}', "process_error", False),
+        (0, False, '{"type":"error"}', "error_event_or_missing_log", False),
+    ],
+)
+def test_execution_record_is_independent_of_clean_draft(
+    planned, no_mdx, monkeypatch, tmp_path, *, returncode, timed_out, log_text, reason, completed
+):
+    def agent(ws, job, role, prompt, log_name, project):
+        fill(ws, job.page_id)
+        log = ws.report_path(f"sessions/{log_name}.jsonl")
+        log.write_text(log_text, encoding="utf-8")
+        return session.SessionResult(returncode, timed_out, log)
+
+    monkeypatch.setattr(session, "run_agent", agent)
+    result = tmp_path / "result.json"
+    run_page(planned, "components/health", tree=None, result_path=result,
+             events_path=None, publish_page=False)
+    data = json.loads(result.read_text())
+    assert data["issues"] == 0
+    assert data["execution"]["completed"] is completed
+    assert data["execution"]["reason"] == reason
+    assert (data["status"] == "PASS") is completed
+
+
+def test_launch_exception_overwrites_stale_execution_record(planned, monkeypatch):
+    record = planned.report_path("execution/failure.json")
+    record.write_text('{"completed":true,"reason":"completed"}')
+
+    def fail(*args):
+        raise RuntimeError("private provider detail")
+
+    monkeypatch.setattr(session, "run_agent", fail)
+    with pytest.raises(RuntimeError):
+        run_job(planned, Job("failure", "generate", "components/health"), RunOptions("1"))
+    assert json.loads(record.read_text()) == {
+        "completed": False, "reason": "launch_or_runtime_exception"
+    }
+    assert "private provider" not in record.read_text()

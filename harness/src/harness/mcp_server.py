@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import Any
 
@@ -32,6 +33,7 @@ TOOLS: dict[str, Callable[..., str]] = {
     # verdict (G4, G7)
     "run_checks": api.run_checks_tool,
     "verdict": api.verdict,
+    "review_finish": api.review_finish,
     "ledger_add": api.ledger_add,
     "ledger_list": api.ledger_list,
     "ledger_resolve": api.ledger_resolve,
@@ -68,7 +70,12 @@ def build_server() -> Any:
     except ImportError:  # pragma: no cover - mcp 1.x
         from mcp.server.fastmcp import FastMCP as Server  # type: ignore[no-redef,attr-defined,unused-ignore]
     server = Server("dst-tools", instructions="Deterministic tools for documenting DST Lua scripts.")
-    for name, fn in TOOLS.items():
+    selected = TOOLS
+    if os.environ.get("HARNESS_NATIVE_REVIEW") == "1":
+        from harness.subscription import native_tools
+
+        selected = {name: TOOLS[name] for name in native_tools(dict(os.environ))}
+    for name, fn in selected.items():
         server.tool(name=name, description=(fn.__doc__ or name).strip())(_safe(fn))
     return server
 

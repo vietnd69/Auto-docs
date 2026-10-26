@@ -24,10 +24,15 @@ class BudgetGuard {
   private steps = new Map<string, number>()
   private recent = new Map<string, string[]>()
   private sections = new Map<string, string[]>()
+  private repairs = new Map<string, number>()
+  private drafted = new Set<string>()
+  private escalated = new Set<string>()
 
   readonly maxSteps: number
+  readonly maxRepairs: number
 
-  constructor(maxSteps: number) {
+  constructor(maxSteps: number, maxRepairs = 2) {
+    this.maxRepairs = maxRepairs
     this.maxSteps = maxSteps
   }
 
@@ -36,6 +41,29 @@ class BudgetGuard {
     this.steps.set(sessionID, steps)
     if (steps > this.maxSteps) {
       return { ok: false, abort: true, reason: `BUDGET_EXHAUSTED: ${this.maxSteps} tool calls used` }
+    }
+    if (tool === "task" && args) {
+      const role = String(args.subagent_type)
+      if (["writer", "writer-experimental", "writer-escalation"].includes(role)) {
+        const match = /^(write|repair|escalate):(.+)$/.exec(String(args.description))
+        if (!match) return { ok: false, abort: false, reason: "Use task description write:<group>, repair:<group> or escalate:<group>." }
+        const [, phase, group] = match
+        if (role === "writer-escalation") {
+          if (phase !== "escalate" || (this.repairs.get(group) ?? 0) < this.maxRepairs || this.escalated.has(group)) {
+            return { ok: false, abort: false, reason: "Claude escalation requires two repair rounds and is allowed once per group." }
+          }
+          this.escalated.add(group)
+        } else if (phase === "repair") {
+          const used = this.repairs.get(group) ?? 0
+          if (used >= this.maxRepairs) return { ok: false, abort: false, reason: "Two repair rounds used; call writer-escalation for unresolved sections." }
+          this.repairs.set(group, used + 1)
+        } else if (phase === "write") {
+          if (this.drafted.has(group)) return { ok: false, abort: false, reason: "Group already drafted; use repair:<group>." }
+          this.drafted.add(group)
+        } else {
+          return { ok: false, abort: false, reason: "Use writer-escalation for escalation." }
+        }
+      }
     }
     const signature = `${tool}:${digest(args)}`
     const history = [...(this.recent.get(sessionID) ?? []), signature].slice(-REPEAT_LIMIT)
@@ -74,7 +102,7 @@ type ToolOutput = { args?: Record<string, unknown> }
 // OpenCode invokes every exported function as a plugin, so only one default export exists;
 // the guard and marker helpers ride along as properties for tests.
 async function budgetPlugin({ client, directory }: PluginInput) {
-  const guard = new BudgetGuard(Number(process.env.HARNESS_MAX_STEPS ?? 80))
+  const guard = new BudgetGuard(Number(process.env.HARNESS_MAX_STEPS ?? 80), Number(process.env.HARNESS_REVIEW_ROUNDS ?? 2))
   const job = process.env.HARNESS_JOB ?? ""
   return {
     "tool.execute.before": async (input: ToolInput, output: ToolOutput) => {

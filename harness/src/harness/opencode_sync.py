@@ -88,11 +88,18 @@ def replace_tree(opencode_dir: Path, candidate: Path) -> Path:
         if (tree / "LongTermMEMORY.md").exists()
         else ""
     )
-    shutil.rmtree(tree)
-    shutil.copytree(candidate, tree)
-    if memory:  # memory is rendered from the library, never taken from a candidate
-        (tree / "LongTermMEMORY.md").write_text(memory, encoding="utf-8")
-    materialise(opencode_dir)
+    try:
+        shutil.rmtree(tree)
+        shutil.copytree(candidate, tree)
+        if memory:  # memory is rendered from the library, never taken from a candidate
+            (tree / "LongTermMEMORY.md").write_text(memory, encoding="utf-8")
+        materialise(opencode_dir)
+    except Exception:  # restore live configuration on any failed installation
+        if tree.exists():
+            shutil.rmtree(tree)
+        shutil.copytree(backup, tree)
+        materialise(opencode_dir)
+        raise
     return backup
 
 

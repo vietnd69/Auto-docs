@@ -47,6 +47,16 @@ def test_safepath() -> None:
     assert confine(Path("/tmp"), "a/b").name == "b"
 
 
+def test_section_body_cannot_introduce_sibling_sections() -> None:
+    with pytest.raises(ValueError, match="heading"):
+        md.upsert_section("# T\n\n## A\n", "## A", "body\n\n## B\nother")
+
+
+def test_unknown_parent_does_not_append_silently() -> None:
+    with pytest.raises(ValueError, match="parent"):
+        md.upsert_section("# T\n\n## A\n", "### f", "text", parent="Typo")
+
+
 def test_text_and_time_helpers() -> None:
     assert estimate_tokens("abcdefg") == 2
     assert truncate("abcdef", 3, "more").startswith("abc\n…[truncated 3 chars] more")

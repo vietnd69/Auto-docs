@@ -10,7 +10,9 @@ from pathlib import Path
 from harness.timeutil import now_iso
 
 PENDING, RUNNING = "pending", "running"
-DONE_STATUSES = frozenset({"PASS", "FAIL", "BUDGET_EXHAUSTED", "ESCALATED", "ERROR", "SKIPPED"})
+DONE_STATUSES = frozenset(
+    {"PASS", "FAIL", "BUDGET_EXHAUSTED", "ESCALATED", "ERROR", "SKIPPED", "REVIEW_INCOMPLETE"}
+)
 
 
 @dataclass

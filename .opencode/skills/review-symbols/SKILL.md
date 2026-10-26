@@ -18,3 +18,8 @@ For each symbol in your group:
 4. Do not report style, wording or ordering. Do not report something already resolved
    unless the evidence is different.
 5. When a group has no provable problem, report nothing — that is a valid outcome.
+
+
+## Whole-page quality review
+
+Review the entire page, including Properties, usage example and Events, not only function entries. Read relevant callers when claims depend on them. Verify cleanup conditions and server/platform preconditions in examples. Constructor defaults do not guarantee later mutable field types: document unguarded formatting/arithmetic failures. Record missing conditions as findings; they need not be outright contradictions. Component constructors belong in the Properties table, not a callable heading. Check every property type, default and consumer semantics, including clamping.

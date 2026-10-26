@@ -44,6 +44,7 @@ class Page:
 class DocPlan:
     baseline: dict[str, str]
     pages: list[Page]
+    structure: dict[str, object] = field(default_factory=dict)
 
     def page(self, page_id: str) -> Page:
         for page in self.pages:
@@ -56,12 +57,27 @@ class DocPlan:
 
     def to_json(self) -> dict[str, object]:
         pages = sorted(self.pages, key=lambda p: p.id)
-        return {"baseline": self.baseline, "pages": [asdict(p) for p in pages]}
+        data = {"baseline": self.baseline, "pages": [asdict(p) for p in pages]}
+        if self.structure:
+            data["structure"] = self.structure
+        return data
 
 
 def load_plan(path: Path) -> DocPlan:
     data = json.loads(path.read_text(encoding="utf-8"))
-    return DocPlan(baseline=data["baseline"], pages=[Page.from_json(p) for p in data["pages"]])
+    return DocPlan(
+        baseline=data["baseline"],
+        pages=[Page.from_json(p) for p in data["pages"]],
+        structure=data.get("structure", {}),
+    )
+
+
+def require_executable(plan: DocPlan) -> None:
+    """Prevent a structural proposal from being mistaken for a runnable generation plan."""
+    if plan.structure.get("execution_ready") is False:
+        raise ValueError(
+            "Structural plan is not executable yet; see structure.execution_blockers in doc-plan.json"
+        )
 
 
 def save_plan(plan: DocPlan, path: Path) -> None:

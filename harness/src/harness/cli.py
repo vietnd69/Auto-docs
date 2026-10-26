@@ -15,7 +15,7 @@ from harness.diffing import diff_overview, impact_map, render_overview
 from harness.domains import DOMAINS, update_domain
 from harness.jobqueue import Job, JobQueue
 from harness.pages import get_plan
-from harness.plan import save_plan, validate_plan
+from harness.plan import require_executable, save_plan, validate_plan
 from harness.planupdate import apply_impact
 from harness.runner import RunOptions, run_queue
 from harness.syncstate import SyncState
@@ -75,6 +75,7 @@ def _queue_pages(ws: Workspace, name: str, page_ids: list[str], kind: str, old: 
 
 def cmd_generate(ws: Workspace, args: argparse.Namespace) -> int:
     plan = get_plan(ws)
+    require_executable(plan)
     synced = SyncState(ws).pages
     ids = [p.id for p in plan.pages if p.id.startswith(args.prefix) and (args.force or p.id not in synced)]
     ids = ids[: args.limit] if args.limit else ids
@@ -93,6 +94,7 @@ def cmd_generate(ws: Workspace, args: argparse.Namespace) -> int:
 
 
 def cmd_update(ws: Workspace, args: argparse.Namespace) -> int:
+    require_executable(get_plan(ws))
     state = SyncState(ws)
     old = args.from_rev or state.head or ws.settings.get_str("baseline_sha")
     builds = list_builds(ws.git, ws.settings.get_str("baseline_sha"), ws.settings.get_str("source_branch"))
@@ -181,6 +183,7 @@ def cmd_run_page(ws: Workspace, args: argparse.Namespace) -> int:
         result_path=Path(args.result) if args.result else None,
         events_path=Path(args.events) if args.events else None,
         publish_page=args.publish,
+        resume_review=args.resume_review,
     )
     print(report)
     return 0 if status == "PASS" else 2
@@ -200,10 +203,35 @@ def cmd_sync_opencode(ws: Workspace, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_roles(ws: Workspace, args: argparse.Namespace) -> int:
+    from harness.role_config import credentials, role_models
+
+    for role, model in role_models(ws.settings).items():
+        print(f"{role}: {model}")
+    print(f"planner upstream: {ws.settings.get_str('planner_model')} (quota fallback: DeepSeek)")
+    print(f"reviewer upstream: {ws.settings.get_str('reviewer_model')} (quota fallback: DeepSeek)")
+    print(f"reflector upstream: {ws.settings.get_str('reflector_model')} (defer on failure)")
+    print(f"experimental writer upstream: {ws.settings.get_str('experimental_writer_model')}")
+    env = credentials(ws.settings)
+    ready = True
+    for label, names in {
+        "Claude": ("ANTHROPIC_API_KEY",),
+        "DeepSeek": ("DEEPSEEK_API_KEY",),
+        "Ollama": ("OLLAMA_API_KEY", "ACCOUNT_1"),
+    }.items():
+        present = any(env.get(name) for name in names)
+        ready &= present
+        print(f"{label} key: {'configured' if present else 'MISSING'}")
+    return 0 if ready else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mod-harness", description=__doc__)
     parser.add_argument("--rev", default="", help="source revision (default HEAD of dst-scripts)")
     sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("roles", help="show model routing and key presence (no secrets)").set_defaults(
+        fn=cmd_roles
+    )
     sub.add_parser("index", help="index the codebase and print statistics").set_defaults(fn=cmd_index)
     p = sub.add_parser("plan", help="create the default doc-plan.json")
     p.add_argument("--force", action="store_true")
@@ -230,6 +258,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--result", default="", help="write result JSON here")
     p.add_argument("--events", default="", help="copy the OpenCode event log here")
     p.add_argument("--publish", action="store_true", help="publish on PASS")
+    p.add_argument(
+        "--resume-review", action="store_true", help="continue final review from a verified checkpoint"
+    )
     p.set_defaults(fn=cmd_run_page)
     sub.add_parser("setup-harness2", help="clone pinned Harness² and apply the dst patch").set_defaults(
         fn=cmd_setup_harness2

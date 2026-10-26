@@ -1,6 +1,8 @@
 [
  "agent/planner.md",
  "agent/reviewer.md",
+ "agent/writer-escalation.md",
+ "agent/writer-experimental.md",
  "agent/writer.md",
  "plugin/budget.ts",
  "skills/data-reference/SKILL.md",

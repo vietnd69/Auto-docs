@@ -7,10 +7,11 @@ trees; nothing here runs shell commands or reaches the network.
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from dataclasses import asdict
 
-from harness import memory, pages
+from harness import memory, pages, review_evidence
 from harness.builds import list_builds, resolve_build
 from harness.checks import run_checks
 from harness.codeindex import index_codebase
@@ -46,12 +47,16 @@ def lua_outline(file: str, rev: str = "") -> str:
 
 def lua_symbol(file: str, qualname: str, rev: str = "") -> str:
     """Source of one symbol (e.g. 'Combat:GetAttacked', 'State:idle') with line numbers."""
-    return lua_tools.lua_symbol(_ws(), file, qualname, rev or None)
+    output = lua_tools.lua_symbol(_ws(), file, qualname, rev or None)
+    review_evidence.record(_ws(), file=file, output=output, rev=rev)
+    return output
 
 
 def lua_read(file: str, from_line: int, to_line: int, rev: str = "") -> str:
     """Read a line range of a Lua file (token-capped; call again to continue)."""
-    return lua_tools.lua_read(_ws(), file, from_line, to_line, rev or None)
+    output = lua_tools.lua_read(_ws(), file, from_line, to_line, rev or None)
+    review_evidence.record(_ws(), file=file, output=output, rev=rev)
+    return output
 
 
 def lua_grep(pattern: str, path_glob: str = "*.lua", rev: str = "") -> str:
@@ -128,6 +133,12 @@ def validate_plan_tool() -> str:
 
 # ---- pages -----------------------------------------------------------------------------
 def _page(page_id: str) -> Page:
+    repair_page = os.environ.get("HARNESS_REPAIR_PAGE")
+    if repair_page and page_id != repair_page:
+        raise ValueError(f"Repair is confined to page {repair_page!r}")
+    active = os.environ.get("HARNESS_REVIEW_PAGE")
+    if os.environ.get("HARNESS_REVIEW_ONLY") == "1" and page_id != active:
+        raise ValueError(f"Use canonical page_id {active!r}, not a job ID or filename")
     return pages.get_plan(_ws()).page(page_id)
 
 
@@ -140,6 +151,7 @@ def page_checklist(page_id: str) -> str:
     done = {normalize_heading(h.text) for h in headings(body) if h.level == 3}
     rows = [f"page {page.id} ({page.kind}, domain {page.domain}) — {len(items)} symbols"]
     rows.append("sections: " + " | ".join(pages.page_sections(page, items)))
+    rows.append("Properties table must cover: " + ", ".join(sorted(pages.property_names(ws, page))))
     for item in items:
         mark = "x" if normalize_heading(item.heading) in done else " "
         sym = item.symbol
@@ -154,13 +166,20 @@ def doc_read(page_id: str, heading: str = "") -> str:
     ws = _ws()
     text = pages.ensure_draft(ws, _page(page_id))
     if not heading:
+        review_evidence.record(ws, document=page_id, output=text)
         return text
     _, body = split_frontmatter(text)
     return section_text(body, heading) or f"section {heading!r} not found"
 
 
 def doc_write_section(page_id: str, heading: str, markdown: str, parent: str = "") -> str:
-    """Create or replace one section (``## X`` or ``### Y``) of the page draft."""
+    """Write one section: heading='### `F()`', markdown=body without heading.
+
+    Omit parent for checklist entries (inferred automatically), or use its exact '## X' heading.
+    Unknown/wrong parents are rejected without changing the draft.
+    """
+    if os.environ.get("HARNESS_REVIEW_ONLY") == "1":
+        return "Read-only final review: record a finding instead of changing the draft"
     ws = _ws()
     if not heading.startswith(("## ", "### ")):
         return "heading must start with '## ' or '### '"
@@ -173,22 +192,39 @@ def doc_set_meta(page_id: str, description: str, tags: str = "") -> str:
     """Set frontmatter ``description`` and comma-separated ``tags``."""
     import frontmatter
 
+    if os.environ.get("HARNESS_REVIEW_ONLY") == "1":
+        return "Read-only final review: record a finding instead of changing metadata"
     ws = _ws()
     page = _page(page_id)
-    post = frontmatter.loads(pages.ensure_draft(ws, page))
-    post.metadata["description"] = description.strip()
-    post.metadata["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
-    pages.write_draft(ws, page, frontmatter.dumps(post) + "\n")
+    with pages.draft_transaction(ws, page):
+        post = frontmatter.loads(pages.ensure_draft(ws, page))
+        post.metadata["description"] = description.strip()
+        post.metadata["tags"] = [t.strip() for t in tags.split(",") if t.strip()]
+        build = pages.source_build(ws)
+        post.metadata.update(
+            build_version=build, source_sha=ws.git.rev_parse(ws.rev), sources=[s.file for s in page.sources]
+        )
+        import re
+
+        post.content = re.sub(
+            r"^> Based on game build .*?$",
+            f"> Based on game build **{build}**",
+            post.content,
+            flags=re.MULTILINE,
+        )
+        pages.write_draft(ws, page, frontmatter.dumps(post) + "\n")
     return "frontmatter updated"
 
 
 def notes_read(page_id: str) -> str:
     """Read the page's working notes (progress, decisions) to resume work."""
+    _page(page_id)
     return pages.read_notes(_ws(), page_id) or "(no notes yet)"
 
 
 def notes_write(page_id: str, text: str) -> str:
     """Replace the page's working notes."""
+    _page(page_id)
     pages.write_notes(_ws(), page_id, text)
     return "notes saved"
 
@@ -196,6 +232,7 @@ def notes_write(page_id: str, text: str) -> str:
 # ---- verdict ---------------------------------------------------------------------------
 def run_checks_tool(page_id: str) -> str:
     """Run deterministic checks (frontmatter, MDX, sections, coverage, signatures, phantoms, links)."""
+    _page(page_id)
     ws = _ws()
     plan = pages.get_plan(ws)
     page = plan.page(page_id)
@@ -205,26 +242,44 @@ def run_checks_tool(page_id: str) -> str:
 
 def verdict(page_id: str) -> str:
     """Final status: PASS only if checks are clean and no evidenced finding is open."""
+    _page(page_id)
     ws = _ws()
     plan = pages.get_plan(ws)
     return evaluate(ws, plan, plan.page(page_id)).render()
+
+
+def review_finish(page_id: str, summary: str) -> str:
+    """Record final review completion only for a clean, unchanged page; then stop."""
+    from harness.final_review import finish
+
+    if os.environ.get("HARNESS_REVIEW_ONLY") != "1" or page_id != os.environ.get("HARNESS_REVIEW_PAGE"):
+        return "review_finish is only available for the controller's active final-review page"
+    job_id = os.environ.get("HARNESS_JOB", "")
+    if not job_id or any(c in job_id for c in "/\\") or ".." in job_id:
+        return "Invalid final-review job identity"
+    return finish(_ws(), page_id, job_id, summary)
 
 
 def ledger_add(  # noqa: PLR0913, PLR0917 - flat MCP tool schema is easier for the model
     page_id: str, symbol: str, field: str, claim: str, file: str, line_start: int, line_end: int, quote: str
 ) -> str:
     """Record a review finding; the quote must appear verbatim in the cited source lines."""
+    _page(page_id)
     _, message = Ledger(_ws(), page_id).add(symbol, field, claim, Evidence(file, line_start, line_end, quote))
     return message
 
 
 def ledger_list(page_id: str, status: str = "") -> str:
     """List review findings for a page (status: open|resolved|rejected)."""
+    _page(page_id)
     return Ledger(_ws(), page_id).render(status)
 
 
 def ledger_resolve(page_id: str, finding_id: str, note: str, status: str = "resolved") -> str:
     """Close a finding after fixing it (status resolved) or dismissing it (rejected)."""
+    if os.environ.get("HARNESS_NATIVE_MODE") == "repair" or os.environ.get("HARNESS_REPAIR_PAGE"):
+        raise ValueError("Repair writer cannot close findings; an independent review is required")
+    _page(page_id)
     return Ledger(_ws(), page_id).resolve(finding_id, note, status)
 
 

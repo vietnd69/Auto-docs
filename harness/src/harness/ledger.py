@@ -12,6 +12,7 @@ import re
 from dataclasses import asdict, dataclass
 from dataclasses import field as dc_field
 
+from harness.file_transaction import atomic_write, file_transaction
 from harness.safepath import normalize_rel
 from harness.textutil import short_hash
 from harness.timeutil import now_iso
@@ -55,6 +56,10 @@ def finding_id(page_id: str, symbol: str, field_name: str) -> str:
     return short_hash(f"{page_id}|{symbol}|{field_name.lower().strip()}", 10)
 
 
+class LedgerCorruptError(ValueError):
+    """Invalid ledger remains untouched; an explicit repair is required."""
+
+
 class Ledger:
     """Per-page finding store backed by a JSONL file."""
 
@@ -62,23 +67,30 @@ class Ledger:
         self.ws = ws
         self.page_id = page_id
         self.path = ws.ledger_path(page_id)
-        self.items: dict[str, Finding] = self._load()
+        with file_transaction(self.path):
+            self.items: dict[str, Finding] = self._load()
 
     def _load(self) -> dict[str, Finding]:
         if not self.path.exists():
             return {}
         items: dict[str, Finding] = {}
-        for line in self.path.read_text(encoding="utf-8").splitlines():
+        for number, line in enumerate(self.path.read_text(encoding="utf-8").splitlines(), 1):
             if line.strip():
-                raw = json.loads(line)
-                raw["evidence"] = Evidence(**raw["evidence"])
-                finding = Finding(**raw)
+                try:
+                    raw = json.loads(line)
+                    raw["evidence"] = Evidence(**raw["evidence"])
+                    finding = Finding(**raw)
+                except (ValueError, TypeError, KeyError) as exc:
+                    raise LedgerCorruptError(
+                        f"Invalid ledger {self.path.name} line {number}; "
+                        "original preserved; explicit repair required"
+                    ) from exc
                 items[finding.id] = finding
         return items
 
     def _save(self) -> None:
         lines = [json.dumps(asdict(f), ensure_ascii=False) for f in self.items.values()]
-        self.path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        atomic_write(self.path, "\n".join(lines) + ("\n" if lines else ""))
 
     def verify_evidence(self, ev: Evidence) -> str | None:
         """Return an error message, or ``None`` when the quote matches the cited lines."""
@@ -97,44 +109,52 @@ class Ledger:
 
     def add(self, symbol: str, field_name: str, claim: str, ev: Evidence) -> tuple[bool, str]:
         """Record a finding. Returns (accepted, message)."""
-        error = self.verify_evidence(ev)
-        if error:
-            return False, f"rejected: {error}"
-        fid = finding_id(self.page_id, symbol, field_name)
-        existing = self.items.get(fid)
-        if existing is not None and existing.status == "open":
-            existing.claim, existing.evidence, existing.updated = claim, ev, now_iso()
-            if ev.key() not in existing.history:
-                existing.history.append(ev.key())
+        with file_transaction(self.path):
+            self.items = self._load()
+            error = self.verify_evidence(ev)
+            if error:
+                return False, f"rejected: {error}"
+            fid = finding_id(self.page_id, symbol, field_name)
+            existing = self.items.get(fid)
+            if existing is not None and existing.status == "open":
+                existing.claim, existing.evidence, existing.updated = claim, ev, now_iso()
+                if ev.key() not in existing.history:
+                    existing.history.append(ev.key())
+                self._save()
+                return True, f"updated open finding {fid}"
+            if existing is not None and ev.key() in existing.history:
+                return False, f"rejected: finding {fid} was already {existing.status} with this same evidence"
+            finding = existing or Finding(fid, self.page_id, symbol, field_name, claim, ev)
+            finding.claim, finding.evidence, finding.status, finding.updated = claim, ev, "open", now_iso()
+            finding.history.append(ev.key())
+            self.items[fid] = finding
             self._save()
-            return True, f"updated open finding {fid}"
-        if existing is not None and ev.key() in existing.history:
-            return False, f"rejected: finding {fid} was already {existing.status} with this same evidence"
-        finding = existing or Finding(fid, self.page_id, symbol, field_name, claim, ev)
-        finding.claim, finding.evidence, finding.status, finding.updated = claim, ev, "open", now_iso()
-        finding.history.append(ev.key())
-        self.items[fid] = finding
-        self._save()
-        return True, f"{'reopened' if existing else 'opened'} finding {fid}"
+            return True, f"{'reopened' if existing else 'opened'} finding {fid}"
 
     def resolve(self, fid: str, note: str, status: str = "resolved") -> str:
-        if status not in STATUSES[1:]:
-            return f"status must be one of {STATUSES[1:]}"
-        finding = self.items.get(fid)
-        if finding is None:
-            return f"unknown finding {fid}"
-        finding.status, finding.note, finding.updated = status, note, now_iso()
-        self._save()
-        return f"{fid} → {status}"
+        with file_transaction(self.path):
+            self.items = self._load()
+            if status not in STATUSES[1:]:
+                return f"status must be one of {STATUSES[1:]}"
+            finding = self.items.get(fid)
+            if finding is None:
+                return f"unknown finding {fid}"
+            finding.status, finding.note, finding.updated = status, note, now_iso()
+            self._save()
+            return f"{fid} → {status}"
 
     def open_findings(self) -> list[Finding]:
-        return [f for f in self.items.values() if f.status == "open"]
+        with file_transaction(self.path):
+            self.items = self._load()
+            return [f for f in self.items.values() if f.status == "open"]
 
     def render(self, status: str = "") -> str:
-        rows = [
-            f"{f.id} [{f.status}] {f.symbol}.{f.field}: {f.claim} "
-            f"(evidence {f.evidence.file} L{f.evidence.line_start}-{f.evidence.line_end})"
-            for f in self.items.values()
-            if not status or f.status == status
-        ]
-        return "\n".join(rows) or "no findings"
+        with file_transaction(self.path):
+            self.items = self._load()
+            rows = [
+                f"{f.id} [{f.status}] {f.symbol}.{f.field}: {f.claim} "
+                f"(evidence {f.evidence.file} L{f.evidence.line_start}-{f.evidence.line_end})"
+                for f in self.items.values()
+                if not status or f.status == status
+            ]
+            return "\n".join(rows) or "no findings"

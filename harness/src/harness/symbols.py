@@ -16,7 +16,7 @@ SECTION_BY_KIND = {
     "table": "## Structure",
 }
 
-BASE_SECTIONS = ("## Overview", "## Usage example", "## Dependencies & tags")
+BASE_SECTIONS = ("## Overview", "## Usage example", "## Dependencies & tags", "## Properties")
 DATA_SECTIONS = ("## Overview", "## Structure", "## Usage example")
 OVERVIEW_SECTIONS = ("## Overview", "## Pages")
 

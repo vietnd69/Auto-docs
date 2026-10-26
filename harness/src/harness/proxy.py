@@ -1,13 +1,8 @@
-"""OpenAI-compatible proxy in front of Ollama Cloud with multi-key failover.
-
-OpenCode talks to ``http://127.0.0.1:<port>/v1``; each request is forwarded unchanged to
-``ollama_base_url`` using the least-loaded API key (``llm.router``). 429 → key cooldown and
-retry on the next key; timeouts/5xx → next key. A per-job token budget (header
-``X-Harness-Job``) is enforced here as a hard stop independent of the agent (goal G7).
-"""
+"""Serial Ollama proxy with role aliases, planner/reviewer quota fallback and per-job accounting."""
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -21,16 +16,34 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.routing import Route
+from starlette.types import Receive, Scope, Send
 
 from harness.config import Settings, settings
+from harness.role_config import credentials
 
 log = logging.getLogger("harness.proxy")
 RETRY_STATUSES = frozenset({500, 502, 503, 504})
 
 
+class SerialStream(StreamingResponse):
+    """Release the shared slot even if upstream fails or the client disconnects."""
+
+    def __init__(self, response: StreamingResponse, slot: asyncio.Semaphore) -> None:
+        super().__init__(
+            response.body_iterator, status_code=response.status_code, headers=dict(response.headers)
+        )
+        self.slot = slot
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.slot.release()
+
+
 @dataclass
 class KeyPool:
-    """Key selection and bookkeeping; defaults delegate to ``llm.router``."""
+    """Injectable key selection; the runtime defaults to a single free account."""
 
     keys: list[str]
     select: Callable[[int, set[int]], int]
@@ -38,11 +51,31 @@ class KeyPool:
     on_success: Callable[[int, int], None]
 
 
-def default_pool() -> KeyPool:
-    from llm.client import OLLAMA_API_KEYS
-    from llm.router import mark_rate_limited, record_call, select_key
+def default_pool(cfg: Settings) -> KeyPool:
+    """One free account; never rotate across accounts to bypass its quota."""
+    env = credentials(cfg)
+    key = env.get("OLLAMA_API_KEY") or env.get("ACCOUNT_1", "")
+    return KeyPool(
+        [key] if key else [],
+        lambda n, tried: 0 if n and 0 not in tried else -1,
+        lambda _: None,
+        lambda _i, _t: None,
+    )
 
-    return KeyPool(list(OLLAMA_API_KEYS), select_key, mark_rate_limited, record_call)
+
+async def planner_fallback(
+    cfg: Settings, client: httpx.AsyncClient, body: dict[str, Any]
+) -> httpx.Response | None:
+    key = credentials(cfg).get("DEEPSEEK_API_KEY")
+    if not key:
+        return None
+    request = client.build_request(
+        "POST",
+        f"{cfg.get_str('deepseek_base_url').rstrip('/')}/chat/completions",
+        json={**body, "model": cfg.get_str("deepseek_model"), "thinking": {"type": "disabled"}},
+        headers={"Authorization": f"Bearer {key}"},
+    )
+    return await client.send(request, stream=True)
 
 
 @dataclass
@@ -104,6 +137,54 @@ class Forwarder:
         return None, -1, errors
 
 
+async def _json_response(response: httpx.Response, fwd: Forwarder, job: str, idx: int) -> Response:
+    try:
+        data = json.loads(await response.aread())
+    except json.JSONDecodeError:
+        return JSONResponse(
+            {"error": {"message": "upstream returned non-JSON response"}},
+            response.status_code if response.is_error else 502,
+        )
+    finally:
+        await response.aclose()
+    tokens = _usage_tokens(data)
+    fwd.budget.charge(job, tokens)
+    fwd.pool.on_success(idx, tokens)
+    return JSONResponse(data, response.status_code)
+
+
+def _quota_response(response: httpx.Response | None, errors: list[str]) -> bool:
+    if response is not None:
+        return response.status_code in (402, 403, 429)
+    return any("429" in error for error in errors)
+
+
+def _route_body(cfg: Settings, body: dict[str, Any]) -> str:
+    role = str(body.get("model", ""))
+    aliases = {
+        "planner": cfg.get_str("planner_model"),
+        "reviewer": cfg.get_str("reviewer_model"),
+        "reflector": cfg.get_str("reflector_model"),
+        "writer-experimental": cfg.get_str("experimental_writer_model"),
+    }
+    body["model"] = aliases.get(role, role)
+    if body.get("stream"):
+        body["stream_options"] = {**body.get("stream_options", {}), "include_usage": True}
+    return role
+
+
+async def _with_fallback(
+    cfg: Settings, fwd: Forwarder, body: dict[str, Any], role: str
+) -> tuple[httpx.Response | None, int, list[str]]:
+    response, idx, errors = await fwd.open(body)
+    if role in ("planner", "reviewer") and _quota_response(response, errors):
+        if response is not None:
+            await response.aclose()
+        response = await planner_fallback(cfg, fwd.client, body)
+        idx = -1
+    return response, idx, errors
+
+
 def create_app(
     cfg: Settings | None = None,
     pool: KeyPool | None = None,
@@ -112,28 +193,38 @@ def create_app(
     cfg = cfg or settings()
     timeout = httpx.Timeout(cfg.get_float("request_timeout"), connect=30.0)
     client = httpx.AsyncClient(timeout=timeout, transport=transport)
-    forwarder = Forwarder(cfg, pool or default_pool(), client)
+    forwarder = Forwarder(cfg, pool or default_pool(cfg), client)
+    # Shared by all roles/jobs; held until the entire SSE response has drained.
+    ollama_slot = asyncio.Semaphore(1)
 
     async def chat(request: Request) -> Response:
         job = request.headers.get("x-harness-job", "")
         if forwarder.budget.exhausted(job):
             return JSONResponse({"error": {"message": "BUDGET_EXHAUSTED: job token budget spent"}}, 402)
         body = await request.json()
-        response, idx, errors = await forwarder.open(body)
+        role = _route_body(cfg, body)
+        response, idx, errors = await _with_fallback(cfg, forwarder, body, role)
         if response is None:
             return JSONResponse({"error": {"message": "all keys failed: " + "; ".join(errors)}}, 503)
         if not body.get("stream"):
-            data = json.loads(await response.aread())
-            await response.aclose()
-            tokens = _usage_tokens(data)
-            forwarder.budget.charge(job, tokens)
-            forwarder.pool.on_success(idx, tokens)
-            return JSONResponse(data, response.status_code)
+            return await _json_response(response, forwarder, job, idx)
         return StreamingResponse(
             _relay(response, forwarder, job, idx),
             status_code=response.status_code,
             media_type=response.headers.get("content-type", "text/event-stream"),
         )
+
+    async def serial_chat(request: Request) -> Response:
+        await ollama_slot.acquire()
+        try:
+            response = await chat(request)
+        except BaseException:
+            ollama_slot.release()
+            raise
+        if isinstance(response, StreamingResponse):
+            return SerialStream(response, ollama_slot)
+        ollama_slot.release()
+        return response
 
     async def models(_: Request) -> Response:
         model = cfg.get_str("model")
@@ -148,7 +239,7 @@ def create_app(
 
     return Starlette(
         routes=[
-            Route("/v1/chat/completions", chat, methods=["POST"]),
+            Route("/v1/chat/completions", serial_chat, methods=["POST"]),
             Route("/v1/models", models, methods=["GET"]),
             Route("/health", health, methods=["GET"]),
         ]

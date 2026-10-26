@@ -69,3 +69,17 @@ test("writeMarker ignores empty job ids", () => {
   writeMarker(dir, "", "x")
   assert.equal(existsSync(join(dir, ".harness")), false)
 })
+
+test("two repair rounds then one Claude escalation per group across sessions", () => {
+  const guard = new BudgetGuard(50)
+  const call = (session: string, role: string, description: string, prompt: string) =>
+    guard.check(session, "task", { subagent_type: role, description, prompt })
+  assert.equal(call("a", "writer-escalation", "escalate:g1", "early").ok, false)
+  assert.equal(call("a", "writer", "write:g1", "draft").ok, true)
+  assert.equal(call("a", "writer", "repair:g1", "fix 1").ok, true)
+  assert.equal(call("b", "writer", "repair:g1", "fix 2").ok, true)
+  assert.equal(call("c", "writer", "repair:g1", "fix 3").ok, false)
+  assert.equal(call("a", "writer-escalation", "escalate:g1", "fix remaining").ok, true)
+  assert.equal(call("b", "writer-escalation", "escalate:g1", "again").ok, false)
+  assert.equal(call("a", "writer", "write:g2", "another group").ok, true)
+})

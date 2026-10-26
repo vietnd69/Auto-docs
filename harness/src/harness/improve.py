@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
 import sys
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from harness.codeindex import index_codebase
 from harness.jobqueue import Job
-from harness.opencode_sync import replace_tree, restore_tree
+from harness.opencode_sync import replace_tree
 from harness.pages import get_plan
 from harness.plan import DocPlan, Page, symbol_tokens
 from harness.timeutil import now_iso
@@ -85,9 +86,30 @@ class Score:
     passed: int
     issues: int
     pages: int
+    outcomes: dict[str, str] = field(default_factory=dict)
+    cost_usd: float | None = None
 
     def at_least(self, other: Score) -> bool:
-        return self.passed >= other.passed and self.issues <= other.issues
+        """Require multiple-page coverage, no page regression and an evidenced improvement."""
+        if (
+            self.pages < 2
+            or self.pages != other.pages
+            or self.passed != self.pages
+            or self.issues != 0
+            or set(self.outcomes) != set(other.outcomes)
+            or len(self.outcomes) != self.pages
+            or any(status != "PASS" for status in self.outcomes.values())
+        ):
+            return False
+        if any(
+            cost is None or not math.isfinite(cost) or cost < 0 for cost in (self.cost_usd, other.cost_usd)
+        ):
+            return False
+        if self.cost_usd is None or other.cost_usd is None:
+            return False
+        return self.cost_usd <= other.cost_usd and (
+            self.passed > other.passed or self.issues < other.issues or self.cost_usd < other.cost_usd
+        )
 
 
 def regression_pages(ws: Workspace, plan: DocPlan, domain: str, per_domain: int = 3) -> list[str]:
@@ -108,27 +130,46 @@ def regression_pages(ws: Workspace, plan: DocPlan, domain: str, per_domain: int 
 
 
 def _isolated(ws: Workspace, label: str) -> Workspace:
+    from harness.config import Settings
     from harness.runner import isolated_workspace
+    from harness.workspace import make_workspace
 
     state = ws.settings.state_dir / "regression" / label
     if state.exists():
         shutil.rmtree(state)
-    return isolated_workspace(ws, state)
+    isolated = isolated_workspace(ws, state)
+    return make_workspace(
+        Settings(ws.settings.root, dict(isolated.settings.values, isolated_usage=True)), ws.rev
+    )
 
 
-def score_harness(ws: Workspace, page_ids: list[str], label: str) -> Score:
+def score_harness(ws: Workspace, page_ids: list[str], label: str, *, tree: Path | None = None) -> Score:
     """Run each regression page from scratch in an isolated state dir and score it."""
-    from harness.runner import RunOptions, run_job
+    from harness.runner import RunOptions, candidate_project, run_job
 
     iso = _isolated(ws, label)
-    opts = RunOptions(build=ws.settings.get_str("baseline_build"), publish=False, reflect=False)
+    project = candidate_project(iso, tree, iso.settings.state_dir) if tree else None
+    opts = RunOptions(
+        build=ws.settings.get_str("baseline_build"), publish=False, reflect=False, project_dir=project
+    )
     passed = issues = 0
+    outcomes = {}
     for page_id in page_ids:
         job = Job(id=f"regress-{label}-{page_id}".replace("/", "__"), kind="generate", page_id=page_id)
         status, report = run_job(iso, job, opts)
         passed += status == "PASS"
+        outcomes[page_id] = status
         issues += max(0, len(report.splitlines()) - 1)
-    return Score(passed, issues, len(page_ids))
+    from harness.usage import regression_cost
+
+    cost = regression_cost(iso.settings.state_dir / "opencode/data/opencode/opencode.db")
+    if (
+        iso.settings.get_str("reviewer_model") != "gpt-oss:120b"
+        or iso.settings.get_str("planner_model") != "gpt-oss:120b"
+        or iso.settings.get_str("deepseek_model") != "deepseek-flash"
+    ):
+        cost = None  # the pinned alias rates do not cover other routing configurations
+    return Score(passed, issues, len(page_ids), outcomes, cost)
 
 
 def promote(ws: Workspace, domain: str, candidate: str) -> int:
@@ -139,10 +180,12 @@ def promote(ws: Workspace, domain: str, candidate: str) -> int:
         return 1
     plan = get_plan(ws)
     pages = regression_pages(ws, plan, domain)
+    if len(set(pages)) < 2:
+        print("promotion requires at least two distinct regression pages")
+        return 2
     opencode = ws.settings.root / ".opencode"
     baseline = score_harness(ws, pages, "baseline")
-    backup = replace_tree(opencode, cand)
-    trial = score_harness(ws, pages, "candidate")
+    trial = score_harness(ws, pages, "candidate", tree=cand)
     record = {
         "domain": domain,
         "candidate": str(cand),
@@ -151,11 +194,15 @@ def promote(ws: Workspace, domain: str, candidate: str) -> int:
         "time": now_iso(),
     }
     if trial.at_least(baseline):
+        replace_tree(opencode, cand)
         record["decision"] = "promoted"
         code = 0
     else:
-        restore_tree(opencode, backup)
         record["decision"] = "rejected"
+        record["reason"] = (
+            "Require multiple identical pages, all candidate pages PASS, complete costs, "
+            "no cost increase and strict improvement."
+        )
         code = 2
     log = ws.report_path("promotions.jsonl")
     with log.open("a", encoding="utf-8") as handle:

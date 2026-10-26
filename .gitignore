@@ -60,6 +60,11 @@ nul
 harness2-dst/vendor/
 harness2-dst/.venv/
 harness2-dst/runs/
+/outputs/harness2-trial-*/
 
 # Coverage data
 .coverage
+
+/outputs/harness2-offline-replay-*/
+/outputs/full-flow-*/
+/outputs/runtime-holdout-*/

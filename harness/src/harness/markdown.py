@@ -73,19 +73,43 @@ def section_text(body: str, heading: str) -> str | None:
     return "\n".join(body.split("\n")[bounds[0] : bounds[1]]).rstrip() + "\n"
 
 
+def _content_body(heading: str, content: str) -> str:
+    """Accept the common model response containing its own leading heading exactly once."""
+    content = content.strip()
+    first, _, rest = content.partition("\n")
+    if first.strip() == heading.strip():
+        content = rest.lstrip("\n")
+    level = len(heading) - len(heading.lstrip("#"))
+    if any(h.level <= level for h in headings(content)):
+        raise ValueError("content must not contain sibling/ancestor headings; write each section separately")
+    return content
+
+
+def _parent_bounds(body: str, heading: str, parent: str | None) -> tuple[int, int] | None:
+    if parent is None:
+        return None
+    level = len(heading) - len(heading.lstrip("#"))
+    canonical = parent.strip() if parent.lstrip().startswith("#") else f"{'#' * (level - 1)} {parent.strip()}"
+    bounds = find_section(body, canonical)
+    if bounds is None or len(canonical) - len(canonical.lstrip("#")) >= level:
+        raise ValueError(f"parent {parent!r} must name an existing ancestor section")
+    return bounds
+
+
 def upsert_section(body: str, heading: str, content: str, parent: str | None = None) -> str:
     """Replace the section ``heading`` (whole subtree) or insert it.
 
-    New sections go at the end of ``parent`` when given and present, else at the end.
-    ``content`` is the section body without its heading line.
+    New sections go at the end of a validated parent, or the document when omitted.
+    A repeated leading heading in content is removed; sibling sections are rejected.
     """
     lines = body.rstrip("\n").split("\n")
-    block = [heading.strip(), "", *content.strip("\n").split("\n"), ""]
+    content = _content_body(heading, content)
+    parent_bounds = _parent_bounds(body, heading, parent)
+    block = [heading.strip(), "", *content.split("\n"), ""]
     bounds = find_section(body, heading)
     if bounds is not None:
         lines[bounds[0] : bounds[1]] = block
     else:
-        parent_bounds = find_section(body, parent) if parent else None
         insert_at = parent_bounds[1] if parent_bounds else len(lines)
         if insert_at > 0 and lines[insert_at - 1].strip():
             block.insert(0, "")
