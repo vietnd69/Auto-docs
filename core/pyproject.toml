@@ -16,7 +16,7 @@ mod-document = "core.main:main"
 mod-changelog = "core.changelog.pipeline:main"
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=84.1.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

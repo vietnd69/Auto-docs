@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 dependencies = ["python-frontmatter", "emoji", "mod-document-llm", "mod-document-rag"]
 
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=84.1.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
